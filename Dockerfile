@@ -46,6 +46,10 @@ COPY --from=builder /app/scripts/sanctum-server/dist ./scripts/sanctum-server/di
 COPY --from=builder /app/workspace ./workspace
 COPY --from=builder /app/db ./db
 
+# Entrypoint runs migrations before starting the app/worker
+COPY --from=builder /app/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 # Workers need runtime dependencies
 COPY --from=deps /app/node_modules ./node_modules
 
@@ -54,4 +58,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
+ENTRYPOINT ["entrypoint.sh"]
 CMD ["node", "server.js"]

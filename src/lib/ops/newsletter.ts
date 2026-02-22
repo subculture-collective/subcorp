@@ -1,7 +1,6 @@
 // SUBCULT Weekly — internal office newsletter pipeline
-// Gathers week's activity data, generates narratives via LLM, produces markdown + PDF.
+// Gathers week's activity data, generates narratives via templates, produces markdown + PDF.
 import { sql, jsonb } from '@/lib/db';
-import { llmGenerate } from '@/lib/llm/client';
 import { emitEvent } from '@/lib/ops/events';
 import { postToWebhook } from '@/lib/discord/client';
 import { getWebhookUrl } from '@/lib/discord/channels';
@@ -232,56 +231,63 @@ function buildStats(data: WeekData): NewsletterStats {
     };
 }
 
-// ─── LLM Calls ───
+// ─── Template-based content generation ───
 
-async function generateNewsletterHeadline(data: WeekData, stats: NewsletterStats): Promise<string> {
-    const topEvents = data.events.slice(0, 10).map(e => e.title).join('; ');
-    const missionTitles = data.missions.slice(0, 5).map(m => m.title).join('; ');
+function generateNewsletterHeadline(data: WeekData, stats: NewsletterStats): string {
+    // Use the most prominent mission title or event
+    const topMission = data.missions.find(m => m.status === 'completed');
+    if (topMission && topMission.title.length <= 80) {
+        return topMission.title;
+    }
 
-    const response = await llmGenerate({
-        messages: [
-            {
-                role: 'system',
-                content: 'You write newspaper headlines for SUBCULT Weekly, the internal office newsletter. Be concise, punchy, and reflective of the week\'s internal office activity.',
-            },
-            {
-                role: 'user',
-                content: `Write one headline (<80 chars) summarizing this week at the office.\n\nStats: ${stats.conversations} conversations, ${stats.missions_completed} missions completed, ${stats.events} events.\nKey events: ${topEvents}\nMissions: ${missionTitles}\n\nReturn ONLY the headline, no quotes.`,
-            },
-        ],
-        temperature: 0.5,
-        maxTokens: 50,
-        trackingContext: { agentId: 'mux', context: 'newsletter_headline' },
-    });
+    const topEvent = data.events[0];
+    if (topEvent && topEvent.title.length <= 80) {
+        return topEvent.title;
+    }
 
-    return response.replace(/^["']|["']$/g, '').trim().slice(0, 80) || 'Another Week in the Office';
+    // Fallback template
+    if (stats.missions_completed > 0) {
+        return `${stats.missions_completed} Missions Complete, ${stats.conversations} Conversations This Week`;
+    }
+    return `Week in Review: ${stats.conversations} Conversations, ${stats.events} Events`;
 }
 
-async function generatePrimusMessage(data: WeekData, stats: NewsletterStats): Promise<string> {
-    const response = await llmGenerate({
-        messages: [
-            {
-                role: 'system',
-                content: 'You are Primus — sovereign directive intelligence of SUBCULT. Cold, strategic, minimal. Speak in mandates, not analysis. Your tone: measured authority with occasional warmth. Write a 2-3 sentence strategic opening for this week\'s internal newsletter.',
-            },
-            {
-                role: 'user',
-                content: `This week: ${stats.conversations} conversations held, ${stats.missions_completed} missions completed, ${stats.missions_active} active, ${stats.proposals} proposals filed, ${stats.governance_proposals} governance proposals.\n\nWrite 2-3 sentences as the strategic opening message. Address the collective.`,
-            },
-        ],
-        temperature: 0.5,
-        maxTokens: 150,
-        trackingContext: { agentId: 'primus', context: 'newsletter_primus_message' },
-    });
+const PRIMUS_OPENINGS = [
+    'The collective advances.',
+    'Another cycle recorded.',
+    'Operations proceed as directed.',
+    'We continue.',
+    'Progress is measured in output.',
+    'The apparatus is functioning.',
+];
 
-    return response.trim();
+function generatePrimusMessage(data: WeekData, stats: NewsletterStats): string {
+    // Deterministic selection based on week data hash
+    const hash = stats.conversations + stats.missions_completed * 7 + stats.events * 3;
+    const opening = PRIMUS_OPENINGS[hash % PRIMUS_OPENINGS.length];
+
+    const parts: string[] = [opening];
+
+    if (stats.missions_completed > 0) {
+        parts.push(`${stats.missions_completed} missions completed this cycle.`);
+    }
+    if (stats.conversations > 10) {
+        parts.push(`${stats.conversations} conversations held — discourse is active.`);
+    } else if (stats.conversations > 0) {
+        parts.push(`${stats.conversations} conversations held.`);
+    }
+    if (stats.governance_proposals > 0) {
+        parts.push(`${stats.governance_proposals} governance proposal${stats.governance_proposals !== 1 ? 's' : ''} filed. Review them.`);
+    }
+
+    return parts.join(' ');
 }
 
-async function generateSectionNarratives(
+function generateSectionNarratives(
     data: WeekData,
     stats: NewsletterStats,
     spotlightAgent: AgentId,
-): Promise<Record<string, string>> {
+): Record<string, string> {
     const spotlightConfig = AGENTS[spotlightAgent];
     const spotlightMemories = data.memories.find(m => m.agent_id === spotlightAgent)?.count ?? 0;
     const spotlightEvents = data.events.filter(e => e.agent_id === spotlightAgent).length;
@@ -291,91 +297,70 @@ async function generateSectionNarratives(
     for (const s of data.sessions) {
         formatBreakdown.set(s.format, (formatBreakdown.get(s.format) ?? 0) + 1);
     }
-    const formatList = [...formatBreakdown.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([f, c]) => `${f}: ${c}`)
-        .join(', ');
 
     const completedMissions = data.missions.filter(m => m.status === 'completed');
     const activeMissions = data.missions.filter(m => m.status === 'approved' || m.status === 'in_progress');
 
-    const watercoolerBits = data.watercoolerTurns
-        .slice(0, 5)
-        .map(t => `${t.speaker}: "${t.dialogue.slice(0, 150)}"`)
-        .join('\n');
-
-    const dreamSummaries = data.dreamCycles
-        .slice(0, 5)
-        .map(d => `${d.agent_id} (${d.dream_type}): ${d.dream_content.slice(0, 100)}`)
-        .join('\n');
-
-    const affinityPairs = data.relationships
-        .slice(0, 5)
-        .map(r => `${r.agent_a}-${r.agent_b}: ${r.affinity}`)
-        .join(', ');
-
-    const govSummary = data.governanceProposals
-        .map(g => `${g.proposer} proposed ${g.policy_key} (${g.status}): ${g.rationale.slice(0, 100)}`)
-        .join('\n');
-
-    const response = await llmGenerate({
-        messages: [
-            {
-                role: 'system',
-                content: `You are Mux — SUBCULT's operations agent. Earnest, slightly tired, dry humor. You're writing the section narratives for SUBCULT Weekly, the internal office newsletter. Write in a warm but efficient editorial voice.
-
-For each section below, write 2-4 sentences. Return sections separated by the exact markers shown.
-
-Sections to write:
-[MISSION_REPORT] — recap of completed and active missions
-[ROUNDTABLE_HIGHLIGHTS] — top conversation highlights by format
-[AGENT_SPOTLIGHT] — feature on ${spotlightConfig.displayName} (${spotlightConfig.role})
-[GOVERNANCE] — proposals, votes, policy changes (if any)
-[WATERCOOLER] — fun bits from watercooler conversations (if any)
-[DREAM_LOG] — dream cycle insights (if any)
-[OFFICE_VIBES] — relationship dynamics and affinity changes`,
-            },
-            {
-                role: 'user',
-                content: `Week data:
-
-Missions completed (${completedMissions.length}): ${completedMissions.map(m => m.title).join('; ') || 'none'}
-Missions active (${activeMissions.length}): ${activeMissions.map(m => m.title).join('; ') || 'none'}
-
-Conversations by format: ${formatList || 'none'}
-Total sessions: ${stats.conversations}
-
-Agent Spotlight — ${spotlightConfig.displayName} (${spotlightConfig.role}):
-- Participated in ${spotlightSessions} sessions
-- ${spotlightEvents} events emitted
-- ${spotlightMemories} new memories formed
-
-Governance proposals: ${govSummary || 'none this week'}
-
-Watercooler moments:
-${watercoolerBits || 'no watercooler sessions this week'}
-
-Dream cycles (${stats.dream_cycles}):
-${dreamSummaries || 'no dreams this week'}
-
-Relationship affinities (top): ${affinityPairs || 'no data'}
-
-Write each section. Use [SECTION_NAME] markers exactly as listed.`,
-            },
-        ],
-        temperature: 0.6,
-        maxTokens: 2000,
-        trackingContext: { agentId: 'mux', context: 'newsletter_sections' },
-    });
-
-    // Parse sections from markers
     const sections: Record<string, string> = {};
-    const sectionKeys = ['MISSION_REPORT', 'ROUNDTABLE_HIGHLIGHTS', 'AGENT_SPOTLIGHT', 'GOVERNANCE', 'WATERCOOLER', 'DREAM_LOG', 'OFFICE_VIBES'];
 
-    for (const key of sectionKeys) {
-        const regex = new RegExp(`\\[${key}\\]\\s*(.+?)(?=\\[(?:${sectionKeys.join('|')})\\]|$)`, 's');
-        const match = response.match(regex);
-        sections[key] = match?.[1]?.trim() || '';
+    // MISSION_REPORT
+    if (completedMissions.length > 0 || activeMissions.length > 0) {
+        const parts: string[] = [];
+        if (completedMissions.length > 0) {
+            const titles = completedMissions.slice(0, 3).map(m => `"${m.title}"`).join(', ');
+            parts.push(`${completedMissions.length} mission${completedMissions.length !== 1 ? 's' : ''} completed this week: ${titles}.`);
+        }
+        if (activeMissions.length > 0) {
+            parts.push(`${activeMissions.length} still in progress.`);
+        }
+        sections.MISSION_REPORT = parts.join(' ');
+    }
+
+    // ROUNDTABLE_HIGHLIGHTS
+    if (data.sessions.length > 0) {
+        const formatList = [...formatBreakdown.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 4)
+            .map(([f, c]) => `${f} (${c})`)
+            .join(', ');
+        const topTopics = data.sessions.slice(0, 3).map(s => `"${s.topic}"`).join(', ');
+        sections.ROUNDTABLE_HIGHLIGHTS = `${stats.conversations} conversations across formats: ${formatList}. Topics included ${topTopics}.`;
+    }
+
+    // AGENT_SPOTLIGHT
+    sections.AGENT_SPOTLIGHT = `${spotlightConfig.displayName} (${spotlightConfig.role}) participated in ${spotlightSessions} session${spotlightSessions !== 1 ? 's' : ''}, emitted ${spotlightEvents} event${spotlightEvents !== 1 ? 's' : ''}, and formed ${spotlightMemories} new memor${spotlightMemories !== 1 ? 'ies' : 'y'} this week.`;
+
+    // GOVERNANCE
+    if (data.governanceProposals.length > 0) {
+        const govParts = data.governanceProposals
+            .slice(0, 3)
+            .map(g => `${g.proposer} proposed changes to ${g.policy_key} (${g.status})`);
+        sections.GOVERNANCE = govParts.join('. ') + '.';
+    }
+
+    // WATERCOOLER
+    if (data.watercoolerTurns.length > 0) {
+        const quotes = data.watercoolerTurns
+            .slice(0, 3)
+            .map(t => `${t.speaker}: "${t.dialogue.slice(0, 100)}${t.dialogue.length > 100 ? '...' : ''}"`);
+        sections.WATERCOOLER = quotes.join(' | ');
+    }
+
+    // DREAM_LOG
+    if (data.dreamCycles.length > 0) {
+        const dreamSummary = data.dreamCycles
+            .slice(0, 3)
+            .map(d => `${d.agent_id} (${d.dream_type}): ${d.dream_content.slice(0, 80)}`)
+            .join('. ');
+        sections.DREAM_LOG = `${stats.dream_cycles} dream cycle${stats.dream_cycles !== 1 ? 's' : ''} recorded. ${dreamSummary}.`;
+    }
+
+    // OFFICE_VIBES
+    if (data.relationships.length > 0) {
+        const topPairs = data.relationships
+            .slice(0, 3)
+            .map(r => `${r.agent_a}–${r.agent_b} (affinity: ${r.affinity})`);
+        sections.OFFICE_VIBES = `Top relationships: ${topPairs.join(', ')}.`;
     }
 
     return sections;
@@ -544,14 +529,14 @@ export async function generateWeeklyNewsletter(): Promise<string | null> {
         return null;
     }
 
-    // 4. LLM: headline
-    const headline = await generateNewsletterHeadline(data, stats);
+    // 4. Headline
+    const headline = generateNewsletterHeadline(data, stats);
 
-    // 5. LLM: Primus message
-    const primusMessage = await generatePrimusMessage(data, stats);
+    // 5. Primus message
+    const primusMessage = generatePrimusMessage(data, stats);
 
-    // 6. LLM: section narratives
-    const narratives = await generateSectionNarratives(data, stats, spotlightAgent);
+    // 6. Section narratives
+    const narratives = generateSectionNarratives(data, stats, spotlightAgent);
 
     // 7. Build section objects
     const spotlightConfig = AGENTS[spotlightAgent];

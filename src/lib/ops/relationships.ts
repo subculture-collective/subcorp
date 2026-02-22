@@ -112,8 +112,10 @@ export async function applyPairwiseDrifts(
 
 export function getInteractionType(affinity: number): InteractionType {
     const tension = 1 - affinity;
-    if (tension > 0.6) {
-        return Math.random() < 0.2 ? 'challenge' : 'critical';
+    if (tension > 0.7) {
+        return Math.random() < 0.15 ? 'adversarial' : 'challenge';
+    } else if (tension > 0.5) {
+        return Math.random() < 0.3 ? 'challenge' : 'critical';
     } else if (tension > 0.3) {
         return 'neutral';
     } else {

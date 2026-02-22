@@ -20,7 +20,10 @@ import {
     getAffinityFromMap,
     getInteractionType,
 } from '../ops/relationships';
-import { deriveVoiceModifiers } from '../ops/voice-evolution';
+import {
+    deriveVoiceModifiers,
+    MODIFIER_INSTRUCTIONS,
+} from '../ops/voice-evolution';
 import { loadPrimeDirective } from '../ops/prime-directive';
 import { isAgentRebelling } from '../ops/rebellion';
 import { queryRelevantMemories } from '../ops/memory';
@@ -43,7 +46,13 @@ const log = logger.child({ module: 'orchestrator' });
  */
 function wordJaccard(a: string, b: string): number {
     const normalize = (s: string) =>
-        new Set(s.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean));
+        new Set(
+            s
+                .toLowerCase()
+                .replace(/[^\w\s]/g, '')
+                .split(/\s+/)
+                .filter(Boolean),
+        );
     const setA = normalize(a);
     const setB = normalize(b);
     if (setA.size === 0 && setB.size === 0) return 1;
@@ -73,7 +82,6 @@ function buildSystemPrompt(
     scratchpad?: string,
     briefing?: string,
     memories?: string[],
-    recentArtifacts?: string[],
 ): string {
     const voice = getVoice(speakerId);
     if (!voice) {
@@ -111,16 +119,41 @@ function buildSystemPrompt(
         prompt += `INTERACTION DYNAMIC: ${interactionType} — ${toneGuides[interactionType] ?? 'respond naturally'}\n`;
     }
 
-    // INTERWORKINGS protocol awareness
-    prompt += `\n═══ OFFICE DYNAMICS ═══\n`;
-    prompt += `- If Subrosa says "VETO:" — the matter is closed. Acknowledge and move on.\n`;
-    prompt += `- If you have nothing to add, silence is a valid response. Say "..." or stay brief.\n`;
-    prompt += `- Watch for your own failure mode: ${voice.failureMode}\n`;
-    prompt += `- Primus is the office manager. He sets direction and makes final calls.\n`;
+    // INTERWORKINGS protocol awareness — only for formats where hierarchy matters
+    const STRUCTURED_FORMATS: ConversationFormat[] = [
+        'triage',
+        'risk_review',
+        'strategy',
+        'planning',
+        'shipping',
+        'cross_exam',
+        'standup',
+        'checkin',
+        'deep_dive',
+        'retro',
+        'debate',
+        'content_review',
+        'agent_design',
+    ];
+    if (STRUCTURED_FORMATS.includes(format)) {
+        prompt += `\n═══ OFFICE DYNAMICS ═══\n`;
+        prompt += `- If Subrosa says "VETO:" — the matter is closed. Acknowledge and move on.\n`;
+        prompt += `- If you have nothing to add, silence is a valid response. Say "..." or stay brief.\n`;
+        prompt += `- Watch for your own failure mode: ${voice.failureMode}\n`;
+        prompt += `- Primus is the sovereign director. He sets direction and makes final calls.\n`;
+    } else {
+        prompt += `\n- If you have nothing to add, keep it brief or pass.\n`;
+        prompt += `- Watch for your own failure mode: ${voice.failureMode}\n`;
+    }
 
     if (voiceModifiers && voiceModifiers.length > 0) {
         prompt += '\nPERSONALITY EVOLUTION (from accumulated experience):\n';
-        prompt += voiceModifiers.map(m => `- ${m}`).join('\n');
+        prompt += voiceModifiers
+            .map(m => {
+                const instruction = MODIFIER_INSTRUCTIONS[m];
+                return instruction ? `- ${m}: ${instruction}` : `- ${m}`;
+            })
+            .join('\n');
         prompt += '\n';
     }
 
@@ -138,17 +171,25 @@ function buildSystemPrompt(
         prompt += '\n';
     }
 
-    if (recentArtifacts && recentArtifacts.length > 0) {
-        prompt += `\n═══ RECENT ARTIFACTS ═══\n`;
-        prompt += recentArtifacts.map(a => `- ${a}`).join('\n');
-        prompt += '\n';
-    }
-
     prompt += '\n';
 
     if (history.length > 0) {
         prompt += `═══ CONVERSATION SO FAR ═══\n`;
-        for (const turn of history) {
+
+        // Sliding window: show last 6 turns verbatim, summarize older turns
+        const WINDOW_SIZE = 6;
+        if (history.length > WINDOW_SIZE) {
+            const olderTurns = history.slice(0, -WINDOW_SIZE);
+            const speakers = [...new Set(olderTurns.map(t => t.speaker))];
+            const speakerNames = speakers.map(s => {
+                const v = getVoice(s);
+                return v ? v.displayName : s;
+            });
+            prompt += `[Earlier: ${speakerNames.join(', ')} discussed — ${olderTurns.length} turns]\n`;
+        }
+
+        const recentTurns = history.length > WINDOW_SIZE ? history.slice(-WINDOW_SIZE) : history;
+        for (const turn of recentTurns) {
             const turnVoice = getVoice(turn.speaker);
             const name =
                 turnVoice ?
@@ -179,10 +220,38 @@ function buildSystemPrompt(
     prompt += `\n═══ RULES ═══\n`;
     prompt += `- Speak as ${voice.displayName} (${voice.pronouns}) — no stage directions, no asterisks, no quotes\n`;
     prompt += `- Stay in character: ${voice.tone}\n`;
-    prompt += `- Be concise but complete. Say what you mean — don't pad, but don't cut yourself short either.\n`;
-    prompt += `- Respond to what was just said. Don't monologue. Don't repeat yourself.\n`;
+    prompt += `- Keep it to 2-4 sentences. Never exceed 6 sentences in a single turn.\n`;
+    prompt += `- Finish your thought cleanly. If you start a claim, land it. Never trail off or leave a sentence incomplete.\n`;
+    prompt += `- Respond to what was actually said — push it forward, challenge it, or build on it. Don't restate, don't summarize, don't monologue.\n`;
+    prompt += `- One idea per turn. If you have two points, pick the sharper one.\n`;
     prompt += `- Do NOT prefix your response with your name or symbol\n`;
-    prompt += `- If you're ${voice.displayName} and this format doesn't need you, keep it brief or pass\n`;
+    prompt += `- If this format doesn't need you or you have nothing to add, keep it to one sentence or pass\n`;
+
+    // Format-specific behavioral rules
+    const FORMAT_RULES: Partial<Record<ConversationFormat, string>> = {
+        debate: '- Take a clear position. Disagreement is expected. Name what you contest and why.',
+        brainstorm:
+            '- Go wide, not deep. Quantity over quality. Build on others\' ideas with "yes, and..."',
+        retro: '- Be honest about what failed. Attribution is fine — blame is not.',
+        writing_room:
+            '- Write actual prose, not meta-discussion about writing. Draft in your voice.',
+        watercooler: '- Relax. No agenda. Short, casual, personal.',
+        risk_review: "- Name specific threats. Rate severity. Don't hedge.",
+        planning: '- Name owners and deadlines. Convert discussion into tasks.',
+        cross_exam: '- Find the weakness and press on it. Be specific.',
+        strategy:
+            '- Frame in terms of tradeoffs. What do we gain, what do we lose?',
+        deep_dive: '- Go deeper than surface. Trace structural causes.',
+        standup: '- Be concise. Status, blockers, next steps.',
+        reframe:
+            "- Name what's wrong with the current frame before proposing alternatives.",
+        content_review:
+            '- Be specific about quality. Name strengths and weaknesses with evidence.',
+    };
+    const formatRule = FORMAT_RULES[format];
+    if (formatRule) {
+        prompt += `${formatRule}\n`;
+    }
 
     return prompt;
 }
@@ -200,15 +269,23 @@ function buildUserPrompt(
 ): string {
     if (turn === 0) {
         const openers: Partial<Record<ConversationFormat, string>> = {
-            standup: `Open the standup. Set the frame for: "${topic}". Brief and structured.`,
-            checkin: `Quick check-in. Ask the room: "${topic}". Keep it light.`,
-            deep_dive: `Open a deep analysis of: "${topic}". Set up the structural question.`,
-            risk_review: `Begin threat assessment on: "${topic}". Name what's at stake.`,
-            brainstorm: `Kick off brainstorming on: "${topic}". Go wide, not deep.`,
-            debate: `Open the debate on: "${topic}". Take a clear position.`,
-            cross_exam: `Begin interrogation of: "${topic}". Find the weak point.`,
-            reframe: `The current frame on "${topic}" isn't working. Break it open.`,
-            watercooler: `Start a casual chat about: "${topic}". No agenda.`,
+            standup: `Open the standup on: "${topic}". Frame what matters, then hand it to the room.`,
+            checkin: `Quick pulse check: "${topic}". One or two sentences to get the room talking.`,
+            deep_dive: `Open the analysis on: "${topic}". Name the structural question that needs answering.`,
+            risk_review: `Begin threat assessment on: "${topic}". Name the exposure, then let others weigh in.`,
+            brainstorm: `Kick off brainstorming on: "${topic}". Throw out the first idea — breadth over depth.`,
+            debate: `Open the debate on: "${topic}". Stake a clear position and make it arguable.`,
+            cross_exam: `Begin interrogation of: "${topic}". Find the weak point and press on it.`,
+            reframe: `The current frame on "${topic}" isn't working. Name what's wrong with the frame before proposing a new one.`,
+            watercooler: `Kick off a casual chat about: "${topic}". No agenda — just say what comes to mind.`,
+            writing_room: `Open the writing session on: "${topic}". Sketch the angle or thesis before drafting.`,
+            strategy: `Set the strategic frame for: "${topic}". What's the decision we're actually making?`,
+            planning: `Turn this into tasks: "${topic}". Who owns what, and what ships first?`,
+            retro: `Open the retro: "${topic}". Start with what actually happened — not what was supposed to happen.`,
+            triage: `Triage time on: "${topic}". Classify severity and assign priority.`,
+            shipping: `Pre-ship check on: "${topic}". Is this actually ready? Name what could go wrong.`,
+            content_review: `Review the content on: "${topic}". Be specific about quality — strengths and weaknesses.`,
+            agent_design: `Design session for: "${topic}". Start with the role this agent needs to fill and why.`,
         };
         const opener =
             openers[format] ??
@@ -217,10 +294,52 @@ function buildUserPrompt(
     }
 
     if (turn === maxTurns - 1) {
-        return `Final turn. Land your point on "${topic}". No loose threads.`;
+        const closers: Partial<Record<ConversationFormat, string>> = {
+            planning: `We're wrapping up "${topic}". State what's decided, who owns it, and what's unresolved.`,
+            debate: `Final turn on "${topic}". Summarize where you stand — no new arguments.`,
+            retro: `Close out on "${topic}". What's the one thing we change going forward?`,
+            brainstorm: `Last thought on "${topic}". Pick the strongest idea from the session and name it.`,
+            strategy: `Final call on "${topic}". State the strategic decision and what it costs.`,
+            standup: `Wrap the standup on "${topic}". Confirm blockers and next steps.`,
+            risk_review: `Final assessment on "${topic}". Name the top risk and the mitigation.`,
+            shipping: `Ship decision on "${topic}". Go or no-go, and what's the rollback plan?`,
+        };
+        return (
+            closers[format] ??
+            `This is the last turn. Finish your thought on "${topic}" cleanly — close the loop, don't open a new thread.`
+        );
     }
 
-    return `Respond as ${speakerName}. Stay on: "${topic}". Advance the conversation — don't restate what's already been said. If consensus is reached, name next steps or close.`;
+    if (turn === maxTurns - 2) {
+        const penultimates: Partial<Record<ConversationFormat, string>> = {
+            planning: `We're nearing the end on "${topic}". Start converging — what's decided and what's still open?`,
+            debate: `Almost done on "${topic}". Start landing your position — less new ground, more clarity.`,
+            retro: `Wrapping up on "${topic}". Name the takeaway before we close.`,
+            brainstorm: `Tightening up on "${topic}". Which ideas have legs? Start filtering.`,
+        };
+        return (
+            penultimates[format] ??
+            `Respond to what was just said on "${topic}". We're nearing the end — start tightening toward a conclusion or clear takeaway.`
+        );
+    }
+
+    // Mid-conversation: format-specific prompts
+    const midPrompts: Partial<Record<ConversationFormat, string>> = {
+        debate: `Respond to what was just said on "${topic}". Contest or defend — don't agree politely.`,
+        brainstorm: `Build on what was said about "${topic}" or throw a new idea in. Keep it rapid.`,
+        retro: `Reflect on "${topic}". What else happened that hasn't been named yet?`,
+        planning: `What's the next concrete step for "${topic}"? Name who owns it.`,
+        risk_review: `What risk hasn't been named yet for "${topic}"? Or challenge a risk that was overstated.`,
+        writing_room: `Continue drafting on "${topic}". Build on what was written or propose an edit.`,
+        cross_exam: `Press harder on "${topic}". What hasn't been addressed? What's being assumed?`,
+        strategy: `Push the strategy forward on "${topic}". What tradeoff hasn't been named?`,
+        deep_dive: `Go deeper on "${topic}". What structural cause hasn't been traced yet?`,
+        watercooler: `Keep chatting about "${topic}". No pressure — say what comes to mind.`,
+    };
+    return (
+        midPrompts[format] ??
+        `Respond to what was just said on "${topic}". Push the conversation forward — add something new or challenge something specific. Don't recap.`
+    );
 }
 
 /**
@@ -280,7 +399,7 @@ export async function orchestrateConversation(
     }
 
     // NOTE: Tools are intentionally NOT passed to roundtable LLM calls.
-    // Roundtable dialogue is ~500 tokens — tool calling is inappropriate here.
+    // Roundtable dialogue uses format-specific token limits — tool calling is inappropriate here.
     // Agents already have context (scratchpad, briefing, memories) pre-loaded.
     // Tool use happens in agent sessions, not roundtable conversations.
 
@@ -324,41 +443,6 @@ export async function orchestrateConversation(
             briefingMap.set(participant, '');
             memoryMap.set(participant, []);
         }
-    }
-
-    // Load recent artifact summaries for context
-    let recentArtifacts: string[] = [];
-    try {
-        const artifacts = await sql<
-            Array<{
-                agent_id: string;
-                completed_at: string;
-                preview: string;
-                format: string;
-                topic: string;
-            }>
-        >`
-            SELECT s.agent_id, s.completed_at,
-                LEFT(s.result->>'text', 200) as preview,
-                r.format, r.topic
-            FROM ops_agent_sessions s
-            JOIN ops_roundtable_sessions r ON r.id = s.source_id::uuid
-            WHERE s.source = 'conversation'
-              AND s.status = 'succeeded'
-              AND s.completed_at > now() - interval '24 hours'
-            ORDER BY s.completed_at DESC
-            LIMIT 3
-        `;
-        recentArtifacts = artifacts.map(a => {
-            const hoursAgo = Math.round(
-                (Date.now() - new Date(a.completed_at).getTime()) / 3_600_000,
-            );
-            const ago = hoursAgo < 1 ? 'just now' : `${hoursAgo}h ago`;
-            const preview = a.preview?.replace(/\n/g, ' ').trim() ?? '';
-            return `${a.agent_id} produced a ${a.format} artifact: "${preview.slice(0, 120)}..." (${ago})`;
-        });
-    } catch (err) {
-        log.error('Recent artifact loading failed (non-fatal)', { error: err });
     }
 
     // Mark session as running
@@ -448,7 +532,6 @@ export async function orchestrateConversation(
             scratchpadMap.get(speaker),
             briefingMap.get(speaker),
             memoryMap.get(speaker),
-            recentArtifacts,
         );
         const userPrompt = buildUserPrompt(
             session.topic,
@@ -472,7 +555,7 @@ export async function orchestrateConversation(
                     { role: 'user', content: userPrompt },
                 ],
                 temperature: effectiveTemperature,
-                maxTokens: 500,
+                maxTokens: format.maxTokensPerTurn,
                 model: session.model ?? undefined,
                 trackingContext: {
                     agentId: speaker,
@@ -557,27 +640,37 @@ export async function orchestrateConversation(
 
         if (discordWebhookUrl) {
             // Start TTS (if requested) and delay timer concurrently
-            const ttsPromise = useTTS
-                ? synthesizeSpeech({
-                    agentId: entry.speaker,
-                    text: entry.dialogue,
-                    turn,
-                }).catch((err) => {
-                    log.warn('TTS synthesis failed', { error: err, speaker: entry.speaker, turn });
-                    return null;
-                })
-                : Promise.resolve(null);
+            const ttsPromise =
+                useTTS ?
+                    synthesizeSpeech({
+                        agentId: entry.speaker,
+                        text: entry.dialogue,
+                        turn,
+                    }).catch(err => {
+                        log.warn('TTS synthesis failed', {
+                            error: err,
+                            speaker: entry.speaker,
+                            turn,
+                        });
+                        return null;
+                    })
+                :   Promise.resolve(null);
 
-            const delayPromise = (delayBetweenTurns && turn < maxTurns - 1)
-                ? new Promise<void>(resolve => setTimeout(resolve, 3000 + Math.random() * 5000))
-                : Promise.resolve();
+            const delayPromise =
+                delayBetweenTurns && turn < maxTurns - 1 ?
+                    new Promise<void>(resolve =>
+                        setTimeout(resolve, 3000 + Math.random() * 5000),
+                    )
+                :   Promise.resolve();
 
             // Wait for TTS (has internal 10s timeout)
             const audioResult = await ttsPromise;
 
             // Post turn with optional audio
             const turnPost = postConversationTurn(
-                session, entry, discordWebhookUrl,
+                session,
+                entry,
+                discordWebhookUrl,
                 audioResult,
             ).catch(() => {});
 
@@ -685,7 +778,8 @@ export async function orchestrateConversation(
         }
 
         // Structured voting round after agent proposal debates
-        const proposalId = (session.metadata as Record<string, unknown>)?.agent_proposal_id as string | undefined;
+        const proposalId = (session.metadata as Record<string, unknown>)
+            ?.agent_proposal_id as string | undefined;
         if (proposalId && finalStatus === 'completed') {
             try {
                 const result = await collectDebateVotes(
@@ -710,7 +804,8 @@ export async function orchestrateConversation(
         }
 
         // Structured voting round after governance proposal debates
-        const govProposalId = (session.metadata as Record<string, unknown>)?.governance_proposal_id as string | undefined;
+        const govProposalId = (session.metadata as Record<string, unknown>)
+            ?.governance_proposal_id as string | undefined;
         if (govProposalId && finalStatus === 'completed') {
             try {
                 const result = await collectGovernanceDebateVotes(
@@ -764,8 +859,8 @@ async function orchestrateVoiceChat(
     const affinityMap = await loadAffinityMap();
 
     const userQuestion =
-        ((session.metadata as Record<string, unknown>)?.userQuestion as string) ??
-        session.topic;
+        ((session.metadata as Record<string, unknown>)
+            ?.userQuestion as string) ?? session.topic;
 
     // Load context per participant (same as standard orchestration)
     const voiceModifiersMap = new Map<string, string[]>();
@@ -826,7 +921,10 @@ async function orchestrateVoiceChat(
     });
 
     // Helper: generate and store an agent turn
-    async function generateAgentTurn(speaker: string, turnNumber: number): Promise<ConversationTurnEntry | null> {
+    async function generateAgentTurn(
+        speaker: string,
+        turnNumber: number,
+    ): Promise<ConversationTurnEntry | null> {
         const voice = getVoice(speaker);
         const speakerName = voice?.displayName ?? speaker;
 
@@ -834,7 +932,11 @@ async function orchestrateVoiceChat(
         if (history.length > 0) {
             const lastSpeaker = history[history.length - 1].speaker;
             if (lastSpeaker !== 'user') {
-                const affinity = getAffinityFromMap(affinityMap, speaker, lastSpeaker);
+                const affinity = getAffinityFromMap(
+                    affinityMap,
+                    speaker,
+                    lastSpeaker,
+                );
                 interactionType = getInteractionType(affinity);
             }
         }
@@ -857,9 +959,9 @@ async function orchestrateVoiceChat(
 
         // User prompt tailored for voice_chat
         const userPrompt =
-            turnNumber === 0
-                ? `A human is asking the room: "${session.topic}". Give a warm, conversational response. Be concise — this is a live voice chat.`
-                : `Respond naturally to what was just said. Keep it conversational and concise — this is a live voice chat, not a written essay.`;
+            turnNumber === 0 ?
+                `A human is asking the room: "${session.topic}". Give a warm, conversational response. Be concise — this is a live voice chat.`
+            :   `Respond naturally to what was just said. Keep it conversational and concise — this is a live voice chat, not a written essay.`;
 
         try {
             const rawDialogue = await llmGenerate({
@@ -868,7 +970,7 @@ async function orchestrateVoiceChat(
                     { role: 'user', content: userPrompt },
                 ],
                 temperature: format.temperature,
-                maxTokens: 300, // shorter for voice
+                maxTokens: format.maxTokensPerTurn,
                 model: session.model ?? undefined,
                 trackingContext: {
                     agentId: speaker,
@@ -878,7 +980,11 @@ async function orchestrateVoiceChat(
             });
 
             const dialogue = sanitizeDialogue(rawDialogue);
-            const entry: ConversationTurnEntry = { speaker, dialogue, turn: turnNumber };
+            const entry: ConversationTurnEntry = {
+                speaker,
+                dialogue,
+                turn: turnNumber,
+            };
             history.push(entry);
 
             await sql`
@@ -898,17 +1004,26 @@ async function orchestrateVoiceChat(
 
             return entry;
         } catch (err) {
-            log.error('Voice chat LLM failed', { error: err, speaker, turnNumber, sessionId: session.id });
+            log.error('Voice chat LLM failed', {
+                error: err,
+                speaker,
+                turnNumber,
+                sessionId: session.id,
+            });
             return null;
         }
     }
 
     // Helper: poll DB for a new user turn
-    async function waitForUserTurn(afterTurn: number): Promise<{ dialogue: string; turnNumber: number } | null> {
+    async function waitForUserTurn(
+        afterTurn: number,
+    ): Promise<{ dialogue: string; turnNumber: number } | null> {
         const deadline = Date.now() + VOICE_INACTIVITY_TIMEOUT_MS;
 
         while (Date.now() < deadline) {
-            const rows = await sql<Array<{ dialogue: string; turn_number: number }>>`
+            const rows = await sql<
+                Array<{ dialogue: string; turn_number: number }>
+            >`
                 SELECT dialogue, turn_number FROM ops_roundtable_turns
                 WHERE session_id = ${session.id}
                   AND speaker = 'user'
@@ -918,7 +1033,10 @@ async function orchestrateVoiceChat(
             `;
 
             if (rows.length > 0) {
-                return { dialogue: rows[0].dialogue, turnNumber: rows[0].turn_number };
+                return {
+                    dialogue: rows[0].dialogue,
+                    turnNumber: rows[0].turn_number,
+                };
             }
 
             // Check if session was ended externally
@@ -929,7 +1047,9 @@ async function orchestrateVoiceChat(
                 return null; // Session ended externally
             }
 
-            await new Promise(resolve => setTimeout(resolve, VOICE_POLL_INTERVAL_MS));
+            await new Promise(resolve =>
+                setTimeout(resolve, VOICE_POLL_INTERVAL_MS),
+            );
         }
 
         return null; // Inactivity timeout
@@ -966,7 +1086,10 @@ async function orchestrateVoiceChat(
         const userTurn = await waitForUserTurn(lastTurnNumber);
         if (!userTurn) {
             // Timeout or session ended
-            log.info('Voice chat ending: no user reply', { sessionId: session.id, currentTurn });
+            log.info('Voice chat ending: no user reply', {
+                sessionId: session.id,
+                currentTurn,
+            });
             break;
         }
 
@@ -980,11 +1103,20 @@ async function orchestrateVoiceChat(
 
         // Pick 1-2 agents to respond
         const respondCount = 1 + Math.floor(Math.random() * 2); // 1 or 2
-        const lastAgentSpeaker = history.filter(h => h.speaker !== 'user').pop()?.speaker;
-        const available = session.participants.filter(p => p !== lastAgentSpeaker);
-        const responders = available.length > 0
-            ? available.sort(() => Math.random() - 0.5).slice(0, respondCount)
-            : [session.participants[Math.floor(Math.random() * session.participants.length)]];
+        const lastAgentSpeaker = history
+            .filter(h => h.speaker !== 'user')
+            .pop()?.speaker;
+        const available = session.participants.filter(
+            p => p !== lastAgentSpeaker,
+        );
+        const responders =
+            available.length > 0 ?
+                available.sort(() => Math.random() - 0.5).slice(0, respondCount)
+            :   [
+                    session.participants[
+                        Math.floor(Math.random() * session.participants.length)
+                    ],
+                ];
 
         for (const responder of responders) {
             if (currentTurn >= maxTurns) break;
@@ -1021,9 +1153,16 @@ async function orchestrateVoiceChat(
     // Distill memories if enough substance
     if (history.length >= 4) {
         try {
-            await distillConversationMemories(session.id, history, session.format);
+            await distillConversationMemories(
+                session.id,
+                history,
+                session.format,
+            );
         } catch (err) {
-            log.error('Voice chat memory distillation failed', { error: err, sessionId: session.id });
+            log.error('Voice chat memory distillation failed', {
+                error: err,
+                sessionId: session.id,
+            });
         }
     }
 
@@ -1072,7 +1211,7 @@ export async function checkScheduleAndEnqueue(): Promise<{
     enqueued: string | null;
 }> {
     // Lazy import to avoid circular deps at module load
-    const { getSlotForHour, shouldSlotFire } = await import('./schedule');
+    const { getSlotsForHour, shouldSlotFire } = await import('./schedule');
     const { getPolicy } = await import('../ops/policy');
 
     // Check if roundtable is enabled
@@ -1095,51 +1234,60 @@ export async function checkScheduleAndEnqueue(): Promise<{
         return { checked: true, enqueued: null };
     }
 
-    // Check current hour
+    // Check current hour — iterate ALL matching slots
     const currentHour = new Date().getUTCHours();
-    const slot = getSlotForHour(currentHour);
-    if (!slot) {
+    const slots = getSlotsForHour(currentHour);
+    if (slots.length === 0) {
         return { checked: true, enqueued: null };
     }
 
-    // Check if this slot already fired this hour (prevent duplicates)
     const hourStart = new Date();
     hourStart.setUTCMinutes(0, 0, 0);
 
-    const [{ count: existingCount }] = await sql<[{ count: number }]>`
-        SELECT COUNT(*)::int as count FROM ops_roundtable_sessions
-        WHERE schedule_slot = ${slot.name}
-        AND created_at >= ${hourStart.toISOString()}
-    `;
+    let lastEnqueued: string | null = null;
 
-    if (existingCount > 0) {
-        return { checked: true, enqueued: null };
+    for (const slot of slots) {
+        // Re-check daily limit (may have been consumed by earlier slot in this loop)
+        const [{ count: currentCount }] = await sql<[{ count: number }]>`
+            SELECT COUNT(*)::int as count FROM ops_roundtable_sessions
+            WHERE created_at >= ${todayStart.toISOString()}
+        `;
+        if (currentCount >= maxDaily) break;
+
+        // Check if this slot already fired this hour (prevent duplicates)
+        const [{ count: existingCount }] = await sql<[{ count: number }]>`
+            SELECT COUNT(*)::int as count FROM ops_roundtable_sessions
+            WHERE schedule_slot = ${slot.name}
+            AND created_at >= ${hourStart.toISOString()}
+        `;
+        if (existingCount > 0) continue;
+
+        // Probability check
+        if (!shouldSlotFire(slot)) continue;
+
+        // Generate a topic based on the format (async — deduplicates against recent topics)
+        const topic = await generateTopic(slot);
+
+        // Enqueue the conversation
+        const sessionId = await enqueueConversation({
+            format: slot.format,
+            topic,
+            participants: slot.participants,
+            scheduleSlot: slot.name,
+        });
+
+        lastEnqueued = sessionId;
     }
 
-    // Probability check
-    if (!shouldSlotFire(slot)) {
-        return { checked: true, enqueued: null };
-    }
-
-    // Generate a topic based on the format
-    const topic = generateTopic(slot);
-
-    // Enqueue the conversation
-    const sessionId = await enqueueConversation({
-        format: slot.format,
-        topic,
-        participants: slot.participants,
-        scheduleSlot: slot.name,
-    });
-
-    return { checked: true, enqueued: sessionId };
+    return { checked: true, enqueued: lastEnqueued };
 }
 
 /**
  * Generate a conversation topic based on the schedule slot.
  * Each format has its own pool of provocative, personality-driven topics.
+ * Deduplicates against topics used in the last 48 hours for the same format.
  */
-function generateTopic(slot: { name: string; format: string }): string {
+async function generateTopic(slot: { name: string; format: string }): Promise<string> {
     const topicPools: Record<string, string[]> = {
         standup: [
             'Status check: what moved, what is stuck, what needs attention?',
@@ -1250,5 +1398,18 @@ function generateTopic(slot: { name: string; format: string }): string {
     };
 
     const pool = topicPools[slot.format] ?? topicPools.standup;
-    return pool[Math.floor(Math.random() * pool.length)];
+
+    // Fetch topics used in the last 48h for this format to avoid repetition
+    const cutoff = new Date(Date.now() - 48 * 60 * 60_000).toISOString();
+    const recentRows = await sql<{ topic: string }[]>`
+        SELECT topic FROM ops_roundtable_sessions
+        WHERE format = ${slot.format}
+        AND created_at >= ${cutoff}
+    `;
+    const recentTopics = new Set(recentRows.map(r => r.topic));
+    const fresh = pool.filter(t => !recentTopics.has(t));
+
+    // If all topics were recently used, pick randomly from the full pool
+    const candidates = fresh.length > 0 ? fresh : pool;
+    return candidates[Math.floor(Math.random() * candidates.length)];
 }

@@ -16,7 +16,7 @@ import { createLogger } from '../../src/lib/logger';
 import { FORMATS } from '../../src/lib/roundtable/formats';
 import type { RoundtableSession } from '../../src/lib/types';
 import type { AgentSession } from '../../src/lib/tools/types';
-import type { ConversationFormat } from '../../src/lib/types';
+import type { ConversationFormat, StepKind } from '../../src/lib/types';
 
 const log = createLogger({ service: 'unified-worker' });
 
@@ -202,9 +202,15 @@ async function pollAgentSessions(): Promise<boolean> {
                             SELECT format, topic FROM ops_roundtable_sessions
                             WHERE id = ${session.source_id}
                         `;
-                        // Skip content_review — reviews update existing drafts, not create new ones.
-                        // Creating drafts from reviews triggers an infinite review→draft→review loop.
-                        if (rtSession && rtSession.format !== 'content_review') {
+                        // Only create drafts from productive formats. Skip content_review
+                        // (would cause infinite review→draft→review), checkin, watercooler, standup
+                        // (lightweight status formats that don't produce draftable content).
+                        const DRAFT_ELIGIBLE_FORMATS = new Set([
+                            'writing_room', 'deep_dive', 'strategy', 'debate',
+                            'brainstorm', 'planning', 'shipping', 'reframe',
+                            'risk_review', 'cross_exam',
+                        ]);
+                        if (rtSession && DRAFT_ELIGIBLE_FORMATS.has(rtSession.format)) {
                             const formatConfig = FORMATS[rtSession.format as ConversationFormat];
                             const artifact = formatConfig?.artifact;
                             const contentType = artifact?.type && artifact.type !== 'none'
@@ -355,8 +361,6 @@ async function pollRoundtables(): Promise<boolean> {
             try {
                 const { castGovernanceVote } =
                     await import('../../src/lib/ops/governance');
-                const { llmGenerate } =
-                    await import('../../src/lib/llm/client');
 
                 // Fetch the debate turns
                 const turns = await sql<
@@ -368,62 +372,43 @@ async function pollRoundtables(): Promise<boolean> {
                 `;
 
                 if (turns.length > 0) {
-                    // Build a transcript for LLM parsing
-                    const transcript = turns
-                        .map(t => `${t.agent_id}: ${t.dialogue}`)
-                        .join('\n\n');
+                    // Extract votes by keyword-parsing each agent's last turn
+                    const agentIds = [...new Set(turns.map(t => t.agent_id))];
+                    let voteCount = 0;
 
-                    const parseResult = await llmGenerate({
-                        messages: [
-                            {
-                                role: 'system',
-                                content:
-                                    "You extract each participant's final position from a governance debate. " +
-                                    'Return ONLY valid JSON — an array of objects, one per unique participant. ' +
-                                    'Each object: { "agent": "<agent_id>", "vote": "approve" | "reject", "reason": "<1-sentence summary>" }',
-                            },
-                            {
-                                role: 'user',
-                                content: `Extract the final position of each participant in this debate:\n\n${transcript}`,
-                            },
-                        ],
-                        temperature: 0.2,
-                        maxTokens: 800,
-                        trackingContext: {
-                            agentId: 'system',
-                            context: 'governance-vote-extraction',
-                        },
-                    });
+                    for (const agentId of agentIds) {
+                        const lastTurn = [...turns].reverse().find(t => t.agent_id === agentId);
+                        if (!lastTurn) continue;
 
-                    // Parse the JSON response
-                    const jsonMatch = parseResult.match(/\[[\s\S]*\]/);
-                    if (jsonMatch) {
-                        const votes = JSON.parse(jsonMatch[0]) as Array<{
-                            agent: string;
-                            vote: 'approve' | 'reject';
-                            reason: string;
-                        }>;
+                        const upper = lastTurn.dialogue.toUpperCase();
+                        const approveIdx = upper.lastIndexOf('APPROVE');
+                        const rejectIdx = upper.lastIndexOf('REJECT');
+                        const hasApprove = approveIdx !== -1
+                            && !upper.includes('NOT APPROVE')
+                            && !upper.includes("DON'T APPROVE");
+                        const hasReject = rejectIdx !== -1;
 
-                        for (const v of votes) {
-                            if (
-                                v.agent &&
-                                (v.vote === 'approve' || v.vote === 'reject')
-                            ) {
-                                await castGovernanceVote(
-                                    proposalId,
-                                    v.agent,
-                                    v.vote,
-                                    v.reason ?? '',
-                                );
-                            }
+                        let vote: 'approve' | 'reject' | null = null;
+                        if (hasApprove && hasReject) {
+                            vote = approveIdx > rejectIdx ? 'approve' : 'reject';
+                        } else if (hasApprove) {
+                            vote = 'approve';
+                        } else if (hasReject) {
+                            vote = 'reject';
                         }
 
-                        log.info('Governance votes extracted from debate', {
-                            sessionId: session.id,
-                            proposalId,
-                            voteCount: votes.length,
-                        });
+                        if (vote) {
+                            const reason = lastTurn.dialogue.slice(0, 200);
+                            await castGovernanceVote(proposalId, agentId, vote, reason);
+                            voteCount++;
+                        }
                     }
+
+                    log.info('Governance votes extracted from debate', {
+                        sessionId: session.id,
+                        proposalId,
+                        voteCount,
+                    });
                 }
             } catch (govErr) {
                 // Non-fatal — governance vote extraction should never stall the worker
@@ -475,36 +460,64 @@ async function pollRoundtables(): Promise<boolean> {
     return true;
 }
 
+const MAX_PARALLEL_STEPS = 3;
+
 /** Poll and process queued mission steps — routes through agent sessions for tool access */
 async function pollMissionSteps(): Promise<boolean> {
-    // Find a queued step whose dependencies (if any) have all succeeded
-    const [step] = await sql`
+    // Grab up to MAX_PARALLEL_STEPS independent steps in one batch
+    const steps = await sql`
         UPDATE ops_mission_steps
         SET status = 'running',
             reserved_by = ${WORKER_ID},
             started_at = NOW(),
             updated_at = NOW()
-        WHERE id = (
-            SELECT s.id FROM ops_mission_steps s
-            WHERE s.status = 'queued'
-            AND NOT EXISTS (
-                SELECT 1 FROM ops_mission_steps dep
-                WHERE dep.id = ANY(s.depends_on)
-                AND dep.status != 'succeeded'
+        WHERE id = ANY(
+            ARRAY(
+                SELECT s.id FROM ops_mission_steps s
+                WHERE s.status = 'queued'
+                AND NOT EXISTS (
+                    SELECT 1 FROM ops_mission_steps dep
+                    WHERE dep.id = ANY(s.depends_on)
+                    AND dep.status != 'succeeded'
+                )
+                ORDER BY s.created_at ASC
+                LIMIT ${MAX_PARALLEL_STEPS}
+                FOR UPDATE SKIP LOCKED
             )
-            ORDER BY s.created_at ASC
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED
         )
         RETURNING *
     `;
 
-    if (!step) return false;
+    if (steps.length === 0) return false;
+
+    // Dispatch all independent steps concurrently
+    await Promise.allSettled(
+        (steps as unknown as MissionStepRow[]).map(step => dispatchMissionStep(step)),
+    );
+    return true;
+}
+
+/** Shape of a row from ops_mission_steps RETURNING * */
+interface MissionStepRow {
+    id: string;
+    mission_id: string;
+    kind: StepKind;
+    assigned_agent: string | null;
+    payload: Record<string, unknown> | null;
+    output_path: string | null;
+    status: string;
+    result: string | null;
+    session_status: string | null;
+    [key: string]: unknown;
+}
+
+/** Dispatch a single mission step (extracted for parallel use) */
+async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
 
     log.info('Processing mission step', {
-        stepId: step.id,
-        kind: step.kind,
-        missionId: step.mission_id,
+        stepId: step.id as string,
+        kind: step.kind as string,
+        missionId: step.mission_id as string,
     });
 
     // ── Veto gate: check for active vetoes before dispatching ──
@@ -528,7 +541,7 @@ async function pollMissionSteps(): Promise<boolean> {
                 WHERE id = ${step.id}
             `;
             await finalizeMissionIfComplete(step.mission_id);
-            return true;
+            return;
         }
 
         const stepVeto = await hasActiveVeto('step', step.id);
@@ -547,7 +560,7 @@ async function pollMissionSteps(): Promise<boolean> {
                 WHERE id = ${step.id}
             `;
             await finalizeMissionIfComplete(step.mission_id);
-            return true;
+            return;
         }
     } catch (vetoErr) {
         // Non-fatal — if veto check fails, allow step to proceed
@@ -604,7 +617,7 @@ async function pollMissionSteps(): Promise<boolean> {
             });
 
             await finalizeMissionIfComplete(step.mission_id);
-            return true;
+            return;
         }
 
         // ── Special case: convene_roundtable — INSERT a roundtable session directly ──
@@ -651,7 +664,7 @@ async function pollMissionSteps(): Promise<boolean> {
             });
 
             await finalizeMissionIfComplete(step.mission_id);
-            return true;
+            return;
         }
 
         const { buildStepPrompt } =
@@ -708,8 +721,8 @@ async function pollMissionSteps(): Promise<boolean> {
                 ${prompt},
                 'mission',
                 ${step.mission_id},
-                300,
-                10,
+                1800,
+                15,
                 'pending'
             )
             RETURNING id
@@ -774,10 +787,8 @@ async function pollMissionSteps(): Promise<boolean> {
             `;
         }
 
-        await finalizeMissionIfComplete(step.mission_id);
+        await finalizeMissionIfComplete(step.mission_id as string);
     }
-
-    return true;
 }
 
 // Step kinds that produce research output → 'research' channel
@@ -987,46 +998,62 @@ async function pollInitiatives(): Promise<boolean> {
         const voice = getVoice(entry.agent_id);
         const memories = entry.context?.memories ?? [];
 
-        const systemPrompt =
-            voice ?
-                `${voice.systemDirective}\n\nYou are generating a mission proposal based on your accumulated knowledge and observations.`
-            :   `You are ${entry.agent_id}. Generate a mission proposal.`;
-
-        let memoryContext = '';
-        if (Array.isArray(memories) && memories.length > 0) {
-            memoryContext =
-                '\n\nYour recent memories:\n' +
-                (memories as Array<{ content: string; type: string }>)
-                    .slice(0, 10)
-                    .map(m => `- [${m.type}] ${m.content}`)
-                    .join('\n');
-        }
-
-        const userPrompt = `Based on your role, personality, and accumulated experience, propose a mission.${memoryContext}\n\nRespond with:\n1. A clear mission title\n2. A brief description of why this matters\n3. 2-4 concrete steps to accomplish it\n\nValid step kinds (you MUST use only these exact strings):\n- research_topic: Research a topic using web search\n- scan_signals: Scan for signals and trends\n- draft_essay: Write a long-form piece\n- draft_thread: Write a short thread/post\n- patch_code: Make code changes to the project\n- audit_system: Run system checks and audits\n- critique_content: Review and critique content\n- distill_insight: Synthesize insights from recent work\n- document_lesson: Document knowledge or lessons\n- consolidate_memory: Consolidate and organize memories\n\nFormat as JSON: { "title": "...", "description": "...", "steps": [{ "kind": "<valid_step_kind>", "payload": { "topic": "..." } }] }`;
-
-        const result = await llmGenerate({
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt },
+        // ─── Template-based proposal generation ───
+        // Each agent's role maps to preferred step kinds and mission templates
+        const AGENT_MISSION_TEMPLATES: Record<string, Array<{ title: string; description: string; steps: Array<{ kind: StepKind; payload: { topic: string } }> }>> = {
+            chora: [
+                { title: 'Pattern analysis of recent collective activity', description: 'Trace structural patterns in our recent operations', steps: [{ kind: 'scan_signals', payload: { topic: 'recent collective patterns and trends' } }, { kind: 'distill_insight', payload: { topic: 'synthesize findings into actionable patterns' } }] },
+                { title: 'Map dependency chains in current workflows', description: 'Identify fragile dependencies and single points of failure', steps: [{ kind: 'research_topic', payload: { topic: 'current workflow dependencies' } }, { kind: 'document_lesson', payload: { topic: 'dependency analysis findings' } }] },
+                { title: 'Diagnose recurring operational friction', description: 'Investigate why certain processes keep stalling', steps: [{ kind: 'audit_system', payload: { topic: 'operational bottlenecks' } }, { kind: 'distill_insight', payload: { topic: 'root cause analysis' } }] },
             ],
-            temperature: 0.8,
-            maxTokens: 1000,
-            trackingContext: {
-                agentId: entry.agent_id,
-                context: 'initiative',
-            },
-        });
+            subrosa: [
+                { title: 'Threat model review of current systems', description: 'Evaluate exposure and adversarial risk', steps: [{ kind: 'audit_system', payload: { topic: 'security threat modeling' } }, { kind: 'document_lesson', payload: { topic: 'threat assessment findings' } }] },
+                { title: 'Review information exposure surfaces', description: 'Assess what we reveal publicly and whether it is appropriate', steps: [{ kind: 'scan_signals', payload: { topic: 'public information exposure' } }, { kind: 'critique_content', payload: { topic: 'exposure risk assessment' } }] },
+            ],
+            thaum: [
+                { title: 'Reframe a stalled initiative', description: 'Apply lateral thinking to an initiative that lost momentum', steps: [{ kind: 'research_topic', payload: { topic: 'stalled initiatives needing reframe' } }, { kind: 'draft_essay', payload: { topic: 'alternative framing proposal' } }] },
+                { title: 'Cross-domain insight synthesis', description: 'Connect ideas from different domains to generate novel approaches', steps: [{ kind: 'scan_signals', payload: { topic: 'cross-domain patterns' } }, { kind: 'distill_insight', payload: { topic: 'novel synthesis' } }] },
+            ],
+            praxis: [
+                { title: 'Ship check on incomplete deliverables', description: 'Audit what is close to done and push it over the line', steps: [{ kind: 'audit_system', payload: { topic: 'incomplete deliverables' } }, { kind: 'patch_code', payload: { topic: 'finish pending work' } }] },
+                { title: 'Convert recent strategy into tasks', description: 'Turn strategic discussions into concrete, assigned work', steps: [{ kind: 'research_topic', payload: { topic: 'recent strategy decisions' } }, { kind: 'document_lesson', payload: { topic: 'task breakdown and assignments' } }] },
+            ],
+            mux: [
+                { title: 'Consolidate and organize recent outputs', description: 'Clean up and structure recent work products', steps: [{ kind: 'consolidate_memory', payload: { topic: 'recent output organization' } }, { kind: 'document_lesson', payload: { topic: 'output catalog update' } }] },
+                { title: 'Draft status report on active missions', description: 'Compile current mission progress into a clear report', steps: [{ kind: 'audit_system', payload: { topic: 'active mission status' } }, { kind: 'draft_thread', payload: { topic: 'mission status summary' } }] },
+            ],
+            primus: [
+                { title: 'Evaluate collective alignment with core mission', description: 'Assess whether recent activity serves the stated mission', steps: [{ kind: 'scan_signals', payload: { topic: 'mission alignment assessment' } }, { kind: 'distill_insight', payload: { topic: 'alignment findings' } }] },
+            ],
+        };
 
-        // Try to parse the JSON response
-        let parsed;
-        try {
-            const jsonMatch = result.match(/\{[\s\S]*\}/);
-            parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-        } catch {
-            parsed = null;
+        const templates = AGENT_MISSION_TEMPLATES[entry.agent_id] ?? AGENT_MISSION_TEMPLATES.mux;
+
+        // Enrich topic with memory context if available
+        let memoryHint = '';
+        if (Array.isArray(memories) && memories.length > 0) {
+            const recentMemory = (memories as Array<{ content: string }>)[0];
+            if (recentMemory?.content) {
+                memoryHint = recentMemory.content.slice(0, 100);
+            }
         }
 
-        if (parsed?.title) {
+        // Pick a template, cycling based on time to avoid repetition
+        const templateIdx = Math.floor(Date.now() / 86_400_000) % templates.length;
+        const template = templates[templateIdx];
+
+        // Personalize title with memory hint if available
+        const title = memoryHint
+            ? `${template.title} — ${memoryHint.slice(0, 60)}`
+            : template.title;
+
+        const parsed = {
+            title,
+            description: template.description,
+            steps: template.steps,
+        };
+
+        if (parsed.title) {
             // Route through proposal service for auto-approval evaluation
             const { createProposalAndMaybeAutoApprove } =
                 await import('../../src/lib/ops/proposal-service');
@@ -1043,7 +1070,7 @@ async function pollInitiatives(): Promise<boolean> {
             UPDATE ops_initiative_queue
             SET status = 'completed',
                 processed_at = NOW(),
-                result = ${sql.json({ text: result, parsed })}::jsonb
+                result = ${sql.json({ text: parsed.title, parsed })}::jsonb
             WHERE id = ${entry.id}
         `;
     } catch (err) {
@@ -1071,7 +1098,7 @@ async function sweepStaleAgentSessions(): Promise<boolean> {
             error = 'Swept by worker — session exceeded timeout while running',
             completed_at = NOW()
         WHERE status = 'running'
-          AND started_at < NOW() - COALESCE(timeout_seconds, 300) * INTERVAL '1 second' - INTERVAL '5 minutes'
+          AND started_at < NOW() - COALESCE(timeout_seconds, 600) * INTERVAL '1 second' - INTERVAL '5 minutes'
         RETURNING id, agent_id, source
     `;
 

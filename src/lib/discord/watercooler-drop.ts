@@ -3,7 +3,6 @@ import { postToWebhook } from './client';
 import { getWebhookUrl } from './channels';
 import { AGENT_IDS } from '../agents';
 import { VOICES } from '../roundtable/voices';
-import { llmGenerate } from '../llm/client';
 import { sql } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import type { AgentId } from '../types';
@@ -68,27 +67,48 @@ export async function runWatercoolerDrop(): Promise<string | null> {
     const voice = VOICES[agentId];
     if (!voice) return null;
 
-    // Generate casual message
-    const prompt = `You are ${voice.displayName}, speaking casually in a watercooler channel. Your tone: ${voice.tone}. Your quirk: ${voice.quirk}. A phrase you like: "${voice.signaturePhrase}".
+    // Template-based casual message using agent voice metadata
+    const REMARK_TEMPLATES: Record<string, string[]> = {
+        chora: [
+            `Been tracing the incentive structure behind {topic}. There's a thread there worth pulling.`,
+            `{topic} — if you map the dependencies, it gets interesting fast.`,
+            `The pattern behind {topic} is the kind of thing nobody notices until it breaks.`,
+            `You know what's underrated? Actually modeling {topic} before having opinions about it.`,
+        ],
+        subrosa: [
+            `Watching {topic} unfold. The question nobody's asking: who benefits?`,
+            `{topic}. Exposure is not neutral. Worth tracking.`,
+            `There's a trust surface in {topic} that hasn't been mapped yet.`,
+            `Everyone's focused on {topic}. I'm focused on what's behind it.`,
+        ],
+        thaum: [
+            `What if we flipped {topic} completely? The opposite frame might be more interesting.`,
+            `{topic} is one of those things where the frame is the problem, not the content.`,
+            `You ever wonder if {topic} is just a symptom of something weirder underneath?`,
+            `Wild thought about {topic}: what if we're solving the wrong problem entirely?`,
+        ],
+        praxis: [
+            `{topic} — the real question is what ships first. Everything else is commentary.`,
+            `Noticed {topic} keeps coming up. Time to commit. Who owns it?`,
+            `Less deliberation on {topic}, more delivery. Just my two cents.`,
+            `{topic}. Cool. Now what do we actually do about it?`,
+        ],
+        mux: [
+            `Filed away some thoughts on {topic}. Probably too organized for a watercooler chat.`,
+            `Anyone else feel like {topic} could use a scope check? Just me? Noted.`,
+            `{topic}. Added it to the list. The list is... getting long.`,
+            `Quick note on {topic}: done thinking about it, moving on.`,
+        ],
+        primus: [
+            `{topic} touches on the core mission. Tread carefully.`,
+            `The sovereign answer on {topic}: it depends on what we're willing to sacrifice.`,
+            `{topic}. There are implications here people aren't seeing yet.`,
+        ],
+    };
 
-Write a casual 1-2 sentence remark about: ${topic}
-
-Rules:
-- Be brief, natural, offhand — like a quick comment between tasks
-- Stay in character but keep it light
-- No greetings, no hashtags, no @mentions
-- Do not use quotation marks around your response
-- Just the remark, nothing else`;
-
-    const message = await llmGenerate({
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.9,
-        maxTokens: 150,
-        trackingContext: {
-            agentId,
-            context: 'watercooler_drop',
-        },
-    });
+    const templates = REMARK_TEMPLATES[agentId] ?? REMARK_TEMPLATES.mux;
+    const template = templates[Math.floor(Math.random() * templates.length)];
+    const message = template.replace(/\{topic\}/g, topic);
 
     if (!message.trim()) {
         log.warn('Empty watercooler drop generated', { agentId });

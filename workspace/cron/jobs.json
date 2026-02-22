@@ -28,7 +28,10 @@
         "lastError": "cron delivery target is missing"
       },
       "delivery": {
-        "mode": "announce"
+        "mode": "announce",
+        "channel": "discord",
+        "to": "channel:1467242025777627271",
+        "bestEffort": true
       }
     },
     {
@@ -58,7 +61,10 @@
         "lastError": "cron delivery target is missing"
       },
       "delivery": {
-        "mode": "announce"
+        "mode": "announce",
+        "channel": "discord",
+        "to": "channel:1467242025777627271",
+        "bestEffort": true
       }
     },
     {
@@ -224,7 +230,7 @@
         "expr": "0 10,15,20 * * *",
         "tz": "America/Chicago"
       },
-      "sessionTarget": "main",
+      "sessionTarget": "isolated",
       "wakeMode": "next-heartbeat",
       "payload": {
         "kind": "agentTurn",
@@ -266,7 +272,10 @@
         "lastError": "cron delivery target is missing"
       },
       "delivery": {
-        "mode": "announce"
+        "mode": "announce",
+        "channel": "discord",
+        "to": "channel:1467242025777627271",
+        "bestEffort": true
       }
     },
     {
@@ -296,7 +305,10 @@
         "lastError": "cron delivery target is missing"
       },
       "delivery": {
-        "mode": "announce"
+        "mode": "announce",
+        "channel": "discord",
+        "to": "channel:1467242025777627271",
+        "bestEffort": true
       }
     },
     {
@@ -326,7 +338,10 @@
         "lastError": "cron delivery target is missing"
       },
       "delivery": {
-        "mode": "announce"
+        "mode": "announce",
+        "channel": "discord",
+        "to": "channel:1467242025777627271",
+        "bestEffort": true
       }
     },
     {
@@ -356,7 +371,10 @@
         "lastError": "Error: Unknown model: anthropic/qwen3-coder:30b"
       },
       "delivery": {
-        "mode": "announce"
+        "mode": "announce",
+        "channel": "discord",
+        "to": "channel:1467242025777627271",
+        "bestEffort": true
       }
     },
     {
@@ -386,7 +404,10 @@
         "lastError": "cron delivery target is missing"
       },
       "delivery": {
-        "mode": "announce"
+        "mode": "announce",
+        "channel": "discord",
+        "to": "channel:1467242025777627271",
+        "bestEffort": true
       }
     }
   ]

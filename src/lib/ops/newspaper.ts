@@ -1,7 +1,6 @@
 // SUBCULT Daily — AI-generated newspaper pipeline
 // Curates RSS items, generates summaries, produces markdown + PDF editions.
 import { sql, jsonb } from '@/lib/db';
-import { llmGenerate } from '@/lib/llm/client';
 import { emitEvent } from '@/lib/ops/events';
 import { postToWebhook } from '@/lib/discord/client';
 import { getWebhookUrl } from '@/lib/discord/channels';
@@ -116,129 +115,108 @@ async function fetchOgImages(
     return results;
 }
 
-// ─── LLM steps ───
+// ─── Deterministic curation & summarization ───
 
-/** Ask LLM to select the best 12-18 articles from a numbered list. */
-async function curateArticles(
+/** Priority categories for curation scoring. */
+const PRIORITY_CATEGORIES: Record<string, number> = {
+    'security': 3,
+    'tech': 2,
+    'open-source': 2,
+    'organizing': 2,
+    'politics': 1,
+    'world': 1,
+    'general': 0,
+};
+
+/** Select the best 12-18 articles using scoring: category priority + source diversity + recency. */
+function curateArticles(
     items: { index: number; title: string; category: string; source: string }[],
-): Promise<number[]> {
-    const numbered = items
-        .map((item) => `${item.index}. [${item.category}] ${item.title} (${item.source})`)
-        .join('\n');
+): number[] {
+    // Score each article
+    const scored = items.map(item => ({
+        index: item.index,
+        category: item.category,
+        source: item.source,
+        score: (PRIORITY_CATEGORIES[item.category] ?? 0) + (item.index < 10 ? 2 : item.index < 20 ? 1 : 0),
+    }));
 
-    const response = await llmGenerate({
-        messages: [
-            {
-                role: 'system',
-                content: 'You are a newspaper editor for SUBCULT Daily, a tech-forward daily newspaper. Select the most newsworthy articles for today\'s edition.',
-            },
-            {
-                role: 'user',
-                content: `From these articles, select 12-18 of the most important and interesting for today's newspaper. Prioritize: AI/ML, open source, cybersecurity, labor/organizing, geopolitics, and significant tech news. Avoid duplicates and low-quality items.
+    // Sort by score descending
+    scored.sort((a, b) => b.score - a.score);
 
-Return ONLY a comma-separated list of article numbers, nothing else. Example: 1,3,5,7,9,12,15
+    // Select with source diversity: max 3 articles per source
+    const selected: number[] = [];
+    const sourceCounts = new Map<string, number>();
+    const categoryCounts = new Map<string, number>();
 
-Articles:
-${numbered}`,
-            },
-        ],
-        temperature: 0.3,
-        maxTokens: 100,
-        trackingContext: { agentId: 'system', context: 'newspaper_curation' },
-    });
+    for (const item of scored) {
+        if (selected.length >= 18) break;
+        const srcCount = sourceCounts.get(item.source) ?? 0;
+        const catCount = categoryCounts.get(item.category) ?? 0;
+        if (srcCount >= 3) continue;
+        if (catCount >= 6) continue;
 
-    const indices = response
-        .replace(/[^0-9,]/g, '')
-        .split(',')
-        .map(Number)
-        .filter((n) => !isNaN(n) && n >= 0 && n < items.length);
+        selected.push(item.index);
+        sourceCounts.set(item.source, srcCount + 1);
+        categoryCounts.set(item.category, catCount + 1);
+    }
 
-    return [...new Set(indices)]; // deduplicate
-}
-
-/** Ask LLM to summarize all curated articles in one batch call. */
-async function summarizeArticles(
-    articles: { title: string; description: string | null; source: string; category: string }[],
-): Promise<string[]> {
-    const numbered = articles
-        .map(
-            (a, i) =>
-                `${i + 1}. [${a.category}] "${a.title}" (${a.source})${a.description ? '\n   ' + a.description.slice(0, 300) : ''}`,
-        )
-        .join('\n\n');
-
-    const response = await llmGenerate({
-        messages: [
-            {
-                role: 'system',
-                content: 'You are a concise news summarizer for SUBCULT Daily. Write sharp, informative summaries.',
-            },
-            {
-                role: 'user',
-                content: `Summarize each article in 2-3 sentences. Be factual and informative. Number each summary to match the input.
-
-Articles:
-${numbered}
-
-Write summaries as:
-1. [summary]
-2. [summary]
-...`,
-            },
-        ],
-        temperature: 0.3,
-        maxTokens: 2000,
-        trackingContext: { agentId: 'system', context: 'newspaper_summarization' },
-    });
-
-    // Parse numbered summaries
-    const summaries: string[] = [];
-    const lines = response.split('\n');
-    let current = '';
-    let currentNum = -1;
-
-    for (const line of lines) {
-        const match = line.match(/^(\d+)\.\s+(.+)/);
-        if (match) {
-            if (currentNum >= 0 && current) {
-                summaries[currentNum] = current.trim();
+    // If we have fewer than 12, fill from remaining
+    if (selected.length < 12) {
+        for (const item of scored) {
+            if (selected.length >= 15) break;
+            if (!selected.includes(item.index)) {
+                selected.push(item.index);
             }
-            currentNum = parseInt(match[1]) - 1;
-            current = match[2];
-        } else if (currentNum >= 0 && line.trim()) {
-            current += ' ' + line.trim();
         }
     }
-    if (currentNum >= 0 && current) {
-        summaries[currentNum] = current.trim();
-    }
 
-    // Fill gaps with fallback
-    return articles.map((a, i) => summaries[i] || a.description?.slice(0, 200) || a.title);
+    return selected;
 }
 
-/** Generate a front-page headline from the top stories. */
-async function generateHeadline(topStories: string[]): Promise<string> {
-    const response = await llmGenerate({
-        messages: [
-            {
-                role: 'system',
-                content: 'You are a headline writer for SUBCULT Daily. Write compelling, newspaper-style headlines.',
-            },
-            {
-                role: 'user',
-                content: `Write one compelling front-page headline that captures today's top stories. Keep it under 80 characters. No quotes or punctuation at the start/end.
-
-Top stories:
-${topStories.slice(0, 5).map((s, i) => `${i + 1}. ${s}`).join('\n')}`,
-            },
-        ],
-        temperature: 0.5,
-        maxTokens: 50,
-        trackingContext: { agentId: 'system', context: 'newspaper_headline' },
+/** Use RSS description as summary; truncate and clean up if needed. */
+function summarizeArticles(
+    articles: { title: string; description: string | null; source: string; category: string }[],
+): string[] {
+    return articles.map(a => {
+        if (a.description && a.description.length > 20) {
+            // Clean up HTML entities and truncate
+            const cleaned = a.description
+                .replace(/<[^>]+>/g, '')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .replace(/\s+/g, ' ')
+                .trim();
+            // Take first 2-3 sentences (up to 300 chars)
+            const sentences = cleaned.match(/[^.!?]+[.!?]+/g);
+            if (sentences && sentences.length > 0) {
+                let summary = '';
+                for (const s of sentences.slice(0, 3)) {
+                    if ((summary + s).length > 300) break;
+                    summary += s;
+                }
+                return summary.trim() || cleaned.slice(0, 200);
+            }
+            return cleaned.slice(0, 200);
+        }
+        return a.title;
     });
+}
 
-    return response.replace(/^["']|["']$/g, '').trim() || 'Today in Tech, Security, and Power';
+/** Generate a front-page headline from the top stories using templates. */
+function generateHeadline(topStories: string[]): string {
+    if (topStories.length === 0) return 'Today in Tech, Security, and Power';
+
+    // Use the top story title, trimmed to 80 chars
+    const top = topStories[0];
+    if (top.length <= 80) return top;
+
+    // Truncate at last word boundary before 80 chars
+    const truncated = top.slice(0, 77);
+    const lastSpace = truncated.lastIndexOf(' ');
+    return (lastSpace > 30 ? truncated.slice(0, lastSpace) : truncated) + '...';
 }
 
 // ─── Markdown generation ───
@@ -437,7 +415,7 @@ export async function generateDailyNewspaper(): Promise<string | null> {
         source: item.feed_name,
     }));
 
-    let selectedIndices = await curateArticles(indexed);
+    let selectedIndices = curateArticles(indexed);
 
     // Fallback: if curation returns too few, take top 15 by recency
     if (selectedIndices.length < 5) {
@@ -449,8 +427,8 @@ export async function generateDailyNewspaper(): Promise<string | null> {
 
     const curated = selectedIndices.map((i) => recentItems[i]).filter(Boolean);
 
-    // 4. Summarize — batch LLM call
-    const summaries = await summarizeArticles(
+    // 4. Summarize — use RSS descriptions directly
+    const summaries = summarizeArticles(
         curated.map((item) => ({
             title: item.title,
             description: item.description,
@@ -459,8 +437,8 @@ export async function generateDailyNewspaper(): Promise<string | null> {
         })),
     );
 
-    // 5. Headline — LLM generates front-page headline
-    const headline = await generateHeadline(curated.map((item) => item.title));
+    // 5. Headline — generate from top story title
+    const headline = generateHeadline(curated.map((item) => item.title));
 
     // 6. Fetch og:images — parallel with concurrency limit
     const ogImages = await fetchOgImages(curated);

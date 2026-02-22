@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
     try {
-        const [events, missions, sessions, memories] = await Promise.all([
+        const [events, missions, sessions, memories, epoch] = await Promise.all([
             sql<
                 [{ count: number }]
             >`SELECT COUNT(*)::int as count FROM ops_agent_events`,
@@ -23,6 +23,9 @@ export async function GET() {
                   AND agent_id NOT LIKE 'oc-%'
                 GROUP BY agent_id
             `,
+            sql<[{ value: { started_at?: string } }?]>`
+                SELECT value FROM ops_policy WHERE key = 'simulation_epoch'
+            `,
         ]);
 
         return NextResponse.json({
@@ -32,6 +35,7 @@ export async function GET() {
             memoriesByAgent: Object.fromEntries(
                 memories.map(r => [r.agent_id, r.count]),
             ),
+            simulationStartedAt: epoch?.[0]?.value?.started_at ?? null,
         });
     } catch (err) {
         return NextResponse.json(

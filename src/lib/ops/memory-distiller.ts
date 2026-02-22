@@ -1,5 +1,5 @@
 // Memory distiller — extract memories + drifts + action items from conversations
-import { llmGenerate } from '../llm';
+import { llmGenerate, extractJson } from '../llm';
 import { writeMemory, enforceMemoryCap } from './memory';
 import { applyPairwiseDrifts } from './relationships';
 import { createProposalAndMaybeAutoApprove } from './proposal-service';
@@ -15,7 +15,16 @@ import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'distiller' });
 
-const ACTION_ITEM_FORMATS: ConversationFormat[] = ['standup'];
+const ACTION_ITEM_FORMATS: ConversationFormat[] = [
+    'standup',
+    'planning',
+    'shipping',
+    'strategy',
+    'retro',
+    'triage',
+    'risk_review',
+    'deep_dive',
+];
 const VALID_MEMORY_TYPES: MemoryType[] = [
     'insight',
     'pattern',
@@ -33,21 +42,49 @@ export async function distillConversationMemories(
 
     // Load distillation policy from DB (30s cache)
     const distillPolicy = await getPolicy('roundtable_distillation');
-    const maxMemories = (distillPolicy.max_memories_per_conversation as number) ?? 6;
-    const minConfidence = (distillPolicy.min_confidence_threshold as number) ?? 0.55;
-    const maxActionItems = (distillPolicy.max_action_items_per_conversation as number) ?? 3;
+    const maxMemories =
+        (distillPolicy.max_memories_per_conversation as number) ?? 6;
+    const minConfidence =
+        (distillPolicy.min_confidence_threshold as number) ?? 0.55;
+    const maxActionItems =
+        (distillPolicy.max_action_items_per_conversation as number) ?? 3;
 
     const speakers = [...new Set(history.map(h => h.speaker))];
-    const transcript = history
+
+    // Truncate to last 8 turns to reduce token waste — recent turns carry the most signal
+    const recentHistory = history.length > 8 ? history.slice(-8) : history;
+    const transcript = recentHistory
         .map(h => `[${h.speaker}]: ${h.dialogue}`)
         .join('\n');
 
-    const prompt = `You are a memory extraction system for an AI agent collective.
+    // Skip pairwise drift for small groups (≤3 participants have limited pair combinations)
+    const includeDrifts = speakers.length > 3;
+    const includeActions = ACTION_ITEM_FORMATS.includes(format);
 
-Analyze this ${format} conversation and extract:
-1. **memories**: Key insights, patterns, strategies, preferences, or lessons each agent should remember
-2. **pairwise_drift**: How each pair of agents' relationship shifted (positive = warmer, negative = cooler)
-3. **action_items**: Concrete follow-up tasks mentioned (only for standup format)
+    // ─── Single LLM call: Memories + Drifts + Action Items ───
+
+    let driftSchema = '';
+    let driftRules = '';
+    if (includeDrifts) {
+        driftSchema = `  "pairwise_drift": [
+    { "agent_a": "string", "agent_b": "string", "drift": -0.03 to 0.03, "reason": "max 200 chars" }
+  ],`;
+        driftRules = `- Drift is a small float between -0.03 and 0.03 (positive=warmer, negative=cooler). Only report non-zero drifts.`;
+    }
+
+    let actionSchema = '';
+    let actionRules = '';
+    if (includeActions) {
+        actionSchema = `  "action_items": [
+    { "title": "string", "agent_id": "string", "step_kind": "string" }
+  ],`;
+        actionRules = `- Max ${maxActionItems} action items — only tasks explicitly committed to or clearly implied
+- step_kind: research_topic, scan_signals, draft_essay, draft_thread, critique_content, audit_system, patch_code, distill_insight, document_lesson, convene_roundtable`;
+    }
+
+    const memoriesPrompt = `You are a memory extraction system for an AI agent collective.
+
+Analyze this ${format} conversation and extract memories${includeDrifts ? ', relationship drifts' : ''}${includeActions ? ', and action items' : ''}.
 
 Conversation transcript:
 ${transcript}
@@ -57,24 +94,14 @@ Participants: ${speakers.join(', ')}
 Respond with valid JSON only:
 {
   "memories": [
-    { "agent_id": "string", "type": "insight|pattern|strategy|preference|lesson", "content": "max 200 chars", "confidence": 0.55-1.0, "tags": ["string"] }
+    { "agent_id": "string", "type": "insight|pattern|strategy|preference|lesson", "content": "max 400 chars", "confidence": 0.55-1.0, "tags": ["string"] }
   ],
-  "pairwise_drift": [
-    { "agent_a": "string", "agent_b": "string", "drift": -0.03 to 0.03, "reason": "max 200 chars" }
-  ],
-  "action_items": [
-    { "title": "string", "agent_id": "string", "step_kind": "string" }
-  ]
-}
+${driftSchema}${actionSchema}}
 
 Rules:
-- Max ${maxMemories} memories total
-- Only valid types: ${VALID_MEMORY_TYPES.join(', ')}
-- Only valid agents: ${speakers.join(', ')}
-- Confidence must be >= ${minConfidence}
-- Content max 200 characters
-- Drift between -0.03 and 0.03
-- Max ${maxActionItems} action items (only for standup conversations)
+- Max ${maxMemories} memories, types: ${VALID_MEMORY_TYPES.join(', ')}, agents: ${speakers.join(', ')}
+- Confidence >= ${minConfidence}, content max 400 chars
+${driftRules}${actionRules}
 - Return empty arrays if nothing meaningful to extract`;
 
     let parsed: {
@@ -87,11 +114,11 @@ Rules:
         }>;
         pairwise_drift?: PairwiseDrift[];
         action_items?: ActionItem[];
-    };
+    } | null = null;
 
     try {
         const response = await llmGenerate({
-            messages: [{ role: 'user', content: prompt }],
+            messages: [{ role: 'user', content: memoriesPrompt }],
             temperature: 0.3,
             maxTokens: 1500,
             trackingContext: {
@@ -101,15 +128,23 @@ Rules:
             },
         });
 
-        // Extract JSON from response
-        const jsonMatch = response.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-            log.warn('No JSON found in LLM response', { sessionId });
+        parsed = extractJson<{
+            memories?: Array<{
+                agent_id: string;
+                type: string;
+                content: string;
+                confidence: number;
+                tags: string[];
+            }>;
+            pairwise_drift?: PairwiseDrift[];
+            action_items?: ActionItem[];
+        }>(response);
+        if (!parsed) {
+            log.warn('No JSON found in memories LLM response', { sessionId });
             return 0;
         }
-        parsed = JSON.parse(jsonMatch[0]);
     } catch (err) {
-        log.error('LLM extraction failed', { error: err, sessionId });
+        log.error('Memories LLM extraction failed', { error: err, sessionId });
         return 0;
     }
 
@@ -118,11 +153,10 @@ Rules:
     // Process memories
     const memories = (parsed.memories ?? []).slice(0, maxMemories);
     for (const mem of memories) {
-        // Validate
         if (!VALID_MEMORY_TYPES.includes(mem.type as MemoryType)) continue;
         if (!speakers.includes(mem.agent_id)) continue;
         if (mem.confidence < minConfidence) continue;
-        if (mem.content.length > 200) mem.content = mem.content.slice(0, 200);
+        if (mem.content.length > 400) mem.content = mem.content.slice(0, 400);
 
         const id = await writeMemory({
             agent_id: mem.agent_id,
@@ -139,24 +173,25 @@ Rules:
         }
     }
 
-    // Process drifts
-    const drifts = parsed.pairwise_drift ?? [];
-    if (drifts.length > 0) {
-        // Validate drifts
-        const validDrifts = drifts.filter(
-            d =>
-                speakers.includes(d.agent_a) &&
-                speakers.includes(d.agent_b) &&
-                d.agent_a !== d.agent_b &&
-                Math.abs(d.drift) <= 0.03,
-        );
-        if (validDrifts.length > 0) {
-            await applyPairwiseDrifts(validDrifts, sessionId);
+    // Process drifts (only if included)
+    if (includeDrifts) {
+        const drifts = parsed.pairwise_drift ?? [];
+        if (drifts.length > 0) {
+            const validDrifts = drifts.filter(
+                d =>
+                    speakers.includes(d.agent_a) &&
+                    speakers.includes(d.agent_b) &&
+                    d.agent_a !== d.agent_b &&
+                    Math.abs(d.drift) <= 0.03,
+            );
+            if (validDrifts.length > 0) {
+                await applyPairwiseDrifts(validDrifts, sessionId);
+            }
         }
     }
 
-    // Process action items (standup format only)
-    if (ACTION_ITEM_FORMATS.includes(format)) {
+    // Process action items (extracted from the same LLM call)
+    if (includeActions) {
         const actionItems = (parsed.action_items ?? []).slice(0, maxActionItems);
         for (const item of actionItems) {
             if (!speakers.includes(item.agent_id)) continue;

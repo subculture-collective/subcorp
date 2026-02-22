@@ -2,8 +2,6 @@
 // Phase 6: Daily Digest & Reporting
 
 import { sql, jsonb } from '@/lib/db';
-import { llmGenerate } from '@/lib/llm/client';
-import { getVoice } from '@/lib/roundtable/voices';
 import { emitEvent } from '@/lib/ops/events';
 import { logger } from '@/lib/logger';
 
@@ -265,25 +263,8 @@ export async function generateDailyDigest(date?: Date): Promise<string | null> {
         :   ['  (none)']),
     ].join('\n');
 
-    // Get Mux's voice
-    const muxVoice = getVoice('mux');
-    const systemDirective =
-        muxVoice?.systemDirective ??
-        'You are Mux, the operational labor agent.';
-
-    // Generate summary via LLM
-    const summary = await llmGenerate({
-        messages: [
-            { role: 'system', content: systemDirective },
-            {
-                role: 'user',
-                content: `Write a brief daily summary for the collective. Be conversational, highlight what's interesting, and keep your typical dry humor. Here's today's activity data:\n\n${dataSummary}\n\nWrite a 2-4 paragraph digest. Mention specific agents by name when relevant. Note any patterns or interesting developments. If it was a quiet day, say so — don't fabricate activity.`,
-            },
-        ],
-        temperature: 0.7,
-        maxTokens: 500,
-        trackingContext: { agentId: 'mux', context: 'daily_digest' },
-    });
+    // Generate summary via template (Mux voice, dry and direct)
+    const summary = buildDigestSummary(dateStr, stats, data);
 
     // Extract highlights from top events
     const highlights: DigestHighlight[] = data.topEvents.slice(0, 5).map(e => ({
@@ -316,4 +297,71 @@ export async function generateDailyDigest(date?: Date): Promise<string | null> {
         stats,
     });
     return inserted.id;
+}
+
+// ─── Template-based digest summary (Mux voice) ───
+
+const GREETINGS = [
+    'Daily operations report.',
+    'Here\'s what happened.',
+    'End of day. Here\'s the rundown.',
+    'Another day in the books.',
+    'Compiling the day\'s activity.',
+    'Operational summary follows.',
+];
+
+const QUIET_LINES = [
+    'Quiet day. Machinery hummed along without much to report.',
+    'Not much to write home about. Systems ticked over.',
+    'Low activity across the board. Sometimes that\'s fine.',
+];
+
+function buildDigestSummary(dateStr: string, stats: DigestStats, data: DayData): string {
+    const dayOfWeek = new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long' });
+    // Deterministic greeting based on date hash
+    const dateHash = dateStr.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+    const greeting = GREETINGS[dateHash % GREETINGS.length];
+
+    const parts: string[] = [greeting];
+
+    // Quiet day shortcut
+    if (stats.events < 5 && stats.conversations === 0) {
+        parts.push(QUIET_LINES[dateHash % QUIET_LINES.length]);
+        parts.push(`${dayOfWeek}, ${dateStr}. ${stats.events} events, $${stats.costs} in LLM costs.`);
+        return parts.join(' ');
+    }
+
+    // Activity paragraph
+    const activityParts: string[] = [];
+    if (stats.conversations > 0) {
+        const topTopics = data.sessions.slice(0, 3).map(s => `"${s.topic}"`).join(', ');
+        activityParts.push(`${stats.conversations} conversation${stats.conversations !== 1 ? 's' : ''} completed — topics included ${topTopics}`);
+    }
+    if (stats.missions_succeeded > 0 || stats.missions_failed > 0) {
+        const mParts: string[] = [];
+        if (stats.missions_succeeded > 0) mParts.push(`${stats.missions_succeeded} succeeded`);
+        if (stats.missions_failed > 0) mParts.push(`${stats.missions_failed} failed`);
+        activityParts.push(`Missions: ${mParts.join(', ')}`);
+    }
+    if (stats.memories > 0) {
+        const topMemAgents = Object.entries(data.memoriesByAgent)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([a, c]) => `${a} (${c})`);
+        activityParts.push(`${stats.memories} new memories formed — ${topMemAgents.join(', ')}`);
+    }
+    parts.push(activityParts.join('. ') + '.');
+
+    // Notable events paragraph
+    if (data.topEvents.length > 0) {
+        const notable = data.topEvents.slice(0, 5);
+        const agentMentions = [...new Set(notable.map(e => e.agent_id))];
+        const eventLines = notable.slice(0, 3).map(e => e.title).join('; ');
+        parts.push(`Notable activity from ${agentMentions.join(', ')}: ${eventLines}.`);
+    }
+
+    // Closing with costs
+    parts.push(`${dayOfWeek} total: ${stats.events} events, $${stats.costs} in compute.`);
+
+    return parts.join('\n\n');
 }

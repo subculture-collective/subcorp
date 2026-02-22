@@ -166,14 +166,30 @@ export async function executeAgentSession(session: AgentSession): Promise<void> 
         const timeoutMs = session.timeout_seconds * 1000;
         let lastText = '';
 
+        // Reserve 90s for the final write — stop issuing new LLM rounds
+        // when less than 90s remain so the session can finish cleanly
+        const softDeadlineMs = timeoutMs - 90_000;
+
         for (let round = 0; round < maxRounds; round++) {
-            // Check timeout
-            if (Date.now() - startTime > timeoutMs) {
+            const elapsed = Date.now() - startTime;
+
+            // Hard timeout — session has exceeded its budget
+            if (elapsed > timeoutMs) {
                 await completeSession(session.id, 'timed_out', {
                     summary: lastText || 'Session timed out before completing',
                     rounds: llmRounds,
                 }, allToolCalls, llmRounds, totalTokens, totalCost, 'Timeout exceeded');
                 return;
+            }
+
+            // Soft deadline — not enough time for another full round, wrap up
+            if (elapsed > softDeadlineMs && round > 0 && lastText) {
+                log.info('Soft deadline reached, finishing with current output', {
+                    sessionId: session.id,
+                    elapsed: Math.round(elapsed / 1000),
+                    rounds: llmRounds,
+                });
+                break;
             }
 
             llmRounds++;

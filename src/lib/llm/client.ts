@@ -53,8 +53,14 @@ function repairTruncatedJson(raw: string): Record<string, unknown> {
     let inString = false;
     for (let i = 0; i < s.length; i++) {
         const ch = s[i];
-        if (ch === '\\' && inString) { i++; continue; }
-        if (ch === '"') { inString = !inString; continue; }
+        if (ch === '\\' && inString) {
+            i++;
+            continue;
+        }
+        if (ch === '"') {
+            inString = !inString;
+            continue;
+        }
         if (inString) continue;
         if (ch === '{') braces++;
         else if (ch === '}') braces--;
@@ -105,7 +111,8 @@ export { getClient as getOpenRouterClient };
 // Set OLLAMA_ENABLED=false to disable all Ollama paths (defaults to true when credentials exist)
 
 const OLLAMA_ENABLED = process.env.OLLAMA_ENABLED !== 'false';
-const OLLAMA_LOCAL_URL = OLLAMA_ENABLED ? (process.env.OLLAMA_BASE_URL ?? '') : '';
+const OLLAMA_LOCAL_URL =
+    OLLAMA_ENABLED ? (process.env.OLLAMA_BASE_URL ?? '') : '';
 const OLLAMA_CLOUD_URL = 'https://ollama.com';
 const OLLAMA_API_KEY = OLLAMA_ENABLED ? (process.env.OLLAMA_API_KEY ?? '') : '';
 const OLLAMA_TIMEOUT_MS = 60_000;
@@ -320,7 +327,12 @@ async function ollamaChatWithModel(
                 const text = extractFromXml(stripThinking(raw)).trim();
                 if (text.length === 0 && toolCallRecords.length === 0)
                     return null;
-                return { text, toolCalls: toolCallRecords, model, usage: data.usage };
+                return {
+                    text,
+                    toolCalls: toolCallRecords,
+                    model,
+                    usage: data.usage,
+                };
             }
 
             // Execute tool calls
@@ -551,11 +563,14 @@ export async function llmGenerate(
             maxTokens,
         });
         if (ollamaResult?.text) {
-            const ollamaUsage = ollamaResult.usage ? {
-                inputTokens: ollamaResult.usage.prompt_tokens ?? 0,
-                outputTokens: ollamaResult.usage.completion_tokens ?? 0,
-                totalTokens: ollamaResult.usage.total_tokens ?? 0,
-            } as unknown as OpenResponsesUsage : null;
+            const ollamaUsage =
+                ollamaResult.usage ?
+                    ({
+                        inputTokens: ollamaResult.usage.prompt_tokens ?? 0,
+                        outputTokens: ollamaResult.usage.completion_tokens ?? 0,
+                        totalTokens: ollamaResult.usage.total_tokens ?? 0,
+                    } as unknown as OpenResponsesUsage)
+                :   null;
             void trackUsage(
                 `ollama/${ollamaResult.model}`,
                 ollamaUsage,
@@ -620,7 +635,8 @@ export async function llmGenerate(
     }
 
     // 1) Try with models array — OpenRouter handles provider routing natively
-    let openRouterError: { statusCode?: number; message?: string } | null = null;
+    let openRouterError: { statusCode?: number; message?: string } | null =
+        null;
     try {
         const text = await tryCall(modelList);
         if (text) return text;
@@ -635,7 +651,11 @@ export async function llmGenerate(
     }
 
     // 2) If models array returned empty or errored, try remaining models individually
-    if (!openRouterError || (openRouterError.statusCode !== 402 && openRouterError.statusCode !== 429)) {
+    if (
+        !openRouterError ||
+        (openRouterError.statusCode !== 402 &&
+            openRouterError.statusCode !== 429)
+    ) {
         for (const fallback of resolved.slice(MAX_MODELS_ARRAY)) {
             try {
                 const text = await tryCall(fallback);
@@ -647,7 +667,11 @@ export async function llmGenerate(
     }
 
     // 3) If OpenRouter failed entirely, retry Ollama as last resort (text-only, no tools)
-    if (openRouterError && !hasToolsDefined && (OLLAMA_API_KEY || OLLAMA_LOCAL_URL)) {
+    if (
+        openRouterError &&
+        !hasToolsDefined &&
+        (OLLAMA_API_KEY || OLLAMA_LOCAL_URL)
+    ) {
         log.debug('OpenRouter failed, retrying Ollama as last resort', {
             error: openRouterError.message,
             statusCode: openRouterError.statusCode,
@@ -656,11 +680,14 @@ export async function llmGenerate(
             maxTokens,
         });
         if (retryResult?.text) {
-            const ollamaUsage = retryResult.usage ? {
-                inputTokens: retryResult.usage.prompt_tokens ?? 0,
-                outputTokens: retryResult.usage.completion_tokens ?? 0,
-                totalTokens: retryResult.usage.total_tokens ?? 0,
-            } as unknown as OpenResponsesUsage : null;
+            const ollamaUsage =
+                retryResult.usage ?
+                    ({
+                        inputTokens: retryResult.usage.prompt_tokens ?? 0,
+                        outputTokens: retryResult.usage.completion_tokens ?? 0,
+                        totalTokens: retryResult.usage.total_tokens ?? 0,
+                    } as unknown as OpenResponsesUsage)
+                :   null;
             void trackUsage(
                 `ollama/${retryResult.model}`,
                 ollamaUsage,
@@ -673,7 +700,9 @@ export async function llmGenerate(
 
     // If we had a specific OpenRouter error and nothing else worked, throw it
     if (openRouterError?.statusCode === 402) {
-        throw new Error('Insufficient OpenRouter credits — add credits at openrouter.ai');
+        throw new Error(
+            'Insufficient OpenRouter credits — add credits at openrouter.ai',
+        );
     }
     if (openRouterError?.statusCode === 429) {
         throw new Error('OpenRouter rate limited — try again shortly');
@@ -712,11 +741,14 @@ export async function llmGenerateWithTools(
         });
 
         if (ollamaResult?.text) {
-            const ollamaUsage = ollamaResult.usage ? {
-                inputTokens: ollamaResult.usage.prompt_tokens ?? 0,
-                outputTokens: ollamaResult.usage.completion_tokens ?? 0,
-                totalTokens: ollamaResult.usage.total_tokens ?? 0,
-            } as unknown as OpenResponsesUsage : null;
+            const ollamaUsage =
+                ollamaResult.usage ?
+                    ({
+                        inputTokens: ollamaResult.usage.prompt_tokens ?? 0,
+                        outputTokens: ollamaResult.usage.completion_tokens ?? 0,
+                        totalTokens: ollamaResult.usage.total_tokens ?? 0,
+                    } as unknown as OpenResponsesUsage)
+                :   null;
             void trackUsage(
                 `ollama/${ollamaResult.model}`,
                 ollamaUsage,
@@ -757,7 +789,11 @@ export async function llmGenerateWithTools(
     type WorkingMessage = {
         role: string;
         content: string | null;
-        tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>;
+        tool_calls?: Array<{
+            id: string;
+            type: string;
+            function: { name: string; arguments: string };
+        }>;
         tool_call_id?: string;
     };
     const workingMessages: WorkingMessage[] = messages.map(m => ({
@@ -792,16 +828,19 @@ export async function llmGenerateWithTools(
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 120_000);
 
-            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-                    'HTTP-Referer': 'https://subcult.org',
+            const response = await fetch(
+                'https://openrouter.ai/api/v1/chat/completions',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+                        'HTTP-Referer': 'https://subcult.org',
+                    },
+                    body: JSON.stringify(body),
+                    signal: controller.signal,
                 },
-                body: JSON.stringify(body),
-                signal: controller.signal,
-            });
+            );
 
             clearTimeout(timeoutId);
 
@@ -809,23 +848,31 @@ export async function llmGenerateWithTools(
                 const errBody = await response.text().catch(() => '');
                 const statusCode = response.status;
                 throw Object.assign(
-                    new Error(`OpenRouter API error: ${statusCode} ${errBody.slice(0, 200)}`),
+                    new Error(
+                        `OpenRouter API error: ${statusCode} ${errBody.slice(0, 200)}`,
+                    ),
                     { statusCode },
                 );
             }
 
-            const data = await response.json() as {
-                choices?: [{
-                    message?: {
-                        content?: string;
-                        tool_calls?: Array<{
-                            id: string;
-                            function: { name: string; arguments: string };
-                        }>;
-                    };
-                }];
+            const data = (await response.json()) as {
+                choices?: [
+                    {
+                        message?: {
+                            content?: string;
+                            tool_calls?: Array<{
+                                id: string;
+                                function: { name: string; arguments: string };
+                            }>;
+                        };
+                    },
+                ];
                 model?: string;
-                usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+                usage?: {
+                    prompt_tokens?: number;
+                    completion_tokens?: number;
+                    total_tokens?: number;
+                };
             };
 
             lastModel = data.model ?? 'unknown';
@@ -833,13 +880,18 @@ export async function llmGenerateWithTools(
                 lastUsage = {
                     inputTokens: data.usage.prompt_tokens ?? 0,
                     outputTokens: data.usage.completion_tokens ?? 0,
-                    totalTokens: (data.usage.prompt_tokens ?? 0) + (data.usage.completion_tokens ?? 0),
+                    totalTokens:
+                        (data.usage.prompt_tokens ?? 0) +
+                        (data.usage.completion_tokens ?? 0),
                 } as unknown as OpenResponsesUsage;
             }
 
             const msg = data.choices?.[0]?.message;
             if (!msg) {
-                log.warn('OpenRouter returned empty message', { round, model: lastModel });
+                log.warn('OpenRouter returned empty message', {
+                    round,
+                    model: lastModel,
+                });
                 break;
             }
 
@@ -848,7 +900,10 @@ export async function llmGenerateWithTools(
             // Detect DSML/XML text tool calls when API returned none
             // DeepSeek models sometimes emit tool calls as DSML text instead of
             // using the API tool_calls mechanism. Parse them into real tool calls.
-            if ((!pendingToolCalls || pendingToolCalls.length === 0) && msg.content) {
+            if (
+                (!pendingToolCalls || pendingToolCalls.length === 0) &&
+                msg.content
+            ) {
                 const dsmlCalls = parseDsmlToolCalls(msg.content, tools);
                 if (dsmlCalls.length > 0) {
                     pendingToolCalls = dsmlCalls;
@@ -866,7 +921,12 @@ export async function llmGenerateWithTools(
                 const text = extractFromXml(raw).trim();
 
                 const durationMs = Date.now() - startTime;
-                void trackUsage(lastModel, lastUsage, durationMs, trackingContext);
+                void trackUsage(
+                    lastModel,
+                    lastUsage,
+                    durationMs,
+                    trackingContext,
+                );
 
                 return { text, toolCalls: toolCallRecords };
             }
@@ -907,17 +967,24 @@ export async function llmGenerateWithTools(
                     }
 
                     // Validate required parameters before executing
-                    const required = (tool.parameters?.required as string[]) ?? [];
-                    const missing = required.filter(p => !(p in args) || args[p] == null);
+                    const required =
+                        (tool.parameters?.required as string[]) ?? [];
+                    const missing = required.filter(
+                        p => !(p in args) || args[p] == null,
+                    );
 
                     if (missing.length > 0) {
-                        log.warn('Tool call missing required params after parse/repair', {
-                            tool: tc.function.name,
-                            missing,
-                            argsKeys: Object.keys(args),
-                        });
+                        log.warn(
+                            'Tool call missing required params after parse/repair',
+                            {
+                                tool: tc.function.name,
+                                missing,
+                                argsKeys: Object.keys(args),
+                            },
+                        );
                         resultStr = JSON.stringify({
-                            error: `Missing required parameters: ${missing.join(', ')}. ` +
+                            error:
+                                `Missing required parameters: ${missing.join(', ')}. ` +
                                 `Your tool call output was truncated before these fields were emitted. ` +
                                 `If writing long content, split into smaller chunks using the "append" parameter ` +
                                 `or reduce the content length.`,
@@ -930,8 +997,9 @@ export async function llmGenerateWithTools(
                             result,
                         });
                         resultStr =
-                            typeof result === 'string' ? result
-                            :   JSON.stringify(result);
+                            typeof result === 'string' ? result : (
+                                JSON.stringify(result)
+                            );
                     }
                 } else {
                     resultStr = `Tool ${tc.function.name} not available`;
@@ -960,13 +1028,19 @@ export async function llmGenerateWithTools(
                 error: err.message,
                 statusCode: err.statusCode,
             });
-            const retryResult = await ollamaChat(messages, temperature, { maxTokens });
+            const retryResult = await ollamaChat(messages, temperature, {
+                maxTokens,
+            });
             if (retryResult?.text) {
-                const ollamaUsage = retryResult.usage ? {
-                    inputTokens: retryResult.usage.prompt_tokens ?? 0,
-                    outputTokens: retryResult.usage.completion_tokens ?? 0,
-                    totalTokens: retryResult.usage.total_tokens ?? 0,
-                } as unknown as OpenResponsesUsage : null;
+                const ollamaUsage =
+                    retryResult.usage ?
+                        ({
+                            inputTokens: retryResult.usage.prompt_tokens ?? 0,
+                            outputTokens:
+                                retryResult.usage.completion_tokens ?? 0,
+                            totalTokens: retryResult.usage.total_tokens ?? 0,
+                        } as unknown as OpenResponsesUsage)
+                    :   null;
                 void trackUsage(
                     `ollama/${retryResult.model}`,
                     ollamaUsage,
@@ -1004,7 +1078,10 @@ export async function llmGenerateWithTools(
  */
 function parseDsmlToolCalls(
     text: string,
-    availableTools: Array<{ name: string; parameters?: Record<string, unknown> }>,
+    availableTools: Array<{
+        name: string;
+        parameters?: Record<string, unknown>;
+    }>,
 ): Array<{ id: string; function: { name: string; arguments: string } }> {
     // Normalize DSML to standard XML
     const normalized = text
@@ -1012,8 +1089,12 @@ function parseDsmlToolCalls(
         .replace(/<\/[｜|]DSML[｜|]/g, '</');
 
     // Match <invoke name="toolname">...params...</invoke> blocks
-    const invokePattern = /<invoke\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/invoke>/gi;
-    const calls: Array<{ id: string; function: { name: string; arguments: string } }> = [];
+    const invokePattern =
+        /<invoke\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/invoke>/gi;
+    const calls: Array<{
+        id: string;
+        function: { name: string; arguments: string };
+    }> = [];
     const toolNames = new Set(availableTools.map(t => t.name));
 
     let match;
@@ -1026,7 +1107,8 @@ function parseDsmlToolCalls(
 
         // Extract parameters — supports both <parameter name="x">val</parameter> and <x>val</x>
         const args: Record<string, string> = {};
-        const paramPattern = /<parameter\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/parameter>/gi;
+        const paramPattern =
+            /<parameter\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/parameter>/gi;
         let paramMatch;
         while ((paramMatch = paramPattern.exec(body)) !== null) {
             args[paramMatch[1]] = paramMatch[2].trim();
@@ -1069,7 +1151,9 @@ function parseDsmlToolCalls(
 export function extractFromXml(text: string): string {
     // Normalize DeepSeek DSML tags (e.g. <｜DSML｜function_calls>) to standard XML
     // eslint-disable-next-line no-control-regex
-    text = text.replace(/<[｜|]DSML[｜|]/g, '<').replace(/<\/[｜|]DSML[｜|]/g, '</');
+    text = text
+        .replace(/<[｜|]DSML[｜|]/g, '<')
+        .replace(/<\/[｜|]DSML[｜|]/g, '</');
 
     // Quick check — if no XML function call patterns, return as-is
     if (!/<(?:function_?calls?|invoke|parameter)\b/i.test(text)) {
@@ -1086,7 +1170,9 @@ export function extractFromXml(text: string): string {
 
     // No content parameter — extract all parameter values as fallback
     const paramMatches = [
-        ...text.matchAll(/<parameter\s+name=["'][^"']*["'][^>]*>([\s\S]*?)<\/parameter>/gi),
+        ...text.matchAll(
+            /<parameter\s+name=["'][^"']*["'][^>]*>([\s\S]*?)<\/parameter>/gi,
+        ),
     ];
     if (paramMatches.length > 0) {
         // Return the longest parameter value (most likely to be the real content)
@@ -1097,7 +1183,10 @@ export function extractFromXml(text: string): string {
 
     // XML detected but no parameter tags — strip tags and return what's left
     const stripped = text
-        .replace(/<\/?(?:function_?calls?|invoke|parameter|tool_call|antml:[a-z_]+)[^>]*>/gi, '')
+        .replace(
+            /<\/?(?:function_?calls?|invoke|parameter|tool_call|antml:[a-z_]+)[^>]*>/gi,
+            '',
+        )
         .replace(/\s{2,}/g, ' ')
         .trim();
     // Return stripped text even if empty — don't fall back to raw XML
@@ -1114,16 +1203,104 @@ export function extractFromXml(text: string): string {
  * Does NOT truncate — the full response is preserved.
  */
 export function sanitizeDialogue(text: string): string {
-    return extractFromXml(text)
-        // Strip any remaining XML-style tags
-        .replace(/<\/?[a-z_][a-z0-9_-]*(?:\s[^>]*)?\s*>/gi, '')
-        // Remove URLs
-        .replace(/https?:\/\/\S+/g, '')
-        // Remove markdown bold/italic
-        .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, '$1')
-        // Remove quotes wrapping the entire response
-        .replace(/^["']|["']$/g, '')
-        // Collapse whitespace
-        .replace(/\s+/g, ' ')
-        .trim();
+    return (
+        extractFromXml(text)
+            // Strip any remaining XML-style tags
+            .replace(/<\/?[a-z_][a-z0-9_-]*(?:\s[^>]*)?\s*>/gi, '')
+            // Remove URLs
+            .replace(/https?:\/\/\S+/g, '')
+            // Remove markdown bold/italic
+            .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, '$1')
+            // Remove quotes wrapping the entire response
+            .replace(/^["']|["']$/g, '')
+            // Collapse whitespace
+            .replace(/\s+/g, ' ')
+            .trim()
+    );
+}
+
+// ─── Cross-Cutting Prompt Utilities (P22-24) ───
+
+/**
+ * Rough token estimate: ~4 characters per token for English text.
+ * Not exact, but useful for budgeting prompts before sending to the LLM.
+ */
+export function estimateTokens(text: string): number {
+    return Math.ceil(text.length / 4);
+}
+
+/**
+ * Robust JSON extraction from LLM output.
+ * Handles: raw JSON, markdown code fences, XML-wrapped content,
+ * and multiple JSON objects (picks the largest).
+ * Falls back to repairTruncatedJson for incomplete output.
+ * Returns null if no valid JSON can be extracted.
+ */
+export function extractJson<T = Record<string, unknown>>(
+    text: string,
+): T | null {
+    // Strip markdown code fences
+    const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+    if (fenceMatch) text = fenceMatch[1];
+
+    // Strip XML wrappers if present
+    text = extractFromXml(text);
+
+    // Find all top-level JSON objects
+    const candidates: string[] = [];
+    let depth = 0;
+    let start = -1;
+    let inString = false;
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (ch === '\\' && inString) {
+            i++;
+            continue;
+        }
+        if (ch === '"') {
+            inString = !inString;
+            continue;
+        }
+        if (inString) continue;
+        if (ch === '{') {
+            if (depth === 0) start = i;
+            depth++;
+        } else if (ch === '}') {
+            depth--;
+            if (depth === 0 && start >= 0) {
+                candidates.push(text.slice(start, i + 1));
+                start = -1;
+            }
+        }
+    }
+
+    // If we found an unclosed object, try to repair it
+    if (depth > 0 && start >= 0) {
+        try {
+            const repaired = repairTruncatedJson(text.slice(start));
+            return repaired as T;
+        } catch {
+            /* fall through */
+        }
+    }
+
+    // Pick the largest valid JSON object
+    for (const candidate of candidates.sort((a, b) => b.length - a.length)) {
+        try {
+            return JSON.parse(candidate) as T;
+        } catch {
+            /* try next */
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Build a clearly delimited prompt section with consistent formatting.
+ * Uses ═══ SECTION ═══ borders for major sections.
+ */
+export function promptSection(title: string, content: string): string {
+    return `═══ ${title.toUpperCase()} ═══\n${content}\n`;
 }

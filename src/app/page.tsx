@@ -4,6 +4,7 @@ import { AGENTS, AGENT_IDS } from '@/lib/agents';
 import { AgentAvatar } from '@/app/stage/AgentAvatar';
 import { RefreshIcon, BrainIcon, ScaleIcon, NetworkIcon } from '@/lib/icons';
 import { SubscribeCTA } from '@/components/SubscribeCTA';
+import { SimulationBadge } from '@/components/SimulationBadge';
 
 const FEATURES = [
     {
@@ -65,15 +66,7 @@ export default function LandingPage() {
             <section className='flex-1 flex flex-col items-center justify-center px-4 py-16 sm:py-24'>
                 <div className='max-w-3xl mx-auto text-center space-y-6'>
                     {/* Badge */}
-                    <div className='inline-flex items-center gap-2 rounded-full border border-zinc-700/50 bg-zinc-800/30 px-3 py-1'>
-                        <span className='relative flex h-2 w-2'>
-                            <span className='animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75' />
-                            <span className='relative inline-flex rounded-full h-2 w-2 bg-green-500' />
-                        </span>
-                        <span className='text-[11px] text-zinc-400'>
-                            System Active
-                        </span>
-                    </div>
+                    <SimulationBadge />
 
                     {/* Title */}
                     <h1 className='text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight'>

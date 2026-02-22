@@ -177,14 +177,23 @@ Respond with valid JSON only, no markdown fencing:
         rationale: string;
     };
 
+    if (!result || result.trim().length === 0) {
+        log.error('LLM returned empty response for agent proposal', {
+            proposer: proposerId,
+        });
+        throw new Error('LLM returned empty response for agent proposal');
+    }
+
     try {
-        const jsonMatch = result.match(/\{[\s\S]*\}/);
+        // Strip markdown fences if present (```json ... ```)
+        const stripped = result.replace(/```(?:json)?\s*([\s\S]*?)```/g, '$1');
+        const jsonMatch = stripped.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error('No JSON found in LLM response');
         parsed = JSON.parse(jsonMatch[0]);
     } catch (err) {
         log.error('Failed to parse agent proposal from LLM', {
             error: err,
-            responsePreview: result.slice(0, 200),
+            responsePreview: result.slice(0, 500),
         });
         throw new Error(
             `Failed to parse agent proposal: ${(err as Error).message}`,

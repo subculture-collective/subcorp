@@ -1,0 +1,1 @@
+import postgres from 'postgres'; const sql = postgres('postgres://subcult:ea29a9d9d91841abfc0054dc393a9878@127.0.0.1:5433/subcult_ops'); async function run() { const res = await sql`SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'ops_mission_steps'::regclass;`; console.log(res); process.exit(0); } run();

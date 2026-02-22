@@ -3,7 +3,7 @@ import { sql, jsonb } from '@/lib/db';
 import type { ProposalInput, Proposal } from '../types';
 import { getPolicy } from './policy';
 import { checkCapGates } from './cap-gates';
-import { emitEvent } from './events';
+import { emitEvent, emitEventAndCheckReactions } from './events';
 import { DAILY_PROPOSAL_LIMIT } from '../agents';
 import { logger } from '@/lib/logger';
 
@@ -66,7 +66,8 @@ export async function createProposalAndMaybeAutoApprove(
     // Check veto policy: block auto-approval for protected step kinds
     const vetoPolicy = await getPolicy('veto_authority');
     if (vetoPolicy.enabled) {
-        const protectedKinds = (vetoPolicy.protected_step_kinds as string[]) ?? [];
+        const protectedKinds =
+            (vetoPolicy.protected_step_kinds as string[]) ?? [];
         const hasProtectedStep = input.proposed_steps.some(s =>
             protectedKinds.includes(s.kind),
         );
@@ -94,9 +95,19 @@ export async function createProposalAndMaybeAutoApprove(
     const allowedKinds =
         (autoApprovePolicy.allowed_step_kinds as string[]) ?? [];
 
+    // Deliberated sources (roundtable conversations, system pipelines) get lower friction:
+    // auto-approve as long as auto_approve is enabled, even if step kinds aren't
+    // in the explicit allowlist. This ensures roundtable decisions and content
+    // revision loops translate to action without extra gates.
+    const TRUSTED_SOURCES = new Set(['conversation', 'system']);
+    const isTrustedSource = TRUSTED_SOURCES.has(input.source ?? 'agent');
+
     const shouldAutoApprove =
         autoApproveEnabled &&
-        input.proposed_steps.every(step => allowedKinds.includes(step.kind));
+        (isTrustedSource ||
+            input.proposed_steps.every(step =>
+                allowedKinds.includes(step.kind),
+            ));
 
     if (shouldAutoApprove) {
         await sql`
@@ -107,7 +118,7 @@ export async function createProposalAndMaybeAutoApprove(
 
         const missionId = await createMissionFromProposal(proposalId);
 
-        await emitEvent({
+        await emitEventAndCheckReactions({
             agent_id: input.agent_id,
             kind: 'proposal_auto_approved',
             title: `Auto-approved: ${input.title}`,

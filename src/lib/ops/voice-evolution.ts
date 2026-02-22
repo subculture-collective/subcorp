@@ -1,6 +1,22 @@
 // Voice evolution — derive personality modifiers from agent memory
 import { sql } from '@/lib/db';
 
+/** Maps modifier keys to behavioral instructions for injection into system prompts */
+export const MODIFIER_INSTRUCTIONS: Record<string, string> = {
+    'analytical-focus':
+        'Lean harder into structural diagnosis. Lead with "why" not "what".',
+    'pattern-aware':
+        'Name recurring patterns explicitly. Reference previous instances when relevant.',
+    strategic:
+        'Frame decisions in terms of tradeoffs and long-term positioning.',
+    reflective: 'Reference past lessons and what was learned from them.',
+    assertive: 'State positions directly. Fewer qualifiers.',
+    cautious: "Flag uncertainty explicitly. Name what you don't know.",
+    'broad-perspective':
+        'Draw connections across domains. Reference adjacent contexts.',
+    opinionated: "Don't hedge. State your preference and defend it.",
+};
+
 interface MemoryStats {
     total: number;
     insight_count: number;

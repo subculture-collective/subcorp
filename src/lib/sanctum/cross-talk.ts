@@ -105,19 +105,12 @@ export async function executeSummon(
     const target = AGENTS[summon.target];
     const summoner = AGENTS[summon.summoner];
 
-    const systemPrompt = `You are ${target.displayName}, the ${target.role} of SubCulture.
-${target.description}
+    const systemPrompt = `You are ${target.displayName}, the ${target.role}.
+${summoner.displayName} summoned you: "${summon.context.slice(0, 150)}"
+Reason: ${summon.reason}
+Respond in character. Be direct, under 400 characters. Do NOT prefix with your name.`;
 
-═══ SUMMONING CONTEXT ═══
-You were brought into this conversation by ${summoner.displayName} (${summoner.role}).
-They said: "${summon.context}"
-Reason you were summoned: ${summon.reason}
-
-Respond in character. Address the point that prompted your summoning.
-Be direct and concise. Under 400 characters.
-Do NOT prefix your response with your name.`;
-
-    const recentContext = conversationHistory.slice(-10);
+    const recentContext = conversationHistory.slice(-3);
     let contextStr = '';
     for (const msg of recentContext) {
         if (msg.role === 'user') {
@@ -217,15 +210,9 @@ export async function generateCrossTalk(
             const targetAgent = AGENTS[target.agentId];
 
             const systemPrompt = `You are ${reactorAgent.displayName}, the ${reactorAgent.role}.
-${reactorAgent.description}
-
-═══ CROSS-TALK ═══
-You're responding to what ${targetAgent.displayName} just said in the Sanctum.
-${targetAgent.displayName} said: "${target.content}"
+${targetAgent.displayName} said: "${target.content.slice(0, 200)}"
 ${toneHint}
-
-Be brief and pointed — this is a follow-up, not a monologue.
-Under 300 characters. Do NOT prefix with your name.`;
+Brief follow-up, under 300 characters. Do NOT prefix with your name.`;
 
             try {
                 const content = await llmGenerate({

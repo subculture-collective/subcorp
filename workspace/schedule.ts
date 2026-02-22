@@ -113,7 +113,7 @@ export const SUBCULT_OFFICE_SCHEDULE: OfficeSlot[] = [
         hour_utc: 9,
         name: 'Planning & Scoping',
         format: 'planning',
-        participants: ['praxis', 'mux', ...threeRandom(eligible)],
+        participants: ['praxis', 'mux', 'primus', ...threeRandom(eligible)],
         probability: 0.65,
     },
     {
@@ -135,7 +135,7 @@ export const SUBCULT_OFFICE_SCHEDULE: OfficeSlot[] = [
         name: 'Writing Room',
         format: 'writing_room',
         participants: ['chora', 'mux', ...threeRandom(eligible)],
-        probability: 0.55,
+        probability: 0.8,
     },
 
     // Afternoon block
@@ -162,6 +162,13 @@ export const SUBCULT_OFFICE_SCHEDULE: OfficeSlot[] = [
     },
     {
         hour_utc: 15,
+        name: 'Afternoon Writing Room',
+        format: 'writing_room',
+        participants: ['thaum', 'mux', ...threeRandom(eligible)],
+        probability: 0.7,
+    },
+    {
+        hour_utc: 15,
         name: 'Content Review',
         format: 'content_review',
         participants: ['subrosa', 'chora', 'mux', ...threeRandom(eligible)],
@@ -178,7 +185,7 @@ export const SUBCULT_OFFICE_SCHEDULE: OfficeSlot[] = [
         hour_utc: 17,
         name: 'Ship Window',
         format: 'shipping',
-        participants: ['praxis', 'mux', ...threeRandom(eligible)],
+        participants: ['praxis', 'mux', 'primus', ...threeRandom(eligible)],
         probability: 0.7,
     },
 

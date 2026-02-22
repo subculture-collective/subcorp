@@ -77,9 +77,7 @@ export async function buildBriefing(agentId: string): Promise<string> {
           AND completed_at > now() - interval '24 hours'
     `;
 
-    const draftStats = await sql<
-        Array<{ status: string; count: number }>
-    >`
+    const draftStats = await sql<Array<{ status: string; count: number }>>`
         SELECT status, COUNT(*)::int as count
         FROM ops_content_drafts
         WHERE created_at > now() - interval '24 hours'
@@ -120,9 +118,7 @@ export async function buildBriefing(agentId: string): Promise<string> {
     if (recentConversations.length > 0) {
         const convLines = recentConversations.map(c => {
             const names = c.participants
-                .map(
-                    p => AGENTS[p as AgentId]?.displayName ?? p,
-                )
+                .map(p => AGENTS[p as AgentId]?.displayName ?? p)
                 .join(', ');
             return `- "${c.topic}" (${c.format}, ${c.turn_count} turns) — ${names}`;
         });
@@ -144,11 +140,30 @@ export async function buildBriefing(agentId: string): Promise<string> {
 
     if (pendingProposals.length > 0) {
         const propLines = pendingProposals.map(p => {
-            const by =
-                AGENTS[p.agent_id as AgentId]?.displayName ?? p.agent_id;
+            const by = AGENTS[p.agent_id as AgentId]?.displayName ?? p.agent_id;
             return `- ${p.title} (proposed by ${by})`;
         });
         sections.push(`Pending proposals:\n${propLines.join('\n')}`);
+    }
+
+    // 6. Your pending deliverables — steps assigned to this agent that need doing
+    const pendingSteps = await sql<
+        Array<{ kind: string; mission_title: string; status: string }>
+    >`
+        SELECT s.kind, m.title as mission_title, s.status
+        FROM ops_mission_steps s
+        JOIN ops_missions m ON m.id = s.mission_id
+        WHERE s.assigned_agent = ${agentId}
+          AND s.status IN ('queued', 'running')
+        ORDER BY s.created_at ASC
+        LIMIT 5
+    `;
+
+    if (pendingSteps.length > 0) {
+        const stepLines = pendingSteps.map(
+            s => `- [${s.status}] ${s.kind}: ${s.mission_title}`,
+        );
+        sections.push(`Your pending deliverables:\n${stepLines.join('\n')}`);
     }
 
     const text =

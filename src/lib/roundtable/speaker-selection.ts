@@ -1,8 +1,23 @@
 // Speaker selection — weighted randomness for natural conversation flow
-// Factors: affinity with last speaker, recency penalty, format coordinator, random jitter
+// Factors: affinity with last speaker, recency penalty, format coordinator, format role boost, random jitter
 import type { ConversationFormat, ConversationTurnEntry } from '../types';
 import { getAffinityFromMap } from '../ops/relationships';
 import { getFormat } from './formats';
+
+/**
+ * Format-aware role boosts: in productive formats, elevate agents who drive output.
+ * Value is added directly to speaker weight for that agent in that format.
+ */
+const FORMAT_ROLE_BOOSTS: Partial<
+    Record<ConversationFormat, Record<string, number>>
+> = {
+    planning: { praxis: 0.3, mux: 0.3 },
+    shipping: { praxis: 0.3, mux: 0.3 },
+    writing_room: { chora: 0.3, mux: 0.3, thaum: 0.2 },
+    brainstorm: { thaum: 0.3, chora: 0.2 },
+    risk_review: { subrosa: 0.3, chora: 0.2 },
+    content_review: { subrosa: 0.3, mux: 0.2 },
+};
 
 /**
  * Calculate recency penalty — agents who've spoken more get penalized.
@@ -75,6 +90,14 @@ export function selectNextSpeaker(context: {
 
         // Spoke a lot recently → lower weight
         w -= recencyPenalty(agent, speakCounts, history.length) * 0.4;
+
+        // Format-aware role boost — give productive agents more airtime in their formats
+        if (context.format) {
+            const boosts = FORMAT_ROLE_BOOSTS[context.format];
+            if (boosts?.[agent]) {
+                w += boosts[agent];
+            }
+        }
 
         // 20% random jitter
         w += Math.random() * 0.4 - 0.2;

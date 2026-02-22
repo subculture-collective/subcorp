@@ -1,0 +1,14 @@
+                  id                  |              mission_id              |      kind       | status |           failure_reason            |          created_at           
+--------------------------------------+--------------------------------------+-----------------+--------+-------------------------------------+-------------------------------
+ 073eb8d8-6deb-4706-aad9-8ca4fc7a6efa | 13dc95d2-1d65-4e0c-bbd1-205afd81367a | research_topic  | failed | Timeout exceeded                    | 2026-02-22 12:43:16.371357+00
+ 06e445c5-0111-4afb-a384-02cef4f16a18 | d1bfe7a0-841a-4890-92d9-ed63a9df232d | document_lesson | failed | Timeout exceeded                    | 2026-02-22 12:35:03.347349+00
+ 2c00c06f-491e-4aba-9bc4-7976e15d9098 | f49e1b33-6bc4-4d07-ba59-2d3827be644f | scan_signals    | failed | Timeout exceeded                    | 2026-02-22 12:10:11.519897+00
+ 99034135-60ec-417d-a131-acfe7a6e48c8 | ed689b9e-f250-444b-81a8-37a39cc7a4a3 | document_lesson | failed | Timeout exceeded                    | 2026-02-22 11:45:31.891299+00
+ 02ec155f-6eca-4289-a421-896e881572c6 | ed689b9e-f250-444b-81a8-37a39cc7a4a3 | distill_insight | failed | Timeout exceeded                    | 2026-02-22 11:45:31.888674+00
+ 364fcca9-d4f3-4fb3-be04-82f0ac4bdf03 | 78b2e74e-9908-4d68-bec4-3f7f73948c2c | research_topic  | failed | Timeout exceeded                    | 2026-02-22 11:15:03.915843+00
+ 91f3e05b-46d6-49bc-bc86-a7f14f757a29 | 19288314-fa5b-4bed-8e2b-5d20feda656a | audit_system    | failed | Timeout exceeded                    | 2026-02-22 11:00:02.669519+00
+ dc2b8076-d98c-4363-9bf7-e0fc9cfe89fc | 3c3b9578-c15a-4177-9e82-eef73ef3719b | scan_signals    | failed | Timeout exceeded                    | 2026-02-22 10:15:03.575281+00
+ 819fb2ad-2ced-41ba-aa04-63179f1e3faf | 646f2539-6d96-453e-bd03-586f70ac8857 | research_topic  | failed | unsupported Unicode escape sequence | 2026-02-22 09:40:45.787981+00
+ 49ad7f0a-287f-4a19-b321-22a305ce7cba | 646f2539-6d96-453e-bd03-586f70ac8857 | document_lesson | failed | Timeout exceeded                    | 2026-02-22 09:40:45.784999+00
+(10 rows)
+

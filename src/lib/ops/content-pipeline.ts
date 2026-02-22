@@ -1,7 +1,8 @@
 // Content Pipeline — extract content from writing_room sessions, process reviews
 import { sql, jsonb } from '@/lib/db';
 import { llmGenerate } from '@/lib/llm/client';
-import { emitEvent } from '@/lib/ops/events';
+import { emitEvent, emitEventAndCheckReactions } from '@/lib/ops/events';
+import { createProposalAndMaybeAutoApprove } from '@/lib/ops/proposal-service';
 import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'content-pipeline' });
@@ -10,6 +11,22 @@ const log = logger.child({ module: 'content-pipeline' });
 
 const MAX_TITLE_LENGTH = 500;
 const MAX_BODY_LENGTH = 50000;
+
+// ─── Vote extraction helper ───
+
+/** Extract verdict from a reviewer's text using keyword matching. */
+function extractVerdict(text: string): 'approve' | 'reject' | 'mixed' | null {
+    const upper = text.toUpperCase();
+    const hasApprove = upper.includes('APPROVE') && !upper.includes('NOT APPROVE') && !upper.includes("DON'T APPROVE");
+    const hasReject = upper.includes('REJECT');
+    const hasRevise = upper.includes('REVIS') || upper.includes('NEEDS WORK') || upper.includes('REWORK');
+
+    if (hasApprove && !hasReject && !hasRevise) return 'approve';
+    if (hasReject && !hasApprove) return 'reject';
+    if (hasRevise) return 'mixed';
+    if (hasApprove && hasReject) return 'mixed';
+    return null;
+}
 
 // ─── Types ───
 
@@ -103,9 +120,15 @@ export async function extractContentFromSession(
         return null;
     }
 
-    // Build transcript text
-    const transcript = turns
-        .map(t => `[${t.speaker}]: ${t.dialogue}`)
+    // Build focused transcript — keep substantial turns in full, compress chatter
+    const CONTENT_THRESHOLD = 120; // chars — turns longer than this likely contain creative content
+    const focusedTranscript = turns
+        .map(t => {
+            if (t.dialogue.length >= CONTENT_THRESHOLD) {
+                return `[${t.speaker}]: ${t.dialogue}`;
+            }
+            return `[${t.speaker}]: ${t.dialogue.slice(0, 80)}`;
+        })
         .join('\n\n');
 
     // LLM extraction — temperature 0.3 for precision
@@ -115,7 +138,7 @@ Session topic: ${session.topic}
 Participants: ${session.participants.join(', ')}
 
 TRANSCRIPT:
-${transcript}
+${focusedTranscript}
 
 INSTRUCTIONS:
 1. Separate the actual creative work (the content being written) from the meta-discussion about the work
@@ -179,7 +202,10 @@ If no extractable creative content exists, respond with:
         }
 
         // Validate that title and body are strings (LLM could return non-string types)
-        if (typeof parsed.title !== 'string' || typeof parsed.body !== 'string') {
+        if (
+            typeof parsed.title !== 'string' ||
+            typeof parsed.body !== 'string'
+        ) {
             log.warn('Title or body not strings, rejecting', {
                 sessionId,
                 titleType: typeof parsed.title,
@@ -339,6 +365,40 @@ async function processReviewForDraft(
         return;
     }
 
+    // ── Try keyword-based extraction first ──
+    // Group turns by reviewer and extract their last verdict
+    const reviewerTurns = new Map<string, string>();
+    for (const t of turns) {
+        // Keep the last turn per reviewer (most relevant position)
+        reviewerTurns.set(t.speaker, t.dialogue);
+    }
+
+    const keywordNotes: ReviewerNote[] = [];
+    for (const [reviewer, dialogue] of reviewerTurns) {
+        const verdict = extractVerdict(dialogue);
+        if (verdict) {
+            keywordNotes.push({
+                reviewer,
+                verdict,
+                notes: dialogue.slice(-200).trim(),
+            });
+        }
+    }
+
+    // If keyword parsing resolved all reviewers, skip LLM entirely
+    if (keywordNotes.length > 0 && keywordNotes.length >= reviewerTurns.size - 1) {
+        const approvals = keywordNotes.filter(n => n.verdict === 'approve').length;
+        const rejections = keywordNotes.filter(n => n.verdict === 'reject').length;
+        const consensus = approvals > rejections && approvals >= keywordNotes.length / 2
+            ? 'approved'
+            : rejections > approvals ? 'rejected' : 'mixed';
+
+        const summary = `${approvals} approve, ${rejections} reject out of ${keywordNotes.length} reviewers (keyword extraction)`;
+        await applyReviewResult(draft, sessionId, keywordNotes, consensus, summary);
+        return;
+    }
+
+    // ── Fall through to LLM extraction for ambiguous transcripts ──
     const transcript = turns
         .map(t => `[${t.speaker}]: ${t.dialogue}`)
         .join('\n\n');
@@ -407,77 +467,148 @@ Respond ONLY with valid JSON (no markdown fencing):
 
         const reviewerNotes: ReviewerNote[] = parsed.reviewers ?? [];
         const consensus = parsed.consensus ?? 'mixed';
+        const summary = parsed.summary ?? '';
 
-        if (consensus === 'approved') {
-            await sql`
-                UPDATE ops_content_drafts
-                SET status = 'approved',
-                    reviewer_notes = ${jsonb(reviewerNotes)},
-                    updated_at = NOW()
-                WHERE id = ${draft.id}
-            `;
-
-            await emitEvent({
-                agent_id: draft.author_agent,
-                kind: 'content_approved',
-                title: `Content approved: ${draft.title}`,
-                summary: parsed.summary ?? 'Approved by reviewer consensus',
-                tags: ['content', 'approved', draft.content_type],
-                metadata: {
-                    draftId: draft.id,
-                    reviewSessionId: sessionId,
-                    reviewerCount: reviewerNotes.length,
-                },
-            });
-
-            log.info('Draft approved', {
-                draftId: draft.id,
-                reviewers: reviewerNotes.length,
-            });
-        } else if (consensus === 'rejected') {
-            await sql`
-                UPDATE ops_content_drafts
-                SET status = 'rejected',
-                    reviewer_notes = ${jsonb(reviewerNotes)},
-                    updated_at = NOW()
-                WHERE id = ${draft.id}
-            `;
-
-            await emitEvent({
-                agent_id: draft.author_agent,
-                kind: 'content_rejected',
-                title: `Content rejected: ${draft.title}`,
-                summary: parsed.summary ?? 'Rejected by reviewer consensus',
-                tags: ['content', 'rejected', draft.content_type],
-                metadata: {
-                    draftId: draft.id,
-                    reviewSessionId: sessionId,
-                    reviewerCount: reviewerNotes.length,
-                },
-            });
-
-            log.info('Draft rejected', {
-                draftId: draft.id,
-                reviewers: reviewerNotes.length,
-            });
-        } else {
-            // Mixed — update notes but keep status as 'review' for manual review
-            await sql`
-                UPDATE ops_content_drafts
-                SET reviewer_notes = ${jsonb(reviewerNotes)},
-                    updated_at = NOW()
-                WHERE id = ${draft.id}
-            `;
-
-            log.info('Draft review inconclusive, staying in review', {
-                draftId: draft.id,
-                consensus,
-            });
-        }
+        await applyReviewResult(draft, sessionId, reviewerNotes, consensus, summary);
     } catch (err) {
         log.error('Review processing failed', {
             error: err,
             sessionId,
+            draftId: draft.id,
+        });
+    }
+}
+
+/** Apply the review result to the draft — shared by keyword parsing and LLM paths. */
+async function applyReviewResult(
+    draft: ContentDraft,
+    sessionId: string,
+    reviewerNotes: ReviewerNote[],
+    consensus: string,
+    summary: string,
+): Promise<void> {
+    if (consensus === 'approved') {
+        await sql`
+            UPDATE ops_content_drafts
+            SET status = 'approved',
+                reviewer_notes = ${jsonb(reviewerNotes)},
+                updated_at = NOW()
+            WHERE id = ${draft.id}
+        `;
+
+        await emitEventAndCheckReactions({
+            agent_id: draft.author_agent,
+            kind: 'content_approved',
+            title: `Content approved: ${draft.title}`,
+            summary: summary || 'Approved by reviewer consensus',
+            tags: ['content', 'approved', draft.content_type],
+            metadata: {
+                draftId: draft.id,
+                reviewSessionId: sessionId,
+                reviewerCount: reviewerNotes.length,
+            },
+        });
+
+        log.info('Draft approved', {
+            draftId: draft.id,
+            reviewers: reviewerNotes.length,
+        });
+    } else if (consensus === 'rejected') {
+        await sql`
+            UPDATE ops_content_drafts
+            SET status = 'rejected',
+                reviewer_notes = ${jsonb(reviewerNotes)},
+                updated_at = NOW()
+            WHERE id = ${draft.id}
+        `;
+
+        await emitEventAndCheckReactions({
+            agent_id: draft.author_agent,
+            kind: 'content_rejected',
+            title: `Content rejected: ${draft.title}`,
+            summary: summary || 'Rejected by reviewer consensus',
+            tags: ['content', 'rejected', draft.content_type],
+            metadata: {
+                draftId: draft.id,
+                reviewSessionId: sessionId,
+                reviewerCount: reviewerNotes.length,
+            },
+        });
+
+        log.info('Draft rejected', {
+            draftId: draft.id,
+            reviewers: reviewerNotes.length,
+        });
+
+        await requestContentRevision(draft, reviewerNotes, summary);
+    } else {
+        // Mixed — update notes but keep status as 'review' for manual review
+        await sql`
+            UPDATE ops_content_drafts
+            SET reviewer_notes = ${jsonb(reviewerNotes)},
+                updated_at = NOW()
+            WHERE id = ${draft.id}
+        `;
+
+        log.info('Draft review inconclusive, staying in review', {
+            draftId: draft.id,
+            consensus,
+        });
+
+        await requestContentRevision(draft, reviewerNotes, summary);
+    }
+}
+
+// ─── Content Revision Loop ───
+
+/**
+ * Create a content_revision proposal so rejected/mixed content goes back
+ * to the original author with reviewer notes, rather than dying in limbo.
+ */
+async function requestContentRevision(
+    draft: ContentDraft,
+    reviewerNotes: ReviewerNote[],
+    reviewSummary: string,
+): Promise<void> {
+    const notesText = reviewerNotes
+        .map(n => `${n.reviewer} (${n.verdict}): ${n.notes}`)
+        .join('\n');
+
+    try {
+        const result = await createProposalAndMaybeAutoApprove({
+            agent_id: draft.author_agent,
+            title: `Revise: ${draft.title}`,
+            description: `Content review returned feedback. Revise and resubmit.\n\nSummary: ${reviewSummary}`,
+            proposed_steps: [
+                {
+                    kind: 'content_revision',
+                    assigned_agent: draft.author_agent,
+                    payload: {
+                        draft_id: draft.id,
+                        original_title: draft.title,
+                        content_type: draft.content_type,
+                        reviewer_notes: notesText,
+                        review_summary: reviewSummary,
+                    },
+                },
+            ],
+            source: 'system',
+        });
+
+        if (result.success) {
+            log.info('Content revision proposal created', {
+                draftId: draft.id,
+                proposalId: result.proposalId,
+            });
+        } else {
+            log.warn('Content revision proposal rejected', {
+                draftId: draft.id,
+                reason: result.reason,
+            });
+        }
+    } catch (err) {
+        log.error('Failed to create content revision proposal', {
+            error: err,
             draftId: draft.id,
         });
     }

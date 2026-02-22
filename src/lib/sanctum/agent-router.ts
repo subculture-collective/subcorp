@@ -228,14 +228,15 @@ function classifyTopicAgents(message: string): TopicClassification {
 
 // ─── Personality Loading ───
 
-const personalityCache = new Map<string, string>();
+const compactPersonalityCache = new Map<string, string>();
 
 /**
- * Load an agent's personality files (IDENTITY + SOUL) for system prompt construction.
+ * Build a compact personality summary (~200 tokens) from IDENTITY + SOUL files.
+ * Caches the result permanently since personality files don't change at runtime.
  */
-function loadPersonality(agentId: AgentId): string {
-    if (personalityCache.has(agentId)) {
-        return personalityCache.get(agentId)!;
+function loadCompactPersonality(agentId: AgentId): string {
+    if (compactPersonalityCache.has(agentId)) {
+        return compactPersonalityCache.get(agentId)!;
     }
 
     const agentName = agentId.toUpperCase();
@@ -259,9 +260,16 @@ function loadPersonality(agentId: AgentId): string {
         log.warn('Missing SOUL file', { agentId });
     }
 
-    const combined = `${identity}\n\n${soul}`.trim();
-    personalityCache.set(agentId, combined);
-    return combined;
+    // Extract key lines: first non-empty lines from each section, up to ~800 chars (~200 tokens)
+    const lines = `${identity}\n${soul}`.split('\n').filter(l => l.trim() && !l.startsWith('#'));
+    let compact = '';
+    for (const line of lines) {
+        if (compact.length + line.length > 800) break;
+        compact += line.trim() + '\n';
+    }
+
+    compactPersonalityCache.set(agentId, compact.trim());
+    return compact.trim();
 }
 
 // ─── Response Generation ───
@@ -279,12 +287,12 @@ function buildSanctumSystemPrompt(
     availableTools?: ToolDefinition[],
 ): string {
     const agent = AGENTS[agentId];
-    const personality = loadPersonality(agentId);
+    const personality = loadCompactPersonality(agentId);
 
     let prompt = `You are ${agent.displayName}, the ${agent.role} of SubCulture.
 ${agent.description}
 
-${personality ? `═══ PERSONALITY ═══\n${personality.slice(0, 2000)}\n` : ''}
+${personality ? `═══ PERSONALITY ═══\n${personality}\n` : ''}
 ═══ SANCTUM CONTEXT ═══
 You are in the Sanctum — an intimate, real-time chat with a human user.
 This is a direct conversation, not a roundtable or broadcast.
@@ -328,7 +336,7 @@ Keep responses under 500 characters unless the question demands depth.
 
     if (conversationHistory.length > 0) {
         prompt += `\n═══ RECENT CONVERSATION ═══\n`;
-        const recent = conversationHistory.slice(-20);
+        const recent = conversationHistory.slice(-10);
         for (const msg of recent) {
             if (msg.role === 'user') {
                 prompt += `User: ${msg.content}\n`;

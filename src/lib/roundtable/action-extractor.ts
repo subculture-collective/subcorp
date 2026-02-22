@@ -5,6 +5,7 @@
 import { llmGenerate } from '@/lib/llm/client';
 import { createProposalAndMaybeAutoApprove } from '@/lib/ops/proposal-service';
 import type { StepKind, ProposedStep } from '@/lib/types';
+import type { ConversationFormat } from '@/lib/types';
 import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'action-extractor' });
@@ -17,6 +18,20 @@ const ACTIONABLE_FORMATS = new Set([
     'standup',
     'shipping',
     'triage',
+    'brainstorm',
+    'deep_dive',
+    'risk_review',
+    'debate',
+]);
+
+/**
+ * Formats representing already-deliberated decisions — actions extracted from these
+ * should carry a hint for the proposal system to auto-approve more readily.
+ */
+export const DELIBERATED_FORMATS = new Set<ConversationFormat>([
+    'planning',
+    'shipping',
+    'strategy',
 ]);
 
 const VALID_STEP_KINDS = new Set<StepKind>([
@@ -30,6 +45,9 @@ const VALID_STEP_KINDS = new Set<StepKind>([
     'distill_insight',
     'document_lesson',
     'consolidate_memory',
+    'content_revision',
+    'convene_roundtable',
+    'draft_product_spec',
 ]);
 
 /**
@@ -54,7 +72,7 @@ export async function extractActionsFromArtifact(
                         'You extract concrete, executable action items from meeting artifacts. ' +
                         'Return ONLY valid JSON — an array of mission objects. ' +
                         'Each mission: { "title": "<imperative action>", "description": "<why this matters>", "owner": "<agent_id>", "steps": [{ "kind": "<step_kind>", "payload": {} }] }\n\n' +
-                        'Valid step kinds: research_topic, scan_signals, draft_essay, draft_thread, patch_code, audit_system, critique_content, distill_insight, document_lesson, consolidate_memory\n' +
+                        'Valid step kinds: research_topic, scan_signals, draft_essay, draft_thread, patch_code, audit_system, critique_content, distill_insight, document_lesson, consolidate_memory, content_revision, convene_roundtable, draft_product_spec\n' +
                         'Valid agent IDs: praxis, primus, chora, subrosa, thaum, mux\n\n' +
                         'Rules:\n' +
                         '- Only extract items that are CONCRETE and ACTIONABLE (not "discuss X" or "think about Y")\n' +
@@ -80,7 +98,10 @@ export async function extractActionsFromArtifact(
 
         const jsonMatch = result.match(/\[[\s\S]*\]/);
         if (!jsonMatch) {
-            log.info('No actions extracted from artifact', { sessionId, format });
+            log.info('No actions extracted from artifact', {
+                sessionId,
+                format,
+            });
             return 0;
         }
 

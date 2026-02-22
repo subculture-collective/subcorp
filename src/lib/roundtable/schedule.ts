@@ -227,6 +227,15 @@ export function getSlotForHour(hourUtc: number): ScheduleSlot | undefined {
 }
 
 /**
+ * Get ALL schedule slots that match the current UTC hour.
+ * Some hours have multiple slots (e.g. watercooler + checkin).
+ */
+export function getSlotsForHour(hourUtc: number): ScheduleSlot[] {
+    const schedule = getDailySchedule();
+    return schedule.filter(slot => slot.hour_utc === hourUtc);
+}
+
+/**
  * Check if a slot should fire based on its probability.
  */
 export function shouldSlotFire(slot: ScheduleSlot): boolean {

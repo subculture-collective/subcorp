@@ -567,6 +567,11 @@ const policies = [
         },
         description: 'Memory categorization and Subcult-specific semantic tags',
     },
+    {
+        key: 'simulation_epoch',
+        value: { started_at: new Date().toISOString() },
+        description: 'Timestamp of last fresh start / simulation reset',
+    },
 ];
 
 async function seedPolicies() {

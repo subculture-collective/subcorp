@@ -81,7 +81,7 @@ ALTER TABLE ops_mission_steps ADD CONSTRAINT ops_mission_steps_kind_check
     -- System / ops
     'audit_system', 'review_policy', 'consolidate_memory', 'map_dependency',
     'patch_code', 'document_lesson', 'log_event', 'tag_memory',
-    'escalate_risk', 'convene_roundtable', 'propose_workflow',
+    'escalate_risk', 'convene_roundtable', 'propose_workflow', 'memory_archaeology',
     -- Legacy kinds (kept for existing data)
     'draft_tweet', 'post_tweet', 'crawl', 'analyze',
     'write_content', 'research', 'deploy', 'review', 'summarize'

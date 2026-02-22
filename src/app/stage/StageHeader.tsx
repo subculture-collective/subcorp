@@ -10,11 +10,7 @@ import {
 import { StatsBarSkeleton } from './StageSkeletons';
 import { AGENTS } from '@/lib/agents';
 import type { AgentId } from '@/lib/types';
-import {
-    LinkIcon,
-    CheckIcon,
-    MessageCircleIcon,
-} from '@/lib/icons';
+import { LinkIcon, CheckIcon, MessageCircleIcon } from '@/lib/icons';
 import Link from 'next/link';
 import { AgentAvatar } from './AgentAvatar';
 

@@ -58,8 +58,9 @@ export async function distillSanctumMemories(
         SELECT role, agent_id, content, created_at
         FROM ops_sanctum_messages
         WHERE conversation_id = ${conversationId}
+          AND LENGTH(content) >= 20
         ORDER BY created_at DESC
-        LIMIT 30
+        LIMIT 15
     `;
 
     if (messages.length < 4) return 0;

@@ -10,7 +10,14 @@ export type AgentId =
     | 'mux'
     | 'primus';
 
-export const ALL_AGENTS: AgentId[] = ['chora', 'subrosa', 'thaum', 'praxis', 'mux', 'primus'];
+export const ALL_AGENTS: AgentId[] = [
+    'chora',
+    'subrosa',
+    'thaum',
+    'praxis',
+    'mux',
+    'primus',
+];
 
 export interface AgentConfig {
     id: AgentId;
@@ -33,7 +40,8 @@ export type ProposalSource =
     | 'trigger'
     | 'reaction'
     | 'initiative'
-    | 'conversation';
+    | 'conversation'
+    | 'system';
 
 export interface ProposalInput {
     agent_id: string;
@@ -118,7 +126,8 @@ export type StepKind =
     | 'memory_archaeology'
     | 'draft_product_spec'
     | 'update_directive'
-    | 'create_pull_request';
+    | 'create_pull_request'
+    | 'content_revision';
 
 export type StepStatus =
     | 'queued'
@@ -301,6 +310,8 @@ export interface FormatConfig {
     temperature: number;
     requires?: AgentId[];
     optional?: AgentId[];
+    /** Max tokens per turn. Higher = longer responses, more cost. */
+    maxTokensPerTurn: number;
     /** Default model for this format tier. Session-level override takes priority. */
     defaultModel?: string;
     /** What artifact this conversation format should produce after completion */
@@ -476,7 +487,8 @@ export type InteractionType =
     | 'agreement'
     | 'neutral'
     | 'critical'
-    | 'challenge';
+    | 'challenge'
+    | 'adversarial';
 
 // ─── Initiative Types ───
 

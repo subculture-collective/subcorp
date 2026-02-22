@@ -14,6 +14,27 @@ import type {
 
 const log = logger.child({ module: 'artifact-synthesizer' });
 
+// Format-dependent word targets — heavier formats produce more detailed artifacts
+const FORMAT_WORD_TARGETS: Record<string, string> = {
+    standup: '200-400 words',
+    checkin: '200-400 words',
+    watercooler: '150-300 words',
+    brainstorm: '400-800 words',
+    strategy: '500-1000 words',
+    planning: '500-1000 words',
+    deep_dive: '600-1200 words',
+    retro: '400-700 words',
+    debate: '400-800 words',
+    triage: '300-600 words',
+    risk_review: '400-800 words',
+    shipping: '300-600 words',
+    cross_exam: '400-800 words',
+    content_review: '300-600 words',
+    agent_design: '400-800 words',
+    writing_room: '400-800 words',
+};
+const DEFAULT_WORD_TARGET = '300-800 words';
+
 /**
  * Build the synthesis prompt that instructs the synthesizer agent to
  * read the conversation transcript and produce a structured artifact.
@@ -23,14 +44,30 @@ function buildSynthesisPrompt(
     history: ConversationTurnEntry[],
     artifact: FormatArtifactConfig,
 ): string {
-    // Build transcript
-    const transcript = history.map(t => {
-        const voice = getVoice(t.speaker);
-        const name = voice?.displayName ?? t.speaker;
-        return `${name}: ${t.dialogue}`;
-    }).join('\n');
+    const voice = getVoice(artifact.synthesizer);
 
-    let prompt = `You just participated in (or observed) a ${session.format} conversation.\n\n`;
+    // Build transcript
+    const transcript = history
+        .map(t => {
+            const v = getVoice(t.speaker);
+            const name = v?.displayName ?? t.speaker;
+            return `${name}: ${t.dialogue}`;
+        })
+        .join('\n');
+
+    const wordTarget =
+        FORMAT_WORD_TARGETS[session.format] ?? DEFAULT_WORD_TARGET;
+
+    let prompt = '';
+
+    // Inject synthesizer persona
+    if (voice) {
+        prompt += `--- SYNTHESIZER PERSONA ---\n${voice.systemDirective}\n--- END PERSONA ---\n\n`;
+        prompt += `You are synthesizing this conversation as ${voice.displayName} ${voice.symbol}. `;
+        prompt += `Write in your voice — your perspective and judgment matter.\n\n`;
+    }
+
+    prompt += `You just participated in (or observed) a ${session.format} conversation.\n\n`;
     prompt += `Topic: ${session.topic}\n`;
     prompt += `Format: ${session.format}\n`;
     prompt += `Participants: ${session.participants.join(', ')}\n`;
@@ -51,7 +88,7 @@ function buildSynthesisPrompt(
     prompt += `Requirements:\n`;
     prompt += `1. Include a clear title (as a markdown # heading) and summary\n`;
     prompt += `2. Capture key points, decisions, action items, and disagreements\n`;
-    prompt += `3. Be concise but thorough — aim for 300-800 words\n`;
+    prompt += `3. Be concise but thorough — aim for ${wordTarget}\n`;
     prompt += `4. Write the artifact to the workspace using file_write to path: ${outputDir}/${filename}\n`;
     prompt += `5. Also include the full artifact content as your text response\n\n`;
 

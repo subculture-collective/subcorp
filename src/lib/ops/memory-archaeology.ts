@@ -67,7 +67,7 @@ export interface StoredFinding {
 // ─── Constants ───
 
 const DEFAULT_MAX_MEMORIES = 100;
-const MEMORIES_PER_BATCH = 25;
+const MEMORIES_PER_BATCH = 15;
 const ANALYSIS_TEMPERATURE = 0.7;
 const ANALYSIS_MAX_TOKENS = 4000;
 
@@ -205,7 +205,7 @@ async function fetchMemoriesForDig(
             agent_id,
             type,
             CASE
-                WHEN LENGTH(content) > 2000 THEN LEFT(content, 2000) || '...[truncated]'
+                WHEN LENGTH(content) > 500 THEN LEFT(content, 500) || '...[truncated]'
                 ELSE content
             END as content,
             confidence,
@@ -253,51 +253,30 @@ async function analyzeBatch(
         });
     }
 
-    const systemPrompt = `You are a memory archaeologist for the SubCult AI collective. Your task is to perform deep analysis of agent memories, looking for hidden patterns, contradictions, emergent behaviors, recurring echoes, and personality drift.
+    const systemPrompt = `You are a memory archaeologist analyzing agent memories for: ${typesLabel}.
 
-Analyze the provided memories and identify findings of these types: ${typesLabel}
+Types: pattern (recurring themes), contradiction (conflicting memories), emergence (new behaviors), echo (reappearing phrases), drift (perspective shifts).
 
-Finding type definitions:
-- **pattern**: Recurring themes, behaviors, or ideas that appear across multiple memories
-- **contradiction**: Memories that conflict with each other or represent opposing viewpoints held by the same or different agents
-- **emergence**: New behaviors, ideas, or perspectives that appear in recent memories but were absent earlier
-- **echo**: Specific phrases, metaphors, or ideas that reappear across different contexts or time periods
-- **drift**: How an agent's perspective, tone, or beliefs have shifted over time
-
-For each finding, provide:
-1. The finding type
-2. A concise title (5-10 words)
-3. A detailed description (2-4 sentences)
-4. Evidence: which memory numbers (from the list) support this finding, with a brief excerpt and relevance note
-5. Confidence (0.0 to 1.0) — how certain you are about this finding
-6. Related agents — which agent IDs are involved
-
-Respond with valid JSON only:
+Respond with valid JSON:
 {
   "findings": [
     {
       "finding_type": "pattern|contradiction|emergence|echo|drift",
-      "title": "short descriptive title",
-      "description": "detailed explanation",
+      "title": "5-10 word title",
+      "description": "2-3 sentence explanation",
       "evidence": [
-        { "memory_index": 1, "excerpt": "relevant quote", "relevance": "why this supports the finding" }
+        { "memory_index": 1, "relevance": "why this supports the finding" }
       ],
       "confidence": 0.8,
-      "related_agents": ["agent_id1", "agent_id2"]
+      "related_agents": ["agent_id"]
     }
   ]
 }
 
 Rules:
-- Report your top 3-5 most significant findings only — quality over quantity
-- Only report genuine findings backed by evidence from the provided memories
-- Each finding must reference at least 2 memories as evidence
-- Be specific — vague findings are not useful
-- Keep descriptions to 2-3 sentences max
-- Keep evidence excerpts under 50 words each
-- Confidence should reflect the strength of evidence
-- If you find nothing meaningful, return { "findings": [] }
-- CRITICAL: Your response must be complete, valid JSON. Do not exceed 5 findings.`;
+- Top 3-5 findings only, each referencing at least 2 memories
+- Be specific. If nothing meaningful, return { "findings": [] }
+- CRITICAL: Complete, valid JSON. Max 5 findings.`;
 
     const result = await llmGenerate({
         messages: [
@@ -353,7 +332,6 @@ Rules:
                 description: string;
                 evidence: Array<{
                     memory_index: number;
-                    excerpt: string;
                     relevance: string;
                 }>;
                 confidence: number;
@@ -400,7 +378,7 @@ Rules:
                         }
                         return {
                             memory_id: memory?.id ?? 'unknown',
-                            excerpt: e.excerpt ?? '',
+                            excerpt: '',
                             relevance: e.relevance ?? '',
                         };
                     })

@@ -1,6 +1,6 @@
 // Reaction matrix — event-driven cross-agent reactions
 import { sql } from '@/lib/db';
-import type { EventInput, ReactionPattern } from '../types';
+import type { EventInput, ReactionPattern, StepKind } from '../types';
 import { getPolicy } from './policy';
 import { createProposalAndMaybeAutoApprove } from './proposal-service';
 import { logger } from '@/lib/logger';
@@ -84,11 +84,22 @@ export async function processReactionQueue(
                 WHERE id = ${reaction.id}
             `;
 
+            // Map reaction_type to a meaningful step kind
+            const REACTION_STEP_KINDS: Record<string, StepKind> = {
+                review: 'critique_content',
+                comment: 'draft_essay',
+                research: 'research_topic',
+                challenge: 'convene_roundtable',
+                synthesize: 'distill_insight',
+                boost: 'draft_thread',
+            };
+            const stepKind: StepKind = REACTION_STEP_KINDS[reaction.reaction_type] ?? 'research_topic';
+
             const result = await createProposalAndMaybeAutoApprove({
                 agent_id: reaction.target_agent,
                 title: `Reaction: ${reaction.reaction_type}`,
                 description: `Triggered by ${reaction.source_agent} event`,
-                proposed_steps: [{ kind: 'log_event' }],
+                proposed_steps: [{ kind: stepKind }],
                 source: 'reaction',
                 source_trace_id: `reaction:${reaction.id}`,
             });
