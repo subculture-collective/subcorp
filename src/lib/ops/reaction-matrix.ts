@@ -93,7 +93,8 @@ export async function processReactionQueue(
                 synthesize: 'distill_insight',
                 boost: 'draft_thread',
             };
-            const stepKind: StepKind = REACTION_STEP_KINDS[reaction.reaction_type] ?? 'research_topic';
+            const stepKind: StepKind =
+                REACTION_STEP_KINDS[reaction.reaction_type] ?? 'research_topic';
 
             const result = await createProposalAndMaybeAutoApprove({
                 agent_id: reaction.target_agent,

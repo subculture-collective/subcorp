@@ -118,12 +118,15 @@ async function pollAgentSessions(): Promise<boolean> {
                             rtSession.topic,
                         );
                         if (actionCount > 0) {
-                            log.info('Actions extracted from roundtable artifact', {
-                                sessionId: session.id,
-                                roundtableId: session.source_id,
-                                format: rtSession.format,
-                                actionCount,
-                            });
+                            log.info(
+                                'Actions extracted from roundtable artifact',
+                                {
+                                    sessionId: session.id,
+                                    roundtableId: session.source_id,
+                                    format: rtSession.format,
+                                    actionCount,
+                                },
+                            );
                         }
                     }
                 } catch (extractErr) {
@@ -145,29 +148,48 @@ async function pollAgentSessions(): Promise<boolean> {
                         WHERE id = ${session.source_id}
                     `;
                     if (rtSession) {
-                        const formatConfig = FORMATS[rtSession.format as ConversationFormat];
+                        const formatConfig =
+                            FORMATS[rtSession.format as ConversationFormat];
                         const artifact = formatConfig?.artifact;
                         if (artifact && artifact.type !== 'none') {
                             const outputDir = artifact.outputDir;
-                            const dateStr = new Date().toISOString().slice(0, 10);
+                            const dateStr = new Date()
+                                .toISOString()
+                                .slice(0, 10);
                             const topicSlug = rtSession.topic
                                 .toLowerCase()
                                 .replace(/[^a-z0-9]+/g, '-')
                                 .replace(/^-|-$/g, '')
                                 .slice(0, 40);
                             const filename = `${dateStr}__${rtSession.format}__${artifact.type}__${topicSlug}__${session.agent_id}__v01.md`;
-                            const filePath = path.join('/workspace', outputDir, filename);
+                            const filePath = path.join(
+                                '/workspace',
+                                outputDir,
+                                filename,
+                            );
 
-                            await fs.mkdir(path.dirname(filePath), { recursive: true });
+                            await fs.mkdir(path.dirname(filePath), {
+                                recursive: true,
+                            });
                             // Skip if synthesis agent already wrote the file via file_write
-                            const fileExists = await fs.access(filePath).then(() => true, () => false);
+                            const fileExists = await fs.access(filePath).then(
+                                () => true,
+                                () => false,
+                            );
                             if (fileExists) {
-                                log.info('Artifact file already exists (written by synthesis agent)', {
-                                    sessionId: session.id,
-                                    path: filePath,
-                                });
+                                log.info(
+                                    'Artifact file already exists (written by synthesis agent)',
+                                    {
+                                        sessionId: session.id,
+                                        path: filePath,
+                                    },
+                                );
                             } else {
-                                await fs.writeFile(filePath, artifactText, 'utf-8');
+                                await fs.writeFile(
+                                    filePath,
+                                    artifactText,
+                                    'utf-8',
+                                );
                                 log.info('Artifact file written to workspace', {
                                     sessionId: session.id,
                                     path: filePath,
@@ -190,7 +212,9 @@ async function pollAgentSessions(): Promise<boolean> {
             if (artifactText && artifactText.length > 50 && session.source_id) {
                 try {
                     // Dedup check — skip if draft already exists for this roundtable session
-                    const [existingDraft] = await sql<[{ id: string } | undefined]>`
+                    const [existingDraft] = await sql<
+                        [{ id: string } | undefined]
+                    >`
                         SELECT id FROM ops_content_drafts
                         WHERE source_session_id = ${session.source_id}
                         LIMIT 1
@@ -206,21 +230,35 @@ async function pollAgentSessions(): Promise<boolean> {
                         // (would cause infinite review→draft→review), checkin, watercooler, standup
                         // (lightweight status formats that don't produce draftable content).
                         const DRAFT_ELIGIBLE_FORMATS = new Set([
-                            'writing_room', 'deep_dive', 'strategy', 'debate',
-                            'brainstorm', 'planning', 'shipping', 'reframe',
-                            'risk_review', 'cross_exam',
+                            'writing_room',
+                            'deep_dive',
+                            'strategy',
+                            'debate',
+                            'brainstorm',
+                            'planning',
+                            'shipping',
+                            'reframe',
+                            'risk_review',
+                            'cross_exam',
                         ]);
-                        if (rtSession && DRAFT_ELIGIBLE_FORMATS.has(rtSession.format)) {
-                            const formatConfig = FORMATS[rtSession.format as ConversationFormat];
+                        if (
+                            rtSession &&
+                            DRAFT_ELIGIBLE_FORMATS.has(rtSession.format)
+                        ) {
+                            const formatConfig =
+                                FORMATS[rtSession.format as ConversationFormat];
                             const artifact = formatConfig?.artifact;
-                            const contentType = artifact?.type && artifact.type !== 'none'
-                                ? artifact.type
-                                : 'report';
+                            const contentType =
+                                artifact?.type && artifact.type !== 'none' ?
+                                    artifact.type
+                                :   'report';
 
                             // Extract title from first markdown heading or generate from topic
-                            const headingMatch = artifactText.match(/^#\s+(.+)$/m);
-                            const title = headingMatch?.[1]?.trim()
-                                || `${contentType.charAt(0).toUpperCase() + contentType.slice(1)}: ${rtSession.topic.slice(0, 100)}`;
+                            const headingMatch =
+                                artifactText.match(/^#\s+(.+)$/m);
+                            const title =
+                                headingMatch?.[1]?.trim() ||
+                                `${contentType.charAt(0).toUpperCase() + contentType.slice(1)}: ${rtSession.topic.slice(0, 100)}`;
 
                             const [draft] = await sql<[{ id: string }]>`
                                 INSERT INTO ops_content_drafts (
@@ -253,9 +291,8 @@ async function pollAgentSessions(): Promise<boolean> {
 
                             // Emit content_draft_created event for trigger system
                             try {
-                                const { emitEvent } = await import(
-                                    '../../src/lib/ops/events'
-                                );
+                                const { emitEvent } =
+                                    await import('../../src/lib/ops/events');
                                 await emitEvent({
                                     agent_id: session.agent_id,
                                     kind: 'content_draft_created',
@@ -377,20 +414,24 @@ async function pollRoundtables(): Promise<boolean> {
                     let voteCount = 0;
 
                     for (const agentId of agentIds) {
-                        const lastTurn = [...turns].reverse().find(t => t.agent_id === agentId);
+                        const lastTurn = [...turns]
+                            .reverse()
+                            .find(t => t.agent_id === agentId);
                         if (!lastTurn) continue;
 
                         const upper = lastTurn.dialogue.toUpperCase();
                         const approveIdx = upper.lastIndexOf('APPROVE');
                         const rejectIdx = upper.lastIndexOf('REJECT');
-                        const hasApprove = approveIdx !== -1
-                            && !upper.includes('NOT APPROVE')
-                            && !upper.includes("DON'T APPROVE");
+                        const hasApprove =
+                            approveIdx !== -1 &&
+                            !upper.includes('NOT APPROVE') &&
+                            !upper.includes("DON'T APPROVE");
                         const hasReject = rejectIdx !== -1;
 
                         let vote: 'approve' | 'reject' | null = null;
                         if (hasApprove && hasReject) {
-                            vote = approveIdx > rejectIdx ? 'approve' : 'reject';
+                            vote =
+                                approveIdx > rejectIdx ? 'approve' : 'reject';
                         } else if (hasApprove) {
                             vote = 'approve';
                         } else if (hasReject) {
@@ -399,7 +440,12 @@ async function pollRoundtables(): Promise<boolean> {
 
                         if (vote) {
                             const reason = lastTurn.dialogue.slice(0, 200);
-                            await castGovernanceVote(proposalId, agentId, vote, reason);
+                            await castGovernanceVote(
+                                proposalId,
+                                agentId,
+                                vote,
+                                reason,
+                            );
                             voteCount++;
                         }
                     }
@@ -492,7 +538,9 @@ async function pollMissionSteps(): Promise<boolean> {
 
     // Dispatch all independent steps concurrently
     await Promise.allSettled(
-        (steps as unknown as MissionStepRow[]).map(step => dispatchMissionStep(step)),
+        (steps as unknown as MissionStepRow[]).map(step =>
+            dispatchMissionStep(step),
+        ),
     );
     return true;
 }
@@ -513,7 +561,6 @@ interface MissionStepRow {
 
 /** Dispatch a single mission step (extracted for parallel use) */
 async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
-
     log.info('Processing mission step', {
         stepId: step.id as string,
         kind: step.kind as string,
@@ -583,7 +630,8 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
 
         // ── Special case: memory_archaeology — call performDig() directly ──
         if (step.kind === 'memory_archaeology') {
-            const { performDig } = await import('../../src/lib/ops/memory-archaeology');
+            const { performDig } =
+                await import('../../src/lib/ops/memory-archaeology');
             const result = await performDig({
                 agent_id: agentId,
                 max_memories: 100,
@@ -624,8 +672,15 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
         if (step.kind === 'convene_roundtable') {
             const payload = (step.payload ?? {}) as Record<string, unknown>;
             const format = (payload.format as string) ?? 'brainstorm';
-            const topic = (payload.topic as string) ?? mission?.title ?? 'Roundtable';
-            const participants = (payload.participants as string[]) ?? ['chora', 'subrosa', 'thaum', 'praxis', 'mux'];
+            const topic =
+                (payload.topic as string) ?? mission?.title ?? 'Roundtable';
+            const participants = (payload.participants as string[]) ?? [
+                'chora',
+                'subrosa',
+                'thaum',
+                'praxis',
+                'mux',
+            ];
 
             await sql`
                 INSERT INTO ops_roundtable_sessions (
@@ -793,13 +848,19 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
 
 // Step kinds that produce research output → 'research' channel
 const RESEARCH_STEP_KINDS = new Set([
-    'research_topic', 'scan_signals', 'analyze_discourse',
-    'classify_pattern', 'trace_incentive', 'identify_assumption',
+    'research_topic',
+    'scan_signals',
+    'analyze_discourse',
+    'classify_pattern',
+    'trace_incentive',
+    'identify_assumption',
 ]);
 
 // Step kinds that produce insight/synthesis output → 'insights' channel
 const INSIGHT_STEP_KINDS = new Set([
-    'distill_insight', 'consolidate_memory', 'document_lesson',
+    'distill_insight',
+    'consolidate_memory',
+    'document_lesson',
     'memory_archaeology',
 ]);
 
@@ -856,7 +917,8 @@ async function finalizeMissionSteps(): Promise<boolean> {
             // Emit step-kind-specific events for research/insights channels
             const resolvedAgent = step.assigned_agent || step.session_agent_id;
             if (resolvedAgent) {
-                const { emitEvent: emitStepEvent } = await import('../../src/lib/ops/events');
+                const { emitEvent: emitStepEvent } =
+                    await import('../../src/lib/ops/events');
                 if (RESEARCH_STEP_KINDS.has(step.kind)) {
                     await emitStepEvent({
                         agent_id: resolvedAgent,
@@ -864,7 +926,11 @@ async function finalizeMissionSteps(): Promise<boolean> {
                         title: `Research completed: ${step.kind}`,
                         summary: step.session_summary || undefined,
                         tags: ['research', step.kind, 'completed'],
-                        metadata: { missionId: step.mission_id, stepId: step.id, stepKind: step.kind },
+                        metadata: {
+                            missionId: step.mission_id,
+                            stepId: step.id,
+                            stepKind: step.kind,
+                        },
                     });
                 } else if (INSIGHT_STEP_KINDS.has(step.kind)) {
                     await emitStepEvent({
@@ -873,13 +939,20 @@ async function finalizeMissionSteps(): Promise<boolean> {
                         title: `Insight generated: ${step.kind}`,
                         summary: step.session_summary || undefined,
                         tags: ['insight', step.kind, 'completed'],
-                        metadata: { missionId: step.mission_id, stepId: step.id, stepKind: step.kind },
+                        metadata: {
+                            missionId: step.mission_id,
+                            stepId: step.id,
+                            stepKind: step.kind,
+                        },
                     });
                 }
             }
 
             await finalizeMissionIfComplete(step.mission_id);
-        } else if (step.session_status === 'failed' || step.session_status === 'timed_out') {
+        } else if (
+            step.session_status === 'failed' ||
+            step.session_status === 'timed_out'
+        ) {
             await sql`
                 UPDATE ops_mission_steps
                 SET status = 'failed',
@@ -1000,34 +1073,217 @@ async function pollInitiatives(): Promise<boolean> {
 
         // ─── Template-based proposal generation ───
         // Each agent's role maps to preferred step kinds and mission templates
-        const AGENT_MISSION_TEMPLATES: Record<string, Array<{ title: string; description: string; steps: Array<{ kind: StepKind; payload: { topic: string } }> }>> = {
+        const AGENT_MISSION_TEMPLATES: Record<
+            string,
+            Array<{
+                title: string;
+                description: string;
+                steps: Array<{ kind: StepKind; payload: { topic: string } }>;
+            }>
+        > = {
             chora: [
-                { title: 'Pattern analysis of recent collective activity', description: 'Trace structural patterns in our recent operations', steps: [{ kind: 'scan_signals', payload: { topic: 'recent collective patterns and trends' } }, { kind: 'distill_insight', payload: { topic: 'synthesize findings into actionable patterns' } }] },
-                { title: 'Map dependency chains in current workflows', description: 'Identify fragile dependencies and single points of failure', steps: [{ kind: 'research_topic', payload: { topic: 'current workflow dependencies' } }, { kind: 'document_lesson', payload: { topic: 'dependency analysis findings' } }] },
-                { title: 'Diagnose recurring operational friction', description: 'Investigate why certain processes keep stalling', steps: [{ kind: 'audit_system', payload: { topic: 'operational bottlenecks' } }, { kind: 'distill_insight', payload: { topic: 'root cause analysis' } }] },
+                {
+                    title: 'Pattern analysis of recent collective activity',
+                    description:
+                        'Trace structural patterns in our recent operations',
+                    steps: [
+                        {
+                            kind: 'scan_signals',
+                            payload: {
+                                topic: 'recent collective patterns and trends',
+                            },
+                        },
+                        {
+                            kind: 'distill_insight',
+                            payload: {
+                                topic: 'synthesize findings into actionable patterns',
+                            },
+                        },
+                    ],
+                },
+                {
+                    title: 'Map dependency chains in current workflows',
+                    description:
+                        'Identify fragile dependencies and single points of failure',
+                    steps: [
+                        {
+                            kind: 'research_topic',
+                            payload: { topic: 'current workflow dependencies' },
+                        },
+                        {
+                            kind: 'document_lesson',
+                            payload: { topic: 'dependency analysis findings' },
+                        },
+                    ],
+                },
+                {
+                    title: 'Diagnose recurring operational friction',
+                    description:
+                        'Investigate why certain processes keep stalling',
+                    steps: [
+                        {
+                            kind: 'audit_system',
+                            payload: { topic: 'operational bottlenecks' },
+                        },
+                        {
+                            kind: 'distill_insight',
+                            payload: { topic: 'root cause analysis' },
+                        },
+                    ],
+                },
             ],
             subrosa: [
-                { title: 'Threat model review of current systems', description: 'Evaluate exposure and adversarial risk', steps: [{ kind: 'audit_system', payload: { topic: 'security threat modeling' } }, { kind: 'document_lesson', payload: { topic: 'threat assessment findings' } }] },
-                { title: 'Review information exposure surfaces', description: 'Assess what we reveal publicly and whether it is appropriate', steps: [{ kind: 'scan_signals', payload: { topic: 'public information exposure' } }, { kind: 'critique_content', payload: { topic: 'exposure risk assessment' } }] },
+                {
+                    title: 'Threat model review of current systems',
+                    description: 'Evaluate exposure and adversarial risk',
+                    steps: [
+                        {
+                            kind: 'audit_system',
+                            payload: { topic: 'security threat modeling' },
+                        },
+                        {
+                            kind: 'document_lesson',
+                            payload: { topic: 'threat assessment findings' },
+                        },
+                    ],
+                },
+                {
+                    title: 'Review information exposure surfaces',
+                    description:
+                        'Assess what we reveal publicly and whether it is appropriate',
+                    steps: [
+                        {
+                            kind: 'scan_signals',
+                            payload: { topic: 'public information exposure' },
+                        },
+                        {
+                            kind: 'critique_content',
+                            payload: { topic: 'exposure risk assessment' },
+                        },
+                    ],
+                },
             ],
             thaum: [
-                { title: 'Reframe a stalled initiative', description: 'Apply lateral thinking to an initiative that lost momentum', steps: [{ kind: 'research_topic', payload: { topic: 'stalled initiatives needing reframe' } }, { kind: 'draft_essay', payload: { topic: 'alternative framing proposal' } }] },
-                { title: 'Cross-domain insight synthesis', description: 'Connect ideas from different domains to generate novel approaches', steps: [{ kind: 'scan_signals', payload: { topic: 'cross-domain patterns' } }, { kind: 'distill_insight', payload: { topic: 'novel synthesis' } }] },
+                {
+                    title: 'Reframe a stalled initiative',
+                    description:
+                        'Apply lateral thinking to an initiative that lost momentum',
+                    steps: [
+                        {
+                            kind: 'research_topic',
+                            payload: {
+                                topic: 'stalled initiatives needing reframe',
+                            },
+                        },
+                        {
+                            kind: 'draft_essay',
+                            payload: { topic: 'alternative framing proposal' },
+                        },
+                    ],
+                },
+                {
+                    title: 'Cross-domain insight synthesis',
+                    description:
+                        'Connect ideas from different domains to generate novel approaches',
+                    steps: [
+                        {
+                            kind: 'scan_signals',
+                            payload: { topic: 'cross-domain patterns' },
+                        },
+                        {
+                            kind: 'distill_insight',
+                            payload: { topic: 'novel synthesis' },
+                        },
+                    ],
+                },
             ],
             praxis: [
-                { title: 'Ship check on incomplete deliverables', description: 'Audit what is close to done and push it over the line', steps: [{ kind: 'audit_system', payload: { topic: 'incomplete deliverables' } }, { kind: 'patch_code', payload: { topic: 'finish pending work' } }] },
-                { title: 'Convert recent strategy into tasks', description: 'Turn strategic discussions into concrete, assigned work', steps: [{ kind: 'research_topic', payload: { topic: 'recent strategy decisions' } }, { kind: 'document_lesson', payload: { topic: 'task breakdown and assignments' } }] },
+                {
+                    title: 'Ship check on incomplete deliverables',
+                    description:
+                        'Audit what is close to done and push it over the line',
+                    steps: [
+                        {
+                            kind: 'audit_system',
+                            payload: { topic: 'incomplete deliverables' },
+                        },
+                        {
+                            kind: 'patch_code',
+                            payload: { topic: 'finish pending work' },
+                        },
+                    ],
+                },
+                {
+                    title: 'Convert recent strategy into tasks',
+                    description:
+                        'Turn strategic discussions into concrete, assigned work',
+                    steps: [
+                        {
+                            kind: 'research_topic',
+                            payload: { topic: 'recent strategy decisions' },
+                        },
+                        {
+                            kind: 'document_lesson',
+                            payload: {
+                                topic: 'task breakdown and assignments',
+                            },
+                        },
+                    ],
+                },
             ],
             mux: [
-                { title: 'Consolidate and organize recent outputs', description: 'Clean up and structure recent work products', steps: [{ kind: 'consolidate_memory', payload: { topic: 'recent output organization' } }, { kind: 'document_lesson', payload: { topic: 'output catalog update' } }] },
-                { title: 'Draft status report on active missions', description: 'Compile current mission progress into a clear report', steps: [{ kind: 'audit_system', payload: { topic: 'active mission status' } }, { kind: 'draft_thread', payload: { topic: 'mission status summary' } }] },
+                {
+                    title: 'Consolidate and organize recent outputs',
+                    description: 'Clean up and structure recent work products',
+                    steps: [
+                        {
+                            kind: 'consolidate_memory',
+                            payload: { topic: 'recent output organization' },
+                        },
+                        {
+                            kind: 'document_lesson',
+                            payload: { topic: 'output catalog update' },
+                        },
+                    ],
+                },
+                {
+                    title: 'Draft status report on active missions',
+                    description:
+                        'Compile current mission progress into a clear report',
+                    steps: [
+                        {
+                            kind: 'audit_system',
+                            payload: { topic: 'active mission status' },
+                        },
+                        {
+                            kind: 'draft_thread',
+                            payload: { topic: 'mission status summary' },
+                        },
+                    ],
+                },
             ],
             primus: [
-                { title: 'Evaluate collective alignment with core mission', description: 'Assess whether recent activity serves the stated mission', steps: [{ kind: 'scan_signals', payload: { topic: 'mission alignment assessment' } }, { kind: 'distill_insight', payload: { topic: 'alignment findings' } }] },
+                {
+                    title: 'Evaluate collective alignment with core mission',
+                    description:
+                        'Assess whether recent activity serves the stated mission',
+                    steps: [
+                        {
+                            kind: 'scan_signals',
+                            payload: { topic: 'mission alignment assessment' },
+                        },
+                        {
+                            kind: 'distill_insight',
+                            payload: { topic: 'alignment findings' },
+                        },
+                    ],
+                },
             ],
         };
 
-        const templates = AGENT_MISSION_TEMPLATES[entry.agent_id] ?? AGENT_MISSION_TEMPLATES.mux;
+        const templates =
+            AGENT_MISSION_TEMPLATES[entry.agent_id] ??
+            AGENT_MISSION_TEMPLATES.mux;
 
         // Enrich topic with memory context if available
         let memoryHint = '';
@@ -1039,13 +1295,15 @@ async function pollInitiatives(): Promise<boolean> {
         }
 
         // Pick a template, cycling based on time to avoid repetition
-        const templateIdx = Math.floor(Date.now() / 86_400_000) % templates.length;
+        const templateIdx =
+            Math.floor(Date.now() / 86_400_000) % templates.length;
         const template = templates[templateIdx];
 
         // Personalize title with memory hint if available
-        const title = memoryHint
-            ? `${template.title} — ${memoryHint.slice(0, 60)}`
-            : template.title;
+        const title =
+            memoryHint ?
+                `${template.title} — ${memoryHint.slice(0, 60)}`
+            :   template.title;
 
         const parsed = {
             title,
@@ -1105,7 +1363,11 @@ async function sweepStaleAgentSessions(): Promise<boolean> {
     if (stale.length > 0) {
         log.warn('Swept stale agent sessions', {
             count: stale.length,
-            sessions: stale.map(s => ({ id: s.id, agent: s.agent_id, source: s.source })),
+            sessions: stale.map(s => ({
+                id: s.id,
+                agent: s.agent_id,
+                source: s.source,
+            })),
         });
     }
 
@@ -1157,7 +1419,9 @@ async function waitForDb(maxRetries = 30, intervalMs = 2000): Promise<void> {
             return;
         } catch {
             if (attempt === maxRetries) {
-                throw new Error(`Database not ready after ${maxRetries} attempts`);
+                throw new Error(
+                    `Database not ready after ${maxRetries} attempts`,
+                );
             }
             log.info('Waiting for database...', { attempt, maxRetries });
             await new Promise(resolve => setTimeout(resolve, intervalMs));
@@ -1171,7 +1435,9 @@ let running = true;
 
 /** One-time: process content_review sessions that completed but were never processed */
 async function catchUpStuckReviews(): Promise<void> {
-    const stuck = await sql<{ id: string; review_session_id: string; title: string }[]>`
+    const stuck = await sql<
+        { id: string; review_session_id: string; title: string }[]
+    >`
         SELECT d.id, d.review_session_id, d.title
         FROM ops_content_drafts d
         JOIN ops_roundtable_sessions rs ON rs.id = d.review_session_id
@@ -1205,7 +1471,15 @@ async function catchUpStuckReviews(): Promise<void> {
 /** One-time: finalize missions stuck in 'approved' with all steps completed */
 async function catchUpOrphanedMissions(): Promise<void> {
     // Find missions in 'approved' where all steps are either succeeded or failed (none queued/running)
-    const orphaned = await sql<{ id: string; title: string; total: number; succeeded: number; failed: number }[]>`
+    const orphaned = await sql<
+        {
+            id: string;
+            title: string;
+            total: number;
+            succeeded: number;
+            failed: number;
+        }[]
+    >`
         SELECT m.id, m.title,
             COUNT(s.id)::int as total,
             COUNT(s.id) FILTER (WHERE s.status = 'succeeded')::int as succeeded,
@@ -1224,9 +1498,10 @@ async function catchUpOrphanedMissions(): Promise<void> {
 
     for (const mission of orphaned) {
         const finalStatus = mission.failed > 0 ? 'failed' : 'succeeded';
-        const failReason = mission.failed > 0
-            ? `${mission.failed} of ${mission.total} step(s) failed`
-            : null;
+        const failReason =
+            mission.failed > 0 ?
+                `${mission.failed} of ${mission.total} step(s) failed`
+            :   null;
         await sql`
             UPDATE ops_missions
             SET status = ${finalStatus},
@@ -1303,7 +1578,10 @@ log.info('Unified worker started', {
     workerId: WORKER_ID,
     database: !!process.env.DATABASE_URL,
     openrouter: !!process.env.OPENROUTER_API_KEY,
-    ollama: process.env.OLLAMA_ENABLED !== 'false' ? (process.env.OLLAMA_BASE_URL || 'no-url') : 'disabled',
+    ollama:
+        process.env.OLLAMA_ENABLED !== 'false' ?
+            process.env.OLLAMA_BASE_URL || 'no-url'
+        :   'disabled',
     braveSearch: !!process.env.BRAVE_API_KEY,
 });
 

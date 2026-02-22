@@ -188,7 +188,10 @@ function buildSystemPrompt(
             prompt += `[Earlier: ${speakerNames.join(', ')} discussed — ${olderTurns.length} turns]\n`;
         }
 
-        const recentTurns = history.length > WINDOW_SIZE ? history.slice(-WINDOW_SIZE) : history;
+        const recentTurns =
+            history.length > WINDOW_SIZE ?
+                history.slice(-WINDOW_SIZE)
+            :   history;
         for (const turn of recentTurns) {
             const turnVoice = getVoice(turn.speaker);
             const name =
@@ -1287,7 +1290,10 @@ export async function checkScheduleAndEnqueue(): Promise<{
  * Each format has its own pool of provocative, personality-driven topics.
  * Deduplicates against topics used in the last 48 hours for the same format.
  */
-async function generateTopic(slot: { name: string; format: string }): Promise<string> {
+async function generateTopic(slot: {
+    name: string;
+    format: string;
+}): Promise<string> {
     const topicPools: Record<string, string[]> = {
         standup: [
             'Status check: what moved, what is stuck, what needs attention?',

@@ -136,7 +136,7 @@ export async function checkConsensus(
     // JavaScript division always produces floating point, but Math.ceil() ensures integer result
     // Example: 6 agents -> ceil((6 * 2) / 3) = ceil(12/3) = ceil(4.0) = 4 required approvals
     const requiredApprovals = Math.ceil((tally.totalAgents * 2) / 3);
-    
+
     // Quorum is also 2/3 to match the approval threshold
     // This ensures enough agents participate before making a decision
     const quorum = requiredApprovals;
@@ -322,14 +322,21 @@ export async function collectDebateVotes(
     `;
     if (!proposal) throw new Error(`Proposal "${proposalId}" not found`);
     if (proposal.status !== 'voting') {
-        throw new Error(`Proposal not in voting status (current: ${proposal.status})`);
+        throw new Error(
+            `Proposal not in voting status (current: ${proposal.status})`,
+        );
     }
 
     // Collect a vote from each participant by parsing their last debate turn
     for (const agentId of participants) {
         // Skip the proposer — they implicitly approve
         if (agentId === proposal.proposed_by) {
-            await submitVote(proposalId, agentId, 'approve', 'I proposed this agent.');
+            await submitVote(
+                proposalId,
+                agentId,
+                'approve',
+                'I proposed this agent.',
+            );
             continue;
         }
 
@@ -340,7 +347,8 @@ export async function collectDebateVotes(
 
         if (!lastTurn) {
             log.warn('No debate turn found for agent, skipping vote', {
-                agentId, proposalId,
+                agentId,
+                proposalId,
             });
             continue;
         }
@@ -353,9 +361,14 @@ export async function collectDebateVotes(
             const reasoning = text.slice(-200).trim();
             await submitVote(proposalId, agentId, vote, reasoning);
         } else {
-            log.warn('Could not determine vote from debate turn, skipping agent', {
-                agentId, proposalId, textPreview: text.slice(0, 200),
-            });
+            log.warn(
+                'Could not determine vote from debate turn, skipping agent',
+                {
+                    agentId,
+                    proposalId,
+                    textPreview: text.slice(0, 200),
+                },
+            );
         }
     }
 
@@ -366,7 +379,10 @@ export async function collectDebateVotes(
 /** Extract approve/reject from text using keyword matching. */
 function extractVoteFromText(text: string): 'approve' | 'reject' | null {
     const upper = text.toUpperCase();
-    const hasApprove = upper.includes('APPROVE') && !upper.includes('NOT APPROVE') && !upper.includes("DON'T APPROVE");
+    const hasApprove =
+        upper.includes('APPROVE') &&
+        !upper.includes('NOT APPROVE') &&
+        !upper.includes("DON'T APPROVE");
     const hasReject = upper.includes('REJECT');
 
     // If both appear, use whichever comes last (the final position)

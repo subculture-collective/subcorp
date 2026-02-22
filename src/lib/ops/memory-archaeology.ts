@@ -385,11 +385,17 @@ Rules:
                     .filter(e => e.memory_id !== 'unknown');
 
                 // Warn if all evidence was filtered out
-                if (f.evidence?.length > 0 && evidenceWithWarnings.length === 0) {
-                    log.warn('All evidence filtered due to invalid memory indices', {
-                        finding_title: f.title,
-                        evidence_count: f.evidence.length,
-                    });
+                if (
+                    f.evidence?.length > 0 &&
+                    evidenceWithWarnings.length === 0
+                ) {
+                    log.warn(
+                        'All evidence filtered due to invalid memory indices',
+                        {
+                            finding_title: f.title,
+                            evidence_count: f.evidence.length,
+                        },
+                    );
                 }
 
                 return {

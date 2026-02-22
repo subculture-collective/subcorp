@@ -323,19 +323,31 @@ export async function collectGovernanceDebateVotes(
     proposalId: string,
     participants: string[],
     debateHistory: ConversationTurnEntry[],
-): Promise<{ result: 'accepted' | 'rejected' | 'pending'; approvals: number; rejections: number }> {
+): Promise<{
+    result: 'accepted' | 'rejected' | 'pending';
+    approvals: number;
+    rejections: number;
+}> {
     const [proposal] = await sql<[GovernanceProposal?]>`
         SELECT * FROM ops_governance_proposals WHERE id = ${proposalId}
     `;
-    if (!proposal) throw new Error(`Governance proposal "${proposalId}" not found`);
+    if (!proposal)
+        throw new Error(`Governance proposal "${proposalId}" not found`);
     if (proposal.status !== 'voting') {
-        throw new Error(`Proposal not in voting status (current: ${proposal.status})`);
+        throw new Error(
+            `Proposal not in voting status (current: ${proposal.status})`,
+        );
     }
 
     for (const agentId of participants) {
         // Proposer implicitly approves
         if (agentId === proposal.proposer) {
-            await castGovernanceVote(proposalId, agentId, 'approve', 'I proposed this change.');
+            await castGovernanceVote(
+                proposalId,
+                agentId,
+                'approve',
+                'I proposed this change.',
+            );
             continue;
         }
 
@@ -346,7 +358,8 @@ export async function collectGovernanceDebateVotes(
 
         if (!lastTurn) {
             log.warn('No debate turn found for agent, skipping vote', {
-                agentId, proposalId,
+                agentId,
+                proposalId,
             });
             continue;
         }
@@ -358,9 +371,14 @@ export async function collectGovernanceDebateVotes(
             const reason = text.slice(-200).trim();
             await castGovernanceVote(proposalId, agentId, vote, reason);
         } else {
-            log.warn('Could not determine vote from debate turn, skipping agent', {
-                agentId, proposalId, textPreview: text.slice(0, 200),
-            });
+            log.warn(
+                'Could not determine vote from debate turn, skipping agent',
+                {
+                    agentId,
+                    proposalId,
+                    textPreview: text.slice(0, 200),
+                },
+            );
         }
     }
 
@@ -369,21 +387,26 @@ export async function collectGovernanceDebateVotes(
         SELECT * FROM ops_governance_proposals WHERE id = ${proposalId}
     `;
     const votes: Record<string, GovernanceVote> =
-        typeof updated.votes === 'object' && updated.votes !== null
-            ? (updated.votes as Record<string, GovernanceVote>)
-            : {};
+        typeof updated.votes === 'object' && updated.votes !== null ?
+            (updated.votes as Record<string, GovernanceVote>)
+        :   {};
 
-    const approvals = Object.values(votes).filter(v => v.vote === 'approve').length;
-    const rejections = Object.values(votes).filter(v => v.vote === 'reject').length;
+    const approvals = Object.values(votes).filter(
+        v => v.vote === 'approve',
+    ).length;
+    const rejections = Object.values(votes).filter(
+        v => v.vote === 'reject',
+    ).length;
 
     // castGovernanceVote already handles resolution (accept/reject) internally
     const [final] = await sql<[{ status: string }]>`
         SELECT status FROM ops_governance_proposals WHERE id = ${proposalId}
     `;
 
-    const result = final.status === 'accepted' ? 'accepted' as const
-        : final.status === 'rejected' ? 'rejected' as const
-        : 'pending' as const;
+    const result =
+        final.status === 'accepted' ? ('accepted' as const)
+        : final.status === 'rejected' ? ('rejected' as const)
+        : ('pending' as const);
 
     return { result, approvals, rejections };
 }
@@ -391,7 +414,10 @@ export async function collectGovernanceDebateVotes(
 /** Extract approve/reject from text using keyword matching. */
 function extractVoteFromText(text: string): 'approve' | 'reject' | null {
     const upper = text.toUpperCase();
-    const hasApprove = upper.includes('APPROVE') && !upper.includes('NOT APPROVE') && !upper.includes("DON'T APPROVE");
+    const hasApprove =
+        upper.includes('APPROVE') &&
+        !upper.includes('NOT APPROVE') &&
+        !upper.includes("DON'T APPROVE");
     const hasReject = upper.includes('REJECT');
 
     if (hasApprove && hasReject) {

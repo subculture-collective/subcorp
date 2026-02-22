@@ -178,7 +178,7 @@ async function gatherDayData(date: Date): Promise<DayData> {
  */
 export async function generateDailyDigest(date?: Date): Promise<string | null> {
     let targetDate: Date;
-    
+
     if (date) {
         // Use provided date as-is (assume it's already the correct UTC midnight)
         targetDate = date;
@@ -186,17 +186,18 @@ export async function generateDailyDigest(date?: Date): Promise<string | null> {
         // Calculate CST date — digest should be for the CST calendar day
         const now = new Date();
         const cstHour = (now.getUTCHours() + CST_OFFSET_HOURS + 24) % 24;
-        
+
         // If it's past midnight CST (0:00-1:59), use yesterday's date
         // Otherwise use today's date
-        const offsetHours = cstHour < 2 ? CST_OFFSET_HOURS - HOURS_PER_DAY : CST_OFFSET_HOURS;
+        const offsetHours =
+            cstHour < 2 ? CST_OFFSET_HOURS - HOURS_PER_DAY : CST_OFFSET_HOURS;
         const cstDate = new Date(now.getTime() + offsetHours * 60 * 60 * 1000);
-        
+
         // Extract just the date portion and create UTC midnight
         const dateStr = cstDate.toISOString().slice(0, 10);
         targetDate = new Date(dateStr + 'T00:00:00Z');
     }
-    
+
     const dateStr = targetDate.toISOString().slice(0, 10); // YYYY-MM-DD
 
     // Check if digest already exists for this date
@@ -303,23 +304,32 @@ export async function generateDailyDigest(date?: Date): Promise<string | null> {
 
 const GREETINGS = [
     'Daily operations report.',
-    'Here\'s what happened.',
-    'End of day. Here\'s the rundown.',
+    "Here's what happened.",
+    "End of day. Here's the rundown.",
     'Another day in the books.',
-    'Compiling the day\'s activity.',
+    "Compiling the day's activity.",
     'Operational summary follows.',
 ];
 
 const QUIET_LINES = [
     'Quiet day. Machinery hummed along without much to report.',
     'Not much to write home about. Systems ticked over.',
-    'Low activity across the board. Sometimes that\'s fine.',
+    "Low activity across the board. Sometimes that's fine.",
 ];
 
-function buildDigestSummary(dateStr: string, stats: DigestStats, data: DayData): string {
-    const dayOfWeek = new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long' });
+function buildDigestSummary(
+    dateStr: string,
+    stats: DigestStats,
+    data: DayData,
+): string {
+    const dayOfWeek = new Date(dateStr + 'T12:00:00Z').toLocaleDateString(
+        'en-US',
+        { weekday: 'long' },
+    );
     // Deterministic greeting based on date hash
-    const dateHash = dateStr.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+    const dateHash = dateStr
+        .split('')
+        .reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
     const greeting = GREETINGS[dateHash % GREETINGS.length];
 
     const parts: string[] = [greeting];
@@ -327,20 +337,29 @@ function buildDigestSummary(dateStr: string, stats: DigestStats, data: DayData):
     // Quiet day shortcut
     if (stats.events < 5 && stats.conversations === 0) {
         parts.push(QUIET_LINES[dateHash % QUIET_LINES.length]);
-        parts.push(`${dayOfWeek}, ${dateStr}. ${stats.events} events, $${stats.costs} in LLM costs.`);
+        parts.push(
+            `${dayOfWeek}, ${dateStr}. ${stats.events} events, $${stats.costs} in LLM costs.`,
+        );
         return parts.join(' ');
     }
 
     // Activity paragraph
     const activityParts: string[] = [];
     if (stats.conversations > 0) {
-        const topTopics = data.sessions.slice(0, 3).map(s => `"${s.topic}"`).join(', ');
-        activityParts.push(`${stats.conversations} conversation${stats.conversations !== 1 ? 's' : ''} completed — topics included ${topTopics}`);
+        const topTopics = data.sessions
+            .slice(0, 3)
+            .map(s => `"${s.topic}"`)
+            .join(', ');
+        activityParts.push(
+            `${stats.conversations} conversation${stats.conversations !== 1 ? 's' : ''} completed — topics included ${topTopics}`,
+        );
     }
     if (stats.missions_succeeded > 0 || stats.missions_failed > 0) {
         const mParts: string[] = [];
-        if (stats.missions_succeeded > 0) mParts.push(`${stats.missions_succeeded} succeeded`);
-        if (stats.missions_failed > 0) mParts.push(`${stats.missions_failed} failed`);
+        if (stats.missions_succeeded > 0)
+            mParts.push(`${stats.missions_succeeded} succeeded`);
+        if (stats.missions_failed > 0)
+            mParts.push(`${stats.missions_failed} failed`);
         activityParts.push(`Missions: ${mParts.join(', ')}`);
     }
     if (stats.memories > 0) {
@@ -348,7 +367,9 @@ function buildDigestSummary(dateStr: string, stats: DigestStats, data: DayData):
             .sort((a, b) => b[1] - a[1])
             .slice(0, 3)
             .map(([a, c]) => `${a} (${c})`);
-        activityParts.push(`${stats.memories} new memories formed — ${topMemAgents.join(', ')}`);
+        activityParts.push(
+            `${stats.memories} new memories formed — ${topMemAgents.join(', ')}`,
+        );
     }
     parts.push(activityParts.join('. ') + '.');
 
@@ -356,12 +377,19 @@ function buildDigestSummary(dateStr: string, stats: DigestStats, data: DayData):
     if (data.topEvents.length > 0) {
         const notable = data.topEvents.slice(0, 5);
         const agentMentions = [...new Set(notable.map(e => e.agent_id))];
-        const eventLines = notable.slice(0, 3).map(e => e.title).join('; ');
-        parts.push(`Notable activity from ${agentMentions.join(', ')}: ${eventLines}.`);
+        const eventLines = notable
+            .slice(0, 3)
+            .map(e => e.title)
+            .join('; ');
+        parts.push(
+            `Notable activity from ${agentMentions.join(', ')}: ${eventLines}.`,
+        );
     }
 
     // Closing with costs
-    parts.push(`${dayOfWeek} total: ${stats.events} events, $${stats.costs} in compute.`);
+    parts.push(
+        `${dayOfWeek} total: ${stats.events} events, $${stats.costs} in compute.`,
+    );
 
     return parts.join('\n\n');
 }

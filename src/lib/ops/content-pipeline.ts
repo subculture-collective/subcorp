@@ -17,9 +17,15 @@ const MAX_BODY_LENGTH = 50000;
 /** Extract verdict from a reviewer's text using keyword matching. */
 function extractVerdict(text: string): 'approve' | 'reject' | 'mixed' | null {
     const upper = text.toUpperCase();
-    const hasApprove = upper.includes('APPROVE') && !upper.includes('NOT APPROVE') && !upper.includes("DON'T APPROVE");
+    const hasApprove =
+        upper.includes('APPROVE') &&
+        !upper.includes('NOT APPROVE') &&
+        !upper.includes("DON'T APPROVE");
     const hasReject = upper.includes('REJECT');
-    const hasRevise = upper.includes('REVIS') || upper.includes('NEEDS WORK') || upper.includes('REWORK');
+    const hasRevise =
+        upper.includes('REVIS') ||
+        upper.includes('NEEDS WORK') ||
+        upper.includes('REWORK');
 
     if (hasApprove && !hasReject && !hasRevise) return 'approve';
     if (hasReject && !hasApprove) return 'reject';
@@ -386,15 +392,30 @@ async function processReviewForDraft(
     }
 
     // If keyword parsing resolved all reviewers, skip LLM entirely
-    if (keywordNotes.length > 0 && keywordNotes.length >= reviewerTurns.size - 1) {
-        const approvals = keywordNotes.filter(n => n.verdict === 'approve').length;
-        const rejections = keywordNotes.filter(n => n.verdict === 'reject').length;
-        const consensus = approvals > rejections && approvals >= keywordNotes.length / 2
-            ? 'approved'
-            : rejections > approvals ? 'rejected' : 'mixed';
+    if (
+        keywordNotes.length > 0 &&
+        keywordNotes.length >= reviewerTurns.size - 1
+    ) {
+        const approvals = keywordNotes.filter(
+            n => n.verdict === 'approve',
+        ).length;
+        const rejections = keywordNotes.filter(
+            n => n.verdict === 'reject',
+        ).length;
+        const consensus =
+            approvals > rejections && approvals >= keywordNotes.length / 2 ?
+                'approved'
+            : rejections > approvals ? 'rejected'
+            : 'mixed';
 
         const summary = `${approvals} approve, ${rejections} reject out of ${keywordNotes.length} reviewers (keyword extraction)`;
-        await applyReviewResult(draft, sessionId, keywordNotes, consensus, summary);
+        await applyReviewResult(
+            draft,
+            sessionId,
+            keywordNotes,
+            consensus,
+            summary,
+        );
         return;
     }
 
@@ -469,7 +490,13 @@ Respond ONLY with valid JSON (no markdown fencing):
         const consensus = parsed.consensus ?? 'mixed';
         const summary = parsed.summary ?? '';
 
-        await applyReviewResult(draft, sessionId, reviewerNotes, consensus, summary);
+        await applyReviewResult(
+            draft,
+            sessionId,
+            reviewerNotes,
+            consensus,
+            summary,
+        );
     } catch (err) {
         log.error('Review processing failed', {
             error: err,

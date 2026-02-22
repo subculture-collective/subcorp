@@ -10,7 +10,7 @@ import type { AgentId } from '../types';
 const log = logger.child({ module: 'watercooler-drop' });
 
 /** Eligible agents — everyone except primus */
-const ELIGIBLE_AGENTS = AGENT_IDS.filter((id) => id !== 'primus');
+const ELIGIBLE_AGENTS = AGENT_IDS.filter(id => id !== 'primus');
 
 /** Fallback topics when no recent events exist */
 const GENERIC_TOPICS = [
@@ -60,7 +60,8 @@ export async function runWatercoolerDrop(): Promise<string | null> {
     if (recentEvent?.title) {
         topic = recentEvent.title;
     } else {
-        topic = GENERIC_TOPICS[Math.floor(Math.random() * GENERIC_TOPICS.length)];
+        topic =
+            GENERIC_TOPICS[Math.floor(Math.random() * GENERIC_TOPICS.length)];
     }
 
     // Get agent voice
@@ -139,7 +140,7 @@ export async function runWatercoolerDrop(): Promise<string | null> {
                 tags: ['watercooler', 'social'],
             }),
         )
-        .catch((err) =>
+        .catch(err =>
             log.warn('Failed to emit watercooler_drop event', {
                 error: (err as Error).message,
             }),

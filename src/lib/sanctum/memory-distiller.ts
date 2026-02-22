@@ -71,7 +71,8 @@ export async function distillSanctumMemories(
     // Build transcript
     const transcript = messages
         .map(m => {
-            const speaker = m.role === 'user' ? 'User' : (m.agent_id ?? 'Agent');
+            const speaker =
+                m.role === 'user' ? 'User' : (m.agent_id ?? 'Agent');
             return `[${speaker}]: ${m.content}`;
         })
         .join('\n');

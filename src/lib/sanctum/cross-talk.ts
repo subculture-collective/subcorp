@@ -12,7 +12,10 @@ const log = logger.child({ module: 'sanctum-crosstalk' });
 /** Strip XML function-call tags from LLM output */
 function cleanResponse(text: string): string {
     return text
-        .replace(/<\/?(?:function_?calls?|invoke|parameter|tool_call|antml:[a-z_]+)[^>]*>/gi, '')
+        .replace(
+            /<\/?(?:function_?calls?|invoke|parameter|tool_call|antml:[a-z_]+)[^>]*>/gi,
+            '',
+        )
         .replace(/\s{2,}/g, ' ')
         .trim();
 }
@@ -142,7 +145,9 @@ Respond in character. Be direct, under 400 characters. Do NOT prefix with your n
 
     return {
         agentId: summon.target,
-        content: cleanResponse(content) || `*${target.displayName} acknowledges the summon*`,
+        content:
+            cleanResponse(content) ||
+            `*${target.displayName} acknowledges the summon*`,
         metadata: {
             model: 'auto',
             tokensUsed: 0,
@@ -233,7 +238,9 @@ Brief follow-up, under 300 characters. Do NOT prefix with your name.`;
 
                 crossTalkResponses.push({
                     agentId: reactor.agentId,
-                    content: cleanResponse(content) || `*${reactorAgent.displayName} nods*`,
+                    content:
+                        cleanResponse(content) ||
+                        `*${reactorAgent.displayName} nods*`,
                     metadata: {
                         model: 'auto',
                         tokensUsed: 0,

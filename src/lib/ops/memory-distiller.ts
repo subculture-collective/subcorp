@@ -192,7 +192,10 @@ ${driftRules}${actionRules}
 
     // Process action items (extracted from the same LLM call)
     if (includeActions) {
-        const actionItems = (parsed.action_items ?? []).slice(0, maxActionItems);
+        const actionItems = (parsed.action_items ?? []).slice(
+            0,
+            maxActionItems,
+        );
         for (const item of actionItems) {
             if (!speakers.includes(item.agent_id)) continue;
 

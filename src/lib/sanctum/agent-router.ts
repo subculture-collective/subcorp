@@ -8,9 +8,7 @@ import { llmGenerateWithTools } from '@/lib/llm';
 import { queryRelevantMemories } from '@/lib/ops/memory';
 import { getScratchpad } from '@/lib/ops/scratchpad';
 import { buildBriefing } from '@/lib/ops/situational-briefing';
-import {
-    loadAffinityMap,
-} from '@/lib/ops/relationships';
+import { loadAffinityMap } from '@/lib/ops/relationships';
 import { getAgentTools } from '@/lib/tools/registry';
 import { logger } from '@/lib/logger';
 import type { ToolDefinition } from '@/lib/types';
@@ -19,12 +17,17 @@ const log = logger.child({ module: 'sanctum-router' });
 
 /** Strip XML function-call tags and other LLM artifacts from agent responses */
 function cleanResponse(text: string): string {
-    return text
-        // Strip XML-style tool call blocks (function_calls, invoke, parameter, etc.)
-        .replace(/<\/?(?:function_?calls?|invoke|parameter|tool_call|antml:[a-z_]+)[^>]*>/gi, '')
-        // Collapse runs of whitespace left behind
-        .replace(/\s{2,}/g, ' ')
-        .trim();
+    return (
+        text
+            // Strip XML-style tool call blocks (function_calls, invoke, parameter, etc.)
+            .replace(
+                /<\/?(?:function_?calls?|invoke|parameter|tool_call|antml:[a-z_]+)[^>]*>/gi,
+                '',
+            )
+            // Collapse runs of whitespace left behind
+            .replace(/\s{2,}/g, ' ')
+            .trim()
+    );
 }
 
 // ─── Types ───
@@ -261,7 +264,9 @@ function loadCompactPersonality(agentId: AgentId): string {
     }
 
     // Extract key lines: first non-empty lines from each section, up to ~800 chars (~200 tokens)
-    const lines = `${identity}\n${soul}`.split('\n').filter(l => l.trim() && !l.startsWith('#'));
+    const lines = `${identity}\n${soul}`
+        .split('\n')
+        .filter(l => l.trim() && !l.startsWith('#'));
     let compact = '';
     for (const line of lines) {
         if (compact.length + line.length > 800) break;
@@ -323,7 +328,9 @@ Keep responses under 500 characters unless the question demands depth.
     if (availableTools && availableTools.length > 0) {
         prompt += `\n═══ AVAILABLE TOOLS ═══\n`;
         prompt += `You have tools you can use during this conversation:\n`;
-        prompt += availableTools.map(t => `- ${t.name}: ${t.description}`).join('\n');
+        prompt += availableTools
+            .map(t => `- ${t.name}: ${t.description}`)
+            .join('\n');
         prompt += `\n\nUse memory_write to remember important insights from this conversation.\n`;
         prompt += `Use scratchpad_update to track your current working context or notes.\n`;
         prompt += `Use memory_search to recall relevant past experiences.\n`;
@@ -476,15 +483,18 @@ async function generateOpenResponses(
     });
 
     // ── 2. Pre-load context for all agents in parallel ──
-    const contextMap = new Map<AgentId, {
-        memories: string[];
-        tools: ToolDefinition[];
-        scratchpad: string;
-        briefing: string;
-    }>();
+    const contextMap = new Map<
+        AgentId,
+        {
+            memories: string[];
+            tools: ToolDefinition[];
+            scratchpad: string;
+            briefing: string;
+        }
+    >();
 
     const ctxEntries = await Promise.all(
-        orderedAgents.map(async (agentId) => {
+        orderedAgents.map(async agentId => {
             let memories: string[] = [];
             try {
                 const memEntries = await queryRelevantMemories(
@@ -523,9 +533,16 @@ async function generateOpenResponses(
         // First agent always responds. Others have a probability based on score.
         // High score (3+): ~75% chance. Medium (1-2): ~45%. Baseline: ~30%.
         if (i > 0) {
-            const replyChance = score >= 3 ? 0.75 : score >= 2 ? 0.55 : 0.35;
+            const replyChance =
+                score >= 3 ? 0.75
+                : score >= 2 ? 0.55
+                : 0.35;
             if (Math.random() > replyChance) {
-                log.debug('Agent skipped by probability', { agentId, score, replyChance });
+                log.debug('Agent skipped by probability', {
+                    agentId,
+                    score,
+                    replyChance,
+                });
                 continue;
             }
         }
@@ -612,15 +629,21 @@ async function generateOpenResponses(
         const nonResponders = orderedAgents.filter(a => !respondedIds.has(a));
 
         // Can also be a responder reacting to someone else
-        const allCandidates = nonResponders.length > 0 ? nonResponders : orderedAgents;
-        const reactor = allCandidates[Math.floor(Math.random() * allCandidates.length)];
+        const allCandidates =
+            nonResponders.length > 0 ? nonResponders : orderedAgents;
+        const reactor =
+            allCandidates[Math.floor(Math.random() * allCandidates.length)];
 
         // Pick a random response to react to
-        const targetResponse = responses[Math.floor(Math.random() * responses.length)];
+        const targetResponse =
+            responses[Math.floor(Math.random() * responses.length)];
 
         // Don't react to yourself
         if (reactor !== targetResponse.agentId) {
-            log.debug('Agent-to-agent reaction', { reactor, reactingTo: targetResponse.agentId });
+            log.debug('Agent-to-agent reaction', {
+                reactor,
+                reactingTo: targetResponse.agentId,
+            });
 
             const ctx = contextMap.get(reactor);
             if (ctx) {
@@ -669,7 +692,10 @@ async function generateOpenResponses(
                         });
                     }
                 } catch (err) {
-                    log.error('Agent reaction failed', { error: err, agentId: reactor });
+                    log.error('Agent reaction failed', {
+                        error: err,
+                        agentId: reactor,
+                    });
                 }
             }
         }
@@ -710,7 +736,9 @@ async function generateOpenResponses(
             const cleaned = cleanResponse(result.text);
             responses.push({
                 agentId: fallbackAgent,
-                content: cleaned || `*${AGENTS[fallbackAgent].displayName} considers this*`,
+                content:
+                    cleaned ||
+                    `*${AGENTS[fallbackAgent].displayName} considers this*`,
                 metadata: {
                     model: 'auto',
                     tokensUsed: 0,
@@ -719,7 +747,10 @@ async function generateOpenResponses(
                 },
             });
         } catch (err) {
-            log.error('Fallback agent response failed', { error: err, agentId: fallbackAgent });
+            log.error('Fallback agent response failed', {
+                error: err,
+                agentId: fallbackAgent,
+            });
         }
     }
 
