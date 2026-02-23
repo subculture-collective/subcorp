@@ -39,6 +39,21 @@ import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'orchestrator' });
 
+/** Jaccard similarity threshold — above this, a speaker's turn is considered repetitive. */
+const REPETITION_SIMILARITY_THRESHOLD = 0.6;
+
+/** How many consecutive stale (repetitive) turns before early termination. */
+const MAX_CONSECUTIVE_STALE_TURNS = 2;
+
+/** Base delay between turns in milliseconds (jitter added on top). */
+const TURN_DELAY_BASE_MS = 3000;
+
+/** Random jitter range added to TURN_DELAY_BASE_MS for natural-feeling pacing. */
+const TURN_DELAY_JITTER_MS = 5000;
+
+/** Brief settle delay after the last turn so Discord message ordering is preserved. */
+const POST_CONVERSATION_SETTLE_MS = 2000;
+
 /**
  * Word-level Jaccard similarity between two texts.
  * Returns 0 (no overlap) to 1 (identical word sets).
@@ -63,26 +78,42 @@ function wordJaccard(a: string, b: string): number {
     return intersection / (setA.size + setB.size - intersection);
 }
 
+/** Input for building a speaker's system prompt. */
+interface BuildSystemPromptInput {
+    speakerId: string;
+    history: ConversationTurnEntry[];
+    format: ConversationFormat;
+    topic: string;
+    interactionType?: string;
+    voiceModifiers?: string[];
+    primeDirective?: string;
+    userQuestionContext?: { question: string; isFirstSpeaker: boolean };
+    isRebelling?: boolean;
+    scratchpad?: string;
+    briefing?: string;
+    memories?: string[];
+}
+
 /**
  * Build the system prompt for a speaker in a conversation.
  * Includes their full voice directive, conversation history, format context,
  * interaction dynamics, and INTERWORKINGS protocol awareness.
  */
-function buildSystemPrompt(
-    speakerId: string,
-    history: ConversationTurnEntry[],
-    format: ConversationFormat,
-    topic: string,
-    interactionType?: string,
-    voiceModifiers?: string[],
-    _availableTools?: unknown,
-    primeDirective?: string,
-    userQuestionContext?: { question: string; isFirstSpeaker: boolean },
-    isRebelling?: boolean,
-    scratchpad?: string,
-    briefing?: string,
-    memories?: string[],
-): string {
+function buildSystemPrompt(input: BuildSystemPromptInput): string {
+    const {
+        speakerId,
+        history,
+        format,
+        topic,
+        interactionType,
+        voiceModifiers,
+        primeDirective,
+        userQuestionContext,
+        isRebelling,
+        scratchpad,
+        briefing,
+        memories,
+    } = input;
     const voice = getVoice(speakerId);
     if (!voice) {
         return `You are ${speakerId}. Speak naturally and concisely.`;
@@ -345,6 +376,56 @@ function buildUserPrompt(
     );
 }
 
+/** Pre-loaded per-participant context maps. */
+interface ParticipantContext {
+    voiceModifiers: Map<string, string[]>;
+    scratchpads: Map<string, string>;
+    briefings: Map<string, string>;
+    memories: Map<string, string[]>;
+}
+
+/**
+ * Load voice modifiers, scratchpad, briefing, and memories for each participant.
+ * Best-effort — individual failures fall back to empty values.
+ */
+async function loadParticipantContext(
+    participants: string[],
+    topic: string,
+): Promise<ParticipantContext> {
+    const voiceModifiers = new Map<string, string[]>();
+    const scratchpads = new Map<string, string>();
+    const briefings = new Map<string, string>();
+    const memories = new Map<string, string[]>();
+
+    for (const participant of participants) {
+        try {
+            const [mods, scratchpad, briefing, mems] = await Promise.all([
+                deriveVoiceModifiers(participant).catch(() => []),
+                getScratchpad(participant).catch(() => ''),
+                buildBriefing(participant).catch(() => ''),
+                queryRelevantMemories(participant, topic, {
+                    relevantLimit: 3,
+                    recentLimit: 2,
+                })
+                    .then(m => m.map(e => e.content))
+                    .catch(() => [] as string[]),
+            ]);
+            voiceModifiers.set(participant, mods as string[]);
+            scratchpads.set(participant, scratchpad);
+            briefings.set(participant, briefing);
+            memories.set(participant, mems);
+        } catch (err) {
+            log.error('Context loading failed', { error: err, participant });
+            voiceModifiers.set(participant, []);
+            scratchpads.set(participant, '');
+            briefings.set(participant, '');
+            memories.set(participant, []);
+        }
+    }
+
+    return { voiceModifiers, scratchpads, briefings, memories };
+}
+
 /**
  * Orchestrate a full conversation session.
  * Generates dialogue turn by turn, stores each turn to the database,
@@ -406,47 +487,12 @@ export async function orchestrateConversation(
     // Agents already have context (scratchpad, briefing, memories) pre-loaded.
     // Tool use happens in agent sessions, not roundtable conversations.
 
-    // Derive voice modifiers once per participant (cached per conversation)
-    const voiceModifiersMap = new Map<string, string[]>();
-    for (const participant of session.participants) {
-        try {
-            const mods = await deriveVoiceModifiers(participant);
-            voiceModifiersMap.set(participant, mods);
-        } catch (err) {
-            log.error('Voice modifier derivation failed', {
-                error: err,
-                participant,
-            });
-            voiceModifiersMap.set(participant, []);
-        }
-    }
-
-    // Pre-load scratchpad, briefing, and semantic memories per participant
-    const scratchpadMap = new Map<string, string>();
-    const briefingMap = new Map<string, string>();
-    const memoryMap = new Map<string, string[]>();
-    for (const participant of session.participants) {
-        try {
-            const [scratchpad, briefing, memories] = await Promise.all([
-                getScratchpad(participant).catch(() => ''),
-                buildBriefing(participant).catch(() => ''),
-                queryRelevantMemories(participant, session.topic, {
-                    relevantLimit: 3,
-                    recentLimit: 2,
-                })
-                    .then(mems => mems.map(m => m.content))
-                    .catch(() => [] as string[]),
-            ]);
-            scratchpadMap.set(participant, scratchpad);
-            briefingMap.set(participant, briefing);
-            memoryMap.set(participant, memories);
-        } catch (err) {
-            log.error('Context loading failed', { error: err, participant });
-            scratchpadMap.set(participant, '');
-            briefingMap.set(participant, '');
-            memoryMap.set(participant, []);
-        }
-    }
+    // Pre-load all per-participant context (voice modifiers, scratchpad, briefing, memories)
+    const ctx = await loadParticipantContext(session.participants, session.topic);
+    const voiceModifiersMap = ctx.voiceModifiers;
+    const scratchpadMap = ctx.scratchpads;
+    const briefingMap = ctx.briefings;
+    const memoryMap = ctx.memories;
 
     // Mark session as running
     await sql`
@@ -519,23 +565,23 @@ export async function orchestrateConversation(
         const speakerRebelling = rebellionStateMap.get(speaker) ?? false;
 
         // Generate dialogue via LLM
-        const systemPrompt = buildSystemPrompt(
-            speaker,
+        const systemPrompt = buildSystemPrompt({
+            speakerId: speaker,
             history,
-            session.format,
-            session.topic,
+            format: session.format,
+            topic: session.topic,
             interactionType,
-            voiceModifiersMap.get(speaker),
-            undefined, // No tools in roundtable — dialogue only
+            voiceModifiers: voiceModifiersMap.get(speaker),
             primeDirective,
-            userQuestion ?
-                { question: userQuestion, isFirstSpeaker: turn === 0 }
-            :   undefined,
-            speakerRebelling,
-            scratchpadMap.get(speaker),
-            briefingMap.get(speaker),
-            memoryMap.get(speaker),
-        );
+            userQuestionContext:
+                userQuestion ?
+                    { question: userQuestion, isFirstSpeaker: turn === 0 }
+                :   undefined,
+            isRebelling: speakerRebelling,
+            scratchpad: scratchpadMap.get(speaker),
+            briefing: briefingMap.get(speaker),
+            memories: memoryMap.get(speaker),
+        });
         const userPrompt = buildUserPrompt(
             session.topic,
             turn,
@@ -579,15 +625,25 @@ export async function orchestrateConversation(
 
         const dialogue = sanitizeDialogue(rawDialogue);
 
+        // Skip empty dialogue — LLM returned nothing usable
+        if (!dialogue) {
+            log.warn('Empty dialogue from LLM, skipping turn', {
+                sessionId: session.id,
+                turn,
+                speaker: speakerName,
+            });
+            continue;
+        }
+
         // ─── Repetition detection ───
         // If a speaker produces dialogue too similar to their previous turn,
         // count it as stale. 2+ consecutive stale turns → early termination.
         const prevDialogue = lastDialogueMap.get(speaker);
         if (prevDialogue && turn >= format.minTurns) {
             const similarity = wordJaccard(prevDialogue, dialogue);
-            if (similarity > 0.6) {
+            if (similarity > REPETITION_SIMILARITY_THRESHOLD) {
                 consecutiveStale++;
-                if (consecutiveStale >= 2) {
+                if (consecutiveStale >= MAX_CONSECUTIVE_STALE_TURNS) {
                     log.info('Early termination: repetition detected', {
                         sessionId: session.id,
                         turn,
@@ -662,7 +718,7 @@ export async function orchestrateConversation(
             const delayPromise =
                 delayBetweenTurns && turn < maxTurns - 1 ?
                     new Promise<void>(resolve =>
-                        setTimeout(resolve, 3000 + Math.random() * 5000),
+                        setTimeout(resolve, TURN_DELAY_BASE_MS + Math.random() * TURN_DELAY_JITTER_MS),
                     )
                 :   Promise.resolve();
 
@@ -683,14 +739,14 @@ export async function orchestrateConversation(
             await delayPromise;
         } else {
             if (delayBetweenTurns && turn < maxTurns - 1) {
-                const delay = 3000 + Math.random() * 5000;
+                const delay = TURN_DELAY_BASE_MS + Math.random() * TURN_DELAY_JITTER_MS;
                 await new Promise(resolve => setTimeout(resolve, delay));
             }
         }
     }
 
     // Brief settle after the last turn so Discord ordering is preserved
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise(resolve => setTimeout(resolve, POST_CONVERSATION_SETTLE_MS));
 
     // Determine final status — completed if we got at least 3 turns, failed otherwise
     const finalStatus =
@@ -865,36 +921,12 @@ async function orchestrateVoiceChat(
         ((session.metadata as Record<string, unknown>)
             ?.userQuestion as string) ?? session.topic;
 
-    // Load context per participant (same as standard orchestration)
-    const voiceModifiersMap = new Map<string, string[]>();
-    const scratchpadMap = new Map<string, string>();
-    const briefingMap = new Map<string, string>();
-    const memoryMap = new Map<string, string[]>();
-
-    for (const participant of session.participants) {
-        try {
-            const [mods, scratchpad, briefing, memories] = await Promise.all([
-                deriveVoiceModifiers(participant).catch(() => []),
-                getScratchpad(participant).catch(() => ''),
-                buildBriefing(participant).catch(() => ''),
-                queryRelevantMemories(participant, session.topic, {
-                    relevantLimit: 3,
-                    recentLimit: 2,
-                })
-                    .then(mems => mems.map(m => m.content))
-                    .catch(() => [] as string[]),
-            ]);
-            voiceModifiersMap.set(participant, mods as string[]);
-            scratchpadMap.set(participant, scratchpad);
-            briefingMap.set(participant, briefing);
-            memoryMap.set(participant, memories);
-        } catch {
-            voiceModifiersMap.set(participant, []);
-            scratchpadMap.set(participant, '');
-            briefingMap.set(participant, '');
-            memoryMap.set(participant, []);
-        }
-    }
+    // Pre-load all per-participant context
+    const ctx = await loadParticipantContext(session.participants, session.topic);
+    const voiceModifiersMap = ctx.voiceModifiers;
+    const scratchpadMap = ctx.scratchpads;
+    const briefingMap = ctx.briefings;
+    const memoryMap = ctx.memories;
 
     let primeDirective = '';
     try {
@@ -944,21 +976,20 @@ async function orchestrateVoiceChat(
             }
         }
 
-        const systemPrompt = buildSystemPrompt(
-            speaker,
+        const systemPrompt = buildSystemPrompt({
+            speakerId: speaker,
             history,
-            session.format,
-            session.topic,
+            format: session.format,
+            topic: session.topic,
             interactionType,
-            voiceModifiersMap.get(speaker),
-            undefined,
+            voiceModifiers: voiceModifiersMap.get(speaker),
             primeDirective,
-            { question: userQuestion, isFirstSpeaker: turnNumber === 0 },
-            false,
-            scratchpadMap.get(speaker),
-            briefingMap.get(speaker),
-            memoryMap.get(speaker),
-        );
+            userQuestionContext: { question: userQuestion, isFirstSpeaker: turnNumber === 0 },
+            isRebelling: false,
+            scratchpad: scratchpadMap.get(speaker),
+            briefing: briefingMap.get(speaker),
+            memories: memoryMap.get(speaker),
+        });
 
         // User prompt tailored for voice_chat
         const userPrompt =

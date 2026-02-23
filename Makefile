@@ -5,6 +5,7 @@
         purge-discord \
         verify up down restart status logs logs-app logs-worker logs-db \
         heartbeat db-migrate db-shell nuke fresh init-workspace \
+        rebuild-toolbox prune \
         engage disengage help
 
 # ──────────────────────────────────────────
@@ -42,10 +43,15 @@ down: ## Stop all containers
 restart: ## Restart all containers
 	docker compose restart
 
-rebuild: ## Rebuild images (no cache) and recreate containers
-	docker compose build --no-cache
+rebuild: ## Rebuild app images (no cache) and recreate containers (preserves toolbox)
+	docker compose build --no-cache app worker sanctum
 	docker compose up -d --force-recreate --remove-orphans
 	docker image prune -f
+
+rebuild-toolbox: ## Rebuild only the toolbox image (slow — Go/Python/security tools)
+	docker compose build --no-cache toolbox
+	docker compose up -d --force-recreate toolbox
+	@echo "Toolbox rebuilt."
 
 status: ## Show status of all containers
 	docker compose ps
@@ -117,13 +123,19 @@ purge-discord: ## Purge all messages from Discord channels
 # Fresh Start
 # ──────────────────────────────────────────
 
-nuke: ## Wipe everything: containers, volumes, images — full reset
+nuke: ## Wipe everything: containers, volumes, images — full reset (including toolbox)
 	docker compose down -v --rmi local --remove-orphans
 	@echo "Nuked. All containers, volumes, and local images removed."
 
-fresh: ## Full fresh start: nuke → clean build → migrate → seed → init workspace
-	$(MAKE) nuke
-	docker compose build --no-cache
+fresh: ## Fresh start: stop → rebuild app → migrate → seed (preserves toolbox image)
+	docker compose down -v --remove-orphans
+	docker compose build --no-cache app worker sanctum
+	@if ! docker image inspect subcult-toolbox:latest >/dev/null 2>&1; then \
+		echo "Toolbox image not found, building..."; \
+		docker compose build toolbox; \
+	else \
+		echo "Toolbox image cached, skipping rebuild."; \
+	fi
 	docker compose up -d --remove-orphans
 	docker image prune -f
 	@echo "Waiting for Postgres to be healthy..."
@@ -133,6 +145,12 @@ fresh: ## Full fresh start: nuke → clean build → migrate → seed → init w
 	$(MAKE) purge-discord
 	docker compose exec toolbox /usr/local/bin/init-workspace.sh
 	@echo "Fresh start complete. Run 'make heartbeat' to kick things off."
+
+prune: ## Clean up orphaned containers, dangling images, and build cache
+	docker container prune -f
+	docker image prune -f
+	docker builder prune -f --filter until=72h
+	@echo "Cleanup complete."
 
 init-workspace: ## Re-initialize workspace (dirs, prime directive, permissions)
 	docker compose exec toolbox /usr/local/bin/init-workspace.sh

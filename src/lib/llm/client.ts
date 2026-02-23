@@ -29,6 +29,15 @@ function normalizeModel(id: string): string {
 /** OpenRouter limits the `models` array to 3 items. Slice for API calls; full list used by individual fallback loop. */
 const MAX_MODELS_ARRAY = 3;
 
+/** Default max output tokens for Ollama calls when not specified by caller. */
+const OLLAMA_DEFAULT_MAX_TOKENS = 250;
+
+/** Timeout for direct /chat/completions fallback calls (text-only, last resort). */
+const OPENROUTER_CHAT_TIMEOUT_MS = 30_000;
+
+/** Timeout for OpenRouter tool-calling rounds (higher — tools need execution time). */
+const OPENROUTER_TOOL_TIMEOUT_MS = 120_000;
+
 /**
  * Best-effort repair of truncated JSON from LLM tool call arguments.
  * Models sometimes run out of output tokens mid-JSON, producing unterminated
@@ -71,6 +80,86 @@ function repairTruncatedJson(raw: string): Record<string, unknown> {
     for (let i = 0; i < braces; i++) s += '}';
 
     return JSON.parse(s);
+}
+
+/**
+ * Canonical param alias map for tools.
+ * LLMs (especially DeepSeek) sometimes use variant param names instead of the
+ * exact schema names. This maps known variants → canonical names per tool.
+ */
+const TOOL_PARAM_ALIASES: Record<string, Record<string, string>> = {
+    file_write: {
+        file_path: 'path',
+        filepath: 'path',
+        filename: 'path',
+        file_name: 'path',
+        write_content: 'content',
+        file_content: 'content',
+        text_content: 'content',
+    },
+    file_read: {
+        file_path: 'path',
+        filepath: 'path',
+        filename: 'path',
+        file_name: 'path',
+    },
+    bash: {
+        cmd: 'command',
+        shell_command: 'command',
+        bash_command: 'command',
+    },
+    web_search: {
+        search_query: 'query',
+        q: 'query',
+    },
+    web_fetch: {
+        link: 'url',
+        web_url: 'url',
+        target_url: 'url',
+    },
+    memory_search: {
+        search_query: 'query',
+        q: 'query',
+    },
+    memory_write: {
+        memory_type: 'type',
+        text: 'content',
+        body: 'content',
+    },
+    send_to_agent: {
+        agent: 'target_agent',
+        agent_id: 'target_agent',
+        file_name: 'filename',
+        file: 'filename',
+        text: 'content',
+        body: 'content',
+    },
+};
+
+/**
+ * Normalize tool call arguments by remapping known alias param names
+ * to the canonical names expected by the tool schema.
+ * Returns a new object — does not mutate the original.
+ */
+function normalizeToolArgs(
+    toolName: string,
+    args: Record<string, unknown>,
+): { normalized: Record<string, unknown>; remapped: Record<string, string> } {
+    const aliases = TOOL_PARAM_ALIASES[toolName];
+    if (!aliases) return { normalized: args, remapped: {} };
+
+    const normalized = { ...args };
+    const remapped: Record<string, string> = {};
+
+    for (const [variant, canonical] of Object.entries(aliases)) {
+        if (variant in normalized && !(canonical in normalized)) {
+            normalized[canonical] = normalized[variant];
+            delete normalized[variant];
+            remapped[variant] = canonical;
+        }
+    }
+
+    return { normalized, remapped };
 }
 
 /** LLM_MODEL env override — prepended to resolved model list when set. */
@@ -168,6 +257,179 @@ function stripThinking(text: string): string {
     return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 }
 
+/** Normalize DeepSeek DSML tags (e.g. <｜DSML｜...>) to standard XML. */
+export function normalizeDsml(text: string): string {
+    return text
+        .replace(/<[｜|]DSML[｜|]/g, '<')
+        .replace(/<\/[｜|]DSML[｜|]/g, '</');
+}
+
+/**
+ * Try Ollama as the first LLM provider (text-only, no tools).
+ * Returns the text result or null if Ollama is unavailable / returns empty.
+ * Tracks usage on success.
+ */
+async function tryOllamaFirst(
+    messages: { role: string; content: string }[],
+    temperature: number,
+    maxTokens: number,
+    startTime: number,
+    trackingContext?: LLMGenerateOptions['trackingContext'],
+): Promise<string | null> {
+    if (!OLLAMA_API_KEY && !OLLAMA_LOCAL_URL) return null;
+
+    const ollamaResult = await ollamaChat(messages, temperature, { maxTokens });
+    if (ollamaResult?.text) {
+        log.debug('Ollama succeeded', {
+            model: ollamaResult.model,
+            context: trackingContext?.context,
+            textLength: ollamaResult.text.length,
+        });
+        void trackUsage(
+            `ollama/${ollamaResult.model}`,
+            toOpenResponsesUsage(ollamaResult.usage),
+            Date.now() - startTime,
+            trackingContext,
+        );
+        return ollamaResult.text;
+    }
+
+    log.debug('Ollama returned empty, falling through to OpenRouter', {
+        context: trackingContext?.context,
+        ollamaModels: getOllamaModels().map(m => m.model),
+    });
+    return null;
+}
+
+/**
+ * Try Ollama as a last-resort fallback after OpenRouter fails (text-only).
+ * Returns the text or null.
+ */
+async function tryOllamaLastResort(
+    messages: { role: string; content: string }[],
+    temperature: number,
+    maxTokens: number,
+    startTime: number,
+    trackingContext?: LLMGenerateOptions['trackingContext'],
+): Promise<string | null> {
+    if (!OLLAMA_API_KEY && !OLLAMA_LOCAL_URL) return null;
+
+    const retryResult = await ollamaChat(messages, temperature, { maxTokens });
+    if (retryResult?.text) {
+        void trackUsage(
+            `ollama/${retryResult.model}`,
+            toOpenResponsesUsage(retryResult.usage),
+            Date.now() - startTime,
+            trackingContext,
+        );
+        return retryResult.text;
+    }
+    return null;
+}
+
+/** Throw a descriptive error for known OpenRouter status codes. */
+function throwForOpenRouterStatus(statusCode: number | undefined): void {
+    if (statusCode === 402) {
+        throw new Error('Insufficient OpenRouter credits — add credits at openrouter.ai');
+    }
+    if (statusCode === 429) {
+        throw new Error('OpenRouter rate limited — try again shortly');
+    }
+}
+
+/** Convert Ollama usage stats to the OpenRouter SDK's OpenResponsesUsage shape. */
+function toOpenResponsesUsage(
+    usage: OllamaUsage | undefined,
+): OpenResponsesUsage | null {
+    if (!usage) return null;
+    return {
+        inputTokens: usage.prompt_tokens ?? 0,
+        outputTokens: usage.completion_tokens ?? 0,
+        totalTokens: usage.total_tokens ?? 0,
+    } as unknown as OpenResponsesUsage;
+}
+
+/**
+ * Parse tool call arguments with JSON repair and param alias normalization.
+ * Tries JSON.parse first, falls back to repairTruncatedJson, then empty object.
+ * Returns the normalized args and any remapped param names.
+ */
+function parseAndNormalizeToolArgs(
+    toolName: string,
+    rawArgs: string,
+    model: string,
+    round?: number,
+): { args: Record<string, unknown>; remapped: Record<string, string> } {
+    let args: Record<string, unknown>;
+    try {
+        args = JSON.parse(rawArgs);
+        log.debug('Parsed tool call args', {
+            tool: toolName,
+            argsKeys: Object.keys(args),
+            model,
+            round,
+        });
+    } catch {
+        try {
+            args = repairTruncatedJson(rawArgs);
+            log.warn('Repaired truncated tool call JSON', {
+                tool: toolName,
+                argsKeys: Object.keys(args),
+                original: rawArgs.slice(0, 200),
+                model,
+            });
+        } catch {
+            log.warn('Unrecoverable malformed tool call JSON', {
+                tool: toolName,
+                arguments: rawArgs.slice(0, 200),
+                model,
+            });
+            args = {};
+        }
+    }
+
+    const { normalized, remapped } = normalizeToolArgs(toolName, args);
+    if (Object.keys(remapped).length > 0) {
+        log.info('Normalized tool call param aliases', {
+            tool: toolName,
+            remapped,
+            model,
+            round,
+        });
+    }
+
+    return { args: normalized, remapped };
+}
+
+/**
+ * Filter out phantom tool calls with null/empty function names.
+ * Some models (DeepSeek v3.2) return tool_calls with null names.
+ * Returns the filtered array, or undefined if all were phantom.
+ */
+function filterPhantomToolCalls<T extends { function: { name: string } }>(
+    toolCalls: T[] | undefined,
+    context: { model: string; round?: number; trackingContext?: string },
+): T[] | undefined {
+    if (!toolCalls || toolCalls.length === 0) return undefined;
+
+    const validCalls = toolCalls.filter(
+        tc => tc.function?.name && typeof tc.function.name === 'string',
+    );
+
+    if (validCalls.length < toolCalls.length) {
+        log.warn('Filtered out tool calls with null/empty names', {
+            original: toolCalls.length,
+            valid: validCalls.length,
+            model: context.model,
+            round: context.round,
+            context: context.trackingContext,
+        });
+        return validCalls.length > 0 ? validCalls : undefined;
+    }
+
+    return toolCalls;
+}
+
 interface OllamaUsage {
     prompt_tokens?: number;
     completion_tokens?: number;
@@ -199,7 +461,7 @@ async function ollamaChat(
     const models = getOllamaModels();
     if (models.length === 0) return null;
 
-    const maxTokens = options?.maxTokens ?? 250;
+    const maxTokens = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
     const tools = options?.tools;
     const maxToolRounds = options?.maxToolRounds ?? 3;
 
@@ -217,7 +479,7 @@ async function ollamaChat(
         :   undefined;
 
     for (const spec of models) {
-        const result = await ollamaChatWithModel(
+        const result = await ollamaChatWithModel({
             spec,
             messages,
             temperature,
@@ -225,20 +487,20 @@ async function ollamaChat(
             tools,
             openaiTools,
             maxToolRounds,
-        );
+        });
         if (result) return result;
     }
 
     return null;
 }
 
-/** Try a single Ollama model. Returns result or null on failure. */
-async function ollamaChatWithModel(
-    spec: OllamaModelSpec,
-    messages: { role: string; content: string }[],
-    temperature: number,
-    maxTokens: number,
-    tools: ToolDefinition[] | undefined,
+/** Input for a single Ollama model chat attempt. */
+interface OllamaChatWithModelInput {
+    spec: OllamaModelSpec;
+    messages: { role: string; content: string }[];
+    temperature: number;
+    maxTokens: number;
+    tools: ToolDefinition[] | undefined;
     openaiTools:
         | Array<{
               type: 'function';
@@ -248,9 +510,23 @@ async function ollamaChatWithModel(
                   parameters: Record<string, unknown>;
               };
           }>
-        | undefined,
-    maxToolRounds: number,
+        | undefined;
+    maxToolRounds: number;
+}
+
+/** Try a single Ollama model. Returns result or null on failure. */
+async function ollamaChatWithModel(
+    input: OllamaChatWithModelInput,
 ): Promise<OllamaChatResult | null> {
+    const {
+        spec,
+        messages,
+        temperature,
+        maxTokens,
+        tools,
+        openaiTools,
+        maxToolRounds,
+    } = input;
     const { model, baseUrl, apiKey } = spec;
     const toolCallRecords: ToolCallRecord[] = [];
 
@@ -279,9 +555,13 @@ async function ollamaChatWithModel(
                 temperature,
                 max_tokens: maxTokens,
             };
-            // Only include tools if we haven't exhausted rounds
+            // Always include tools so the model has context for tool results.
+            // On the final round, use tool_choice: "none" to get a text response.
             if (openaiTools && round < maxToolRounds) {
                 body.tools = openaiTools;
+            } else if (openaiTools && round >= maxToolRounds) {
+                body.tools = openaiTools;
+                body.tool_choice = 'none';
             }
 
             const response = await fetch(`${baseUrl}/v1/chat/completions`, {
@@ -293,10 +573,11 @@ async function ollamaChatWithModel(
 
             clearTimeout(timeoutId);
             if (!response.ok) {
-                log.debug('Ollama model failed', {
+                log.warn('Ollama model HTTP error', {
                     model,
                     baseUrl,
                     status: response.status,
+                    statusText: response.statusText,
                 });
                 return null;
             }
@@ -317,16 +598,34 @@ async function ollamaChatWithModel(
             };
 
             const msg = data.choices?.[0]?.message;
-            if (!msg) return null;
+            if (!msg) {
+                log.warn('Ollama model returned no message', {
+                    model,
+                    hasChoices: !!data.choices?.length,
+                });
+                return null;
+            }
 
-            const pendingToolCalls = msg.tool_calls;
+            const ollamaPendingToolCalls = filterPhantomToolCalls(
+                msg.tool_calls,
+                { model, round },
+            );
 
             // No tool calls → return text (extract content from XML wrappers if present)
-            if (!pendingToolCalls || pendingToolCalls.length === 0) {
+            if (
+                !ollamaPendingToolCalls ||
+                ollamaPendingToolCalls.length === 0
+            ) {
                 const raw = msg.content ?? '';
                 const text = extractFromXml(stripThinking(raw)).trim();
-                if (text.length === 0 && toolCallRecords.length === 0)
+                if (text.length === 0 && toolCallRecords.length === 0) {
+                    log.warn('Ollama model returned empty text', {
+                        model,
+                        rawContentLength: raw.length,
+                        rawPreview: raw.slice(0, 100) || '(empty)',
+                    });
                     return null;
+                }
                 return {
                     text,
                     toolCalls: toolCallRecords,
@@ -336,36 +635,48 @@ async function ollamaChatWithModel(
             }
 
             // Execute tool calls
+            log.debug('Ollama tool calls received', {
+                model,
+                round,
+                toolCount: ollamaPendingToolCalls.length,
+                toolNames: ollamaPendingToolCalls.map(tc => tc.function.name),
+            });
+
             workingMessages.push({
                 role: 'assistant',
                 content: msg.content ?? null,
-                tool_calls: pendingToolCalls,
+                tool_calls: ollamaPendingToolCalls,
             });
 
-            for (const tc of pendingToolCalls) {
+            for (const tc of ollamaPendingToolCalls) {
                 const tool = tools?.find(t => t.name === tc.function.name);
                 let resultStr: string;
 
                 if (tool?.execute) {
-                    let args: Record<string, unknown>;
-                    try {
-                        args = JSON.parse(tc.function.arguments);
-                    } catch {
-                        try {
-                            args = repairTruncatedJson(tc.function.arguments);
-                            log.warn('Repaired truncated tool call JSON', {
-                                tool: tc.function.name,
-                                original: tc.function.arguments.slice(0, 200),
-                            });
-                        } catch {
-                            log.warn('Unrecoverable malformed tool call JSON', {
-                                tool: tc.function.name,
-                                arguments: tc.function.arguments.slice(0, 200),
-                            });
-                            args = {};
-                        }
-                    }
+                    const { args } = parseAndNormalizeToolArgs(
+                        tc.function.name,
+                        tc.function.arguments,
+                        model,
+                        round,
+                    );
+
+                    log.debug('Ollama executing tool call', {
+                        tool: tc.function.name,
+                        argsKeys: Object.keys(args),
+                        model,
+                        round,
+                    });
                     const result = await tool.execute(args);
+                    log.debug('Ollama tool call executed', {
+                        tool: tc.function.name,
+                        resultType: typeof result,
+                        resultPreview:
+                            typeof result === 'string' ?
+                                result.slice(0, 100)
+                            :   JSON.stringify(result).slice(0, 100),
+                        model,
+                        round,
+                    });
                     toolCallRecords.push({
                         name: tool.name,
                         arguments: args,
@@ -376,6 +687,11 @@ async function ollamaChatWithModel(
                             JSON.stringify(result)
                         );
                 } else {
+                    log.warn('Ollama tool not found for call', {
+                        tool: tc.function.name,
+                        availableTools: tools?.map(t => t.name) ?? [],
+                        model,
+                    });
                     resultStr = `Tool ${tc.function.name} not available`;
                 }
 
@@ -386,9 +702,9 @@ async function ollamaChatWithModel(
                 });
             }
         } catch (err) {
-            log.debug('Ollama chat error', {
+            log.warn('Ollama chat exception', {
                 model,
-                error: (err as Error).message,
+                error: (err as Error).message?.slice(0, 200),
             });
             return null;
         }
@@ -454,6 +770,73 @@ function jsonSchemaToZod(
     });
 
     return z.object(Object.fromEntries(entries));
+}
+
+/**
+ * Direct /chat/completions call to OpenRouter, bypassing the SDK.
+ * Used as a last-resort fallback when the SDK's /responses endpoint
+ * doesn't parse the API response correctly (e.g. "Unexpected response type").
+ * Text-only — no tool calling support.
+ */
+async function openRouterChatCompletions(
+    model: string,
+    messages: { role: string; content: string }[],
+    temperature: number,
+    maxTokens: number,
+): Promise<string | null> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+        () => controller.abort(),
+        OPENROUTER_CHAT_TIMEOUT_MS,
+    );
+
+    try {
+        const response = await fetch(
+            'https://openrouter.ai/api/v1/chat/completions',
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+                },
+                body: JSON.stringify({
+                    model,
+                    messages: messages.map(m => ({
+                        role: m.role,
+                        content: m.content,
+                    })),
+                    temperature,
+                    max_tokens: maxTokens,
+                }),
+                signal: controller.signal,
+            },
+        );
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            log.warn('Direct /chat/completions HTTP error', {
+                model,
+                status: response.status,
+            });
+            return null;
+        }
+
+        const data = (await response.json()) as {
+            choices?: [{ message?: { content?: string } }];
+        };
+        const text = extractFromXml(
+            (data.choices?.[0]?.message?.content ?? '').trim(),
+        );
+        return text.length > 0 ? text : null;
+    } catch (err) {
+        clearTimeout(timeoutId);
+        log.warn('Direct /chat/completions exception', {
+            model,
+            error: (err as Error).message?.slice(0, 200),
+        });
+        return null;
+    }
 }
 
 /**
@@ -551,38 +934,28 @@ export async function llmGenerate(
     const client = getClient();
     const startTime = Date.now();
 
+    log.debug('llmGenerate starting', {
+        hasTools: !!(tools && tools.length > 0),
+        messageCount: messages.length,
+        model: model ?? 'auto',
+        maxTokens,
+        temperature,
+        context: trackingContext?.context,
+        agentId: trackingContext?.agentId,
+    });
+
     // Separate system instructions from conversation messages
     const systemMessage = messages.find(m => m.role === 'system');
     const conversationMessages = messages.filter(m => m.role !== 'system');
 
     // ── Try Ollama first — but ONLY when no tools are needed ──
-    // Ollama cloud models can't use function calling; skip to avoid wasting ~22s/round
     const hasToolsDefined = tools && tools.length > 0;
-    if (!hasToolsDefined && (OLLAMA_API_KEY || OLLAMA_LOCAL_URL)) {
-        const ollamaResult = await ollamaChat(messages, temperature, {
-            maxTokens,
-        });
-        if (ollamaResult?.text) {
-            const ollamaUsage =
-                ollamaResult.usage ?
-                    ({
-                        inputTokens: ollamaResult.usage.prompt_tokens ?? 0,
-                        outputTokens: ollamaResult.usage.completion_tokens ?? 0,
-                        totalTokens: ollamaResult.usage.total_tokens ?? 0,
-                    } as unknown as OpenResponsesUsage)
-                :   null;
-            void trackUsage(
-                `ollama/${ollamaResult.model}`,
-                ollamaUsage,
-                Date.now() - startTime,
-                trackingContext,
-            );
-            return ollamaResult.text;
-        }
+    if (!hasToolsDefined) {
+        const ollamaText = await tryOllamaFirst(messages, temperature, maxTokens, startTime, trackingContext);
+        if (ollamaText) return ollamaText;
     }
 
     // ── OpenRouter (cloud) ──
-    // Resolve model list: explicit override → single model, otherwise → dynamic routing (DB + env + defaults)
     const resolved =
         model ?
             [normalizeModel(model)]
@@ -622,93 +995,487 @@ export async function llmGenerate(
         const rawText = (await result.getText())?.trim() ?? '';
         const text = extractFromXml(rawText);
 
-        // Track usage after successful getText
         const durationMs = Date.now() - startTime;
         const response = await result.getResponse();
         const usedModel = response.model || 'unknown';
         const usage = response.usage;
 
-        // Fire-and-forget tracking (errors logged internally by trackUsage)
         void trackUsage(usedModel, usage, durationMs, trackingContext);
+
+        if (text.length === 0) {
+            log.warn('LLM returned empty text', {
+                model: usedModel,
+                context: trackingContext?.context,
+                rawTextLength: rawText.length,
+                rawTextPreview: rawText.slice(0, 100) || '(empty)',
+                outputTokens: usage?.outputTokens ?? 0,
+                durationMs,
+            });
+        }
 
         return text.length > 0 ? text : null;
     }
 
-    // 1) Try with models array — OpenRouter handles provider routing natively
-    let openRouterError: { statusCode?: number; message?: string } | null =
-        null;
+    // 1) Try with models array
+    const openRouterResult = await tryOpenRouterArray(tryCall, modelList, trackingContext?.context);
+
+    // 2) Try remaining models individually
+    if (!openRouterResult.text) {
+        const individualText = await tryOpenRouterIndividual(
+            tryCall, resolved, openRouterResult.error, trackingContext?.context,
+        );
+        if (individualText) return individualText;
+    } else {
+        return openRouterResult.text;
+    }
+
+    // 3) Ollama last resort (text-only)
+    if (openRouterResult.error && !hasToolsDefined) {
+        log.debug('OpenRouter failed, retrying Ollama as last resort', {
+            error: openRouterResult.error.message,
+            statusCode: openRouterResult.error.statusCode,
+        });
+        const ollamaText = await tryOllamaLastResort(messages, temperature, maxTokens, startTime, trackingContext);
+        if (ollamaText) return ollamaText;
+    }
+
+    // Throw for known OpenRouter billing/rate errors
+    throwForOpenRouterStatus(openRouterResult.error?.statusCode);
+
+    // 4) Last resort: direct /chat/completions (bypasses SDK Responses API)
+    if (OPENROUTER_API_KEY && !hasToolsDefined) {
+        const chatText = await tryDirectChatCompletions(
+            resolved, messages, temperature, maxTokens, startTime, trackingContext,
+        );
+        if (chatText) return chatText;
+    }
+
+    log.warn('All LLM providers returned empty', {
+        context: trackingContext?.context,
+        agentId: trackingContext?.agentId,
+        ollamaAvailable: !!(OLLAMA_API_KEY || OLLAMA_LOCAL_URL),
+        openRouterModels: resolved,
+        hadOpenRouterError: !!openRouterResult.error,
+        durationMs: Date.now() - startTime,
+    });
+
+    return '';
+}
+
+/** Try the OpenRouter models array call. Returns text on success or the error on failure. */
+async function tryOpenRouterArray(
+    tryCall: (spec: string | string[]) => Promise<string | null>,
+    modelList: string[],
+    context?: string,
+): Promise<{ text: string | null; error: { statusCode?: number; message?: string } | null }> {
     try {
         const text = await tryCall(modelList);
-        if (text) return text;
+        if (text) return { text, error: null };
+        log.debug('OpenRouter models array returned empty', { models: modelList, context });
+        return { text: null, error: null };
     } catch (error: unknown) {
-        openRouterError = error as { statusCode?: number; message?: string };
-        if (openRouterError.statusCode === 401) {
-            throw new Error(
-                'Invalid OpenRouter API key — check your OPENROUTER_API_KEY',
-            );
+        const err = error as { statusCode?: number; message?: string };
+        log.warn('OpenRouter models array failed', {
+            statusCode: err.statusCode,
+            error: err.message?.slice(0, 200),
+            models: modelList,
+            context,
+        });
+        if (err.statusCode === 401) {
+            throw new Error('Invalid OpenRouter API key — check your OPENROUTER_API_KEY');
         }
-        // 402/429/other — fall through to individual models, then Ollama retry
+        return { text: null, error: err };
+    }
+}
+
+/**
+ * Try remaining models individually after the array call fails or returns empty.
+ * When the array call threw, try ALL models; otherwise try only overflow models.
+ */
+async function tryOpenRouterIndividual(
+    tryCall: (spec: string) => Promise<string | null>,
+    resolved: string[],
+    openRouterError: { statusCode?: number; message?: string } | null,
+    context?: string,
+): Promise<string | null> {
+    if (openRouterError?.statusCode === 402 || openRouterError?.statusCode === 429) {
+        return null;
     }
 
-    // 2) If models array returned empty or errored, try remaining models individually
-    if (
-        !openRouterError ||
-        (openRouterError.statusCode !== 402 &&
-            openRouterError.statusCode !== 429)
-    ) {
-        for (const fallback of resolved.slice(MAX_MODELS_ARRAY)) {
-            try {
-                const text = await tryCall(fallback);
-                if (text) return text;
-            } catch {
-                // Continue to next
+    const fallbackModels = openRouterError ? resolved : resolved.slice(MAX_MODELS_ARRAY);
+    for (const fallback of fallbackModels) {
+        try {
+            const text = await tryCall(fallback);
+            if (text) return text;
+        } catch (fbErr) {
+            log.warn('OpenRouter individual fallback failed', {
+                model: fallback,
+                error: (fbErr as Error).message?.slice(0, 200),
+                context,
+            });
+        }
+    }
+    return null;
+}
+
+/** Last-resort direct /chat/completions call bypassing the SDK. */
+async function tryDirectChatCompletions(
+    resolved: string[],
+    messages: { role: string; content: string }[],
+    temperature: number,
+    maxTokens: number,
+    startTime: number,
+    trackingContext?: LLMGenerateOptions['trackingContext'],
+): Promise<string | null> {
+    const chatModel = resolved[0] ?? 'deepseek/deepseek-v3.2';
+    try {
+        const chatResult = await openRouterChatCompletions(chatModel, messages, temperature, maxTokens);
+        if (chatResult) {
+            log.info('Recovered via direct /chat/completions fallback', {
+                model: chatModel,
+                context: trackingContext?.context,
+                textLength: chatResult.length,
+            });
+            void trackUsage(chatModel, null, Date.now() - startTime, trackingContext);
+            return chatResult;
+        }
+    } catch (chatErr) {
+        log.warn('Direct /chat/completions fallback failed', {
+            model: chatModel,
+            error: (chatErr as Error).message?.slice(0, 200),
+        });
+    }
+    return null;
+}
+
+/**
+ * Execute a single tool call: parse args, validate required params, run the tool.
+ * Returns the result string for feeding back into the conversation and optionally
+ * appends to the toolCallRecords array.
+ */
+async function executeToolCall(
+    tc: { id: string; function: { name: string; arguments: string } },
+    tools: ToolDefinition[],
+    toolCallRecords: ToolCallRecord[],
+    model: string,
+    round: number,
+): Promise<string> {
+    const tool = tools.find(t => t.name === tc.function.name);
+
+    if (!tool?.execute) {
+        return `Tool ${tc.function.name} not available`;
+    }
+
+    const { args } = parseAndNormalizeToolArgs(
+        tc.function.name,
+        tc.function.arguments,
+        model,
+        round,
+    );
+
+    // Validate required parameters before executing
+    const required = (tool.parameters?.required as string[]) ?? [];
+    const missing = required.filter(p => !(p in args) || args[p] == null);
+
+    if (missing.length > 0) {
+        log.warn(
+            'Tool call missing required params after parse/repair/normalize',
+            {
+                tool: tc.function.name,
+                missing,
+                argsKeys: Object.keys(args),
+                model,
+                round,
+            },
+        );
+        return JSON.stringify({
+            error:
+                `Missing required parameters: ${missing.join(', ')}. ` +
+                `Your tool call output was truncated before these fields were emitted. ` +
+                `If writing long content, split into smaller chunks using the "append" parameter ` +
+                `or reduce the content length.`,
+        });
+    }
+
+    log.debug('Executing tool call', {
+        tool: tc.function.name,
+        argsKeys: Object.keys(args),
+        round,
+        model,
+    });
+    const result = await tool.execute(args);
+    log.debug('Tool call executed', {
+        tool: tc.function.name,
+        resultType: typeof result,
+        resultPreview:
+            typeof result === 'string' ?
+                result.slice(0, 100)
+            :   JSON.stringify(result).slice(0, 100),
+        round,
+        model,
+    });
+    toolCallRecords.push({ name: tool.name, arguments: args, result });
+    return typeof result === 'string' ? result : JSON.stringify(result);
+}
+
+/** Response type for the OpenRouter /chat/completions API */
+interface ChatCompletionsResponse {
+    choices?: [
+        {
+            message?: {
+                content?: string;
+                tool_calls?: Array<{
+                    id: string;
+                    function: { name: string; arguments: string };
+                }>;
+            };
+        },
+    ];
+    model?: string;
+    usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+    };
+}
+
+/** Working message type for the tool-calling conversation loop */
+type ToolWorkingMessage = {
+    role: string;
+    content: string | null;
+    tool_calls?: Array<{
+        id: string;
+        type: string;
+        function: { name: string; arguments: string };
+    }>;
+    tool_call_id?: string;
+};
+
+/**
+ * Run the OpenRouter tool-calling loop via raw /chat/completions.
+ * Bypasses the SDK because the SDK's JSON parser can't repair truncated
+ * tool call arguments. Returns the final text and tool call records.
+ */
+async function openRouterToolLoop(opts: {
+    messages: ToolWorkingMessage[];
+    tools: ToolDefinition[];
+    openaiTools: Array<{
+        type: 'function';
+        function: {
+            name: string;
+            description: string;
+            parameters: Record<string, unknown>;
+        };
+    }>;
+    modelList: string[];
+    temperature: number;
+    maxTokens: number;
+    maxToolRounds: number;
+    trackingContext?: LLMGenerateOptions['trackingContext'];
+    startTime: number;
+}): Promise<LLMToolResult> {
+    const {
+        messages: workingMessages,
+        tools,
+        openaiTools,
+        modelList,
+        temperature,
+        maxTokens,
+        maxToolRounds,
+        trackingContext,
+        startTime,
+    } = opts;
+
+    const toolCallRecords: ToolCallRecord[] = [];
+    let lastModel = 'unknown';
+    let lastUsage: OpenResponsesUsage | null = null;
+    let bestText = '';
+
+    for (let round = 0; round <= maxToolRounds; round++) {
+        log.debug('Tool round starting', {
+            round,
+            maxToolRounds,
+            workingMessageCount: workingMessages.length,
+            toolCallRecordsSoFar: toolCallRecords.length,
+            context: trackingContext?.context,
+        });
+
+        const body: Record<string, unknown> = {
+            messages: workingMessages,
+            temperature,
+            max_tokens: maxTokens,
+        };
+
+        if (modelList.length > 1) {
+            body.models = modelList;
+            body.provider = { allow_fallbacks: true };
+        } else {
+            body.model = modelList[0];
+        }
+
+        if (openaiTools.length > 0) {
+            body.tools = openaiTools;
+            if (round >= maxToolRounds) {
+                body.tool_choice = 'none';
             }
         }
-    }
 
-    // 3) If OpenRouter failed entirely, retry Ollama as last resort (text-only, no tools)
-    if (
-        openRouterError &&
-        !hasToolsDefined &&
-        (OLLAMA_API_KEY || OLLAMA_LOCAL_URL)
-    ) {
-        log.debug('OpenRouter failed, retrying Ollama as last resort', {
-            error: openRouterError.message,
-            statusCode: openRouterError.statusCode,
+        const controller = new AbortController();
+        const timeoutId = setTimeout(
+            () => controller.abort(),
+            OPENROUTER_TOOL_TIMEOUT_MS,
+        );
+
+        const response = await fetch(
+            'https://openrouter.ai/api/v1/chat/completions',
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+                    'HTTP-Referer': 'https://subcult.org',
+                },
+                body: JSON.stringify(body),
+                signal: controller.signal,
+            },
+        );
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            const errBody = await response.text().catch(() => '');
+            const statusCode = response.status;
+            throw Object.assign(
+                new Error(
+                    `OpenRouter API error: ${statusCode} ${errBody.slice(0, 200)}`,
+                ),
+                { statusCode },
+            );
+        }
+
+        const data = (await response.json()) as ChatCompletionsResponse;
+
+        lastModel = data.model ?? 'unknown';
+        if (data.usage) {
+            lastUsage = {
+                inputTokens: data.usage.prompt_tokens ?? 0,
+                outputTokens: data.usage.completion_tokens ?? 0,
+                totalTokens:
+                    (data.usage.prompt_tokens ?? 0) +
+                    (data.usage.completion_tokens ?? 0),
+            } as unknown as OpenResponsesUsage;
+        }
+
+        const msg = data.choices?.[0]?.message;
+        if (!msg) {
+            log.warn('OpenRouter returned empty message', {
+                round,
+                model: lastModel,
+            });
+            break;
+        }
+
+        let pendingToolCalls = filterPhantomToolCalls(msg.tool_calls, {
+            model: lastModel,
+            round,
+            trackingContext: trackingContext?.context,
         });
-        const retryResult = await ollamaChat(messages, temperature, {
-            maxTokens,
+
+        log.debug('API response received', {
+            round,
+            model: lastModel,
+            hasContent: !!msg.content,
+            contentLength: msg.content?.length ?? 0,
+            contentPreview: msg.content?.slice(0, 150) || '(empty)',
+            apiToolCallCount: pendingToolCalls?.length ?? 0,
+            apiToolCallNames:
+                pendingToolCalls?.map(tc => tc.function.name) ?? [],
+            context: trackingContext?.context,
         });
-        if (retryResult?.text) {
-            const ollamaUsage =
-                retryResult.usage ?
-                    ({
-                        inputTokens: retryResult.usage.prompt_tokens ?? 0,
-                        outputTokens: retryResult.usage.completion_tokens ?? 0,
-                        totalTokens: retryResult.usage.total_tokens ?? 0,
-                    } as unknown as OpenResponsesUsage)
-                :   null;
+
+        // Detect DSML/XML text tool calls when API returned none
+        if (
+            (!pendingToolCalls || pendingToolCalls.length === 0) &&
+            msg.content
+        ) {
+            const dsmlCalls = parseDsmlToolCalls(msg.content, tools);
+            if (dsmlCalls.length > 0) {
+                pendingToolCalls = dsmlCalls;
+                log.info('Recovered tool calls from DSML text', {
+                    count: dsmlCalls.length,
+                    tools: dsmlCalls.map(tc => tc.function.name),
+                    model: lastModel,
+                    round,
+                    context: trackingContext?.context,
+                });
+            }
+        }
+
+        // No tool calls → return text
+        if (!pendingToolCalls || pendingToolCalls.length === 0) {
+            const raw = msg.content ?? '';
+            const text = extractFromXml(raw).trim();
+            const finalText = text || bestText;
+
             void trackUsage(
-                `ollama/${retryResult.model}`,
-                ollamaUsage,
+                lastModel,
+                lastUsage,
                 Date.now() - startTime,
                 trackingContext,
             );
-            return retryResult.text;
+            return { text: finalText, toolCalls: toolCallRecords };
+        }
+
+        // Process tool calls
+        log.debug('Processing tool calls', {
+            round,
+            model: lastModel,
+            toolCount: pendingToolCalls.length,
+            toolNames: pendingToolCalls.map(tc => tc.function.name),
+            context: trackingContext?.context,
+        });
+
+        workingMessages.push({
+            role: 'assistant',
+            content: msg.content ?? null,
+            tool_calls: pendingToolCalls.map(tc => ({
+                id: tc.id,
+                type: 'function' as const,
+                function: tc.function,
+            })),
+        });
+
+        if (msg.content) {
+            const roundText = extractFromXml(msg.content).trim();
+            if (roundText.length > bestText.length) {
+                bestText = roundText;
+            }
+        }
+
+        for (const tc of pendingToolCalls) {
+            const resultStr = await executeToolCall(
+                tc,
+                tools,
+                toolCallRecords,
+                lastModel,
+                round,
+            );
+            workingMessages.push({
+                role: 'tool',
+                content: resultStr,
+                tool_call_id: tc.id,
+            });
         }
     }
 
-    // If we had a specific OpenRouter error and nothing else worked, throw it
-    if (openRouterError?.statusCode === 402) {
-        throw new Error(
-            'Insufficient OpenRouter credits — add credits at openrouter.ai',
-        );
-    }
-    if (openRouterError?.statusCode === 429) {
-        throw new Error('OpenRouter rate limited — try again shortly');
-    }
-
-    return '';
+    // Exhausted all rounds — return what we have
+    void trackUsage(
+        lastModel,
+        lastUsage,
+        Date.now() - startTime,
+        trackingContext,
+    );
+    return { text: bestText, toolCalls: toolCallRecords };
 }
 
 /**
@@ -732,50 +1499,31 @@ export async function llmGenerateWithTools(
     const startTime = Date.now();
     const hasTools = tools.length > 0;
 
-    // ── Try Ollama first — but ONLY when no tools are needed ──
-    // Ollama cloud models can't use function calling; attempting them wastes ~22s
-    // per round before falling through to OpenRouter, causing session timeouts.
-    if (!hasTools && (OLLAMA_API_KEY || OLLAMA_LOCAL_URL)) {
-        const ollamaResult = await ollamaChat(messages, temperature, {
-            maxTokens,
-        });
+    log.debug('llmGenerateWithTools starting', {
+        hasTools,
+        toolNames: tools.map(t => t.name),
+        messageCount: messages.length,
+        model: model ?? 'auto',
+        maxTokens,
+        maxToolRounds,
+        temperature,
+        context: trackingContext?.context,
+        agentId: trackingContext?.agentId,
+    });
 
-        if (ollamaResult?.text) {
-            const ollamaUsage =
-                ollamaResult.usage ?
-                    ({
-                        inputTokens: ollamaResult.usage.prompt_tokens ?? 0,
-                        outputTokens: ollamaResult.usage.completion_tokens ?? 0,
-                        totalTokens: ollamaResult.usage.total_tokens ?? 0,
-                    } as unknown as OpenResponsesUsage)
-                :   null;
-            void trackUsage(
-                `ollama/${ollamaResult.model}`,
-                ollamaUsage,
-                Date.now() - startTime,
-                trackingContext,
-            );
-            return {
-                text: ollamaResult.text,
-                toolCalls: [],
-            };
-        }
+    // ── Try Ollama first — but ONLY when no tools are needed ──
+    if (!hasTools) {
+        const ollamaText = await tryOllamaFirst(messages, temperature, maxTokens, startTime, trackingContext);
+        if (ollamaText) return { text: ollamaText, toolCalls: [] };
     }
 
     // ── OpenRouter (cloud) — raw fetch with JSON repair ──
-    // We bypass the SDK's callModel for tool execution because the SDK's
-    // JSON parser cannot repair truncated tool call arguments. Using raw
-    // fetch gives us control over parsing (repairTruncatedJson) and proper
-    // maxToolRounds enforcement.
     const resolved =
         model ?
             [normalizeModel(model)]
         :   await resolveModelsWithEnv(trackingContext?.context);
     const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
 
-    const toolCallRecords: ToolCallRecord[] = [];
-
-    // Convert tools to OpenAI function-calling format
     const openaiTools = tools.map(t => ({
         type: 'function' as const,
         function: {
@@ -785,285 +1533,39 @@ export async function llmGenerateWithTools(
         },
     }));
 
-    // Build working messages (mutable for tool result feeding)
-    type WorkingMessage = {
-        role: string;
-        content: string | null;
-        tool_calls?: Array<{
-            id: string;
-            type: string;
-            function: { name: string; arguments: string };
-        }>;
-        tool_call_id?: string;
-    };
-    const workingMessages: WorkingMessage[] = messages.map(m => ({
+    const workingMessages: ToolWorkingMessage[] = messages.map(m => ({
         role: m.role,
         content: m.content,
     }));
 
     try {
-        let lastModel = 'unknown';
-        let lastUsage: OpenResponsesUsage | null = null;
-
-        for (let round = 0; round <= maxToolRounds; round++) {
-            const body: Record<string, unknown> = {
-                messages: workingMessages,
-                temperature,
-                max_tokens: maxTokens,
-            };
-
-            // Use models array for fallback routing
-            if (modelList.length > 1) {
-                body.models = modelList;
-                body.provider = { allow_fallbacks: true };
-            } else {
-                body.model = modelList[0];
-            }
-
-            // Only include tools if we haven't exhausted rounds
-            if (openaiTools.length > 0 && round < maxToolRounds) {
-                body.tools = openaiTools;
-            }
-
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 120_000);
-
-            const response = await fetch(
-                'https://openrouter.ai/api/v1/chat/completions',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-                        'HTTP-Referer': 'https://subcult.org',
-                    },
-                    body: JSON.stringify(body),
-                    signal: controller.signal,
-                },
-            );
-
-            clearTimeout(timeoutId);
-
-            if (!response.ok) {
-                const errBody = await response.text().catch(() => '');
-                const statusCode = response.status;
-                throw Object.assign(
-                    new Error(
-                        `OpenRouter API error: ${statusCode} ${errBody.slice(0, 200)}`,
-                    ),
-                    { statusCode },
-                );
-            }
-
-            const data = (await response.json()) as {
-                choices?: [
-                    {
-                        message?: {
-                            content?: string;
-                            tool_calls?: Array<{
-                                id: string;
-                                function: { name: string; arguments: string };
-                            }>;
-                        };
-                    },
-                ];
-                model?: string;
-                usage?: {
-                    prompt_tokens?: number;
-                    completion_tokens?: number;
-                    total_tokens?: number;
-                };
-            };
-
-            lastModel = data.model ?? 'unknown';
-            if (data.usage) {
-                lastUsage = {
-                    inputTokens: data.usage.prompt_tokens ?? 0,
-                    outputTokens: data.usage.completion_tokens ?? 0,
-                    totalTokens:
-                        (data.usage.prompt_tokens ?? 0) +
-                        (data.usage.completion_tokens ?? 0),
-                } as unknown as OpenResponsesUsage;
-            }
-
-            const msg = data.choices?.[0]?.message;
-            if (!msg) {
-                log.warn('OpenRouter returned empty message', {
-                    round,
-                    model: lastModel,
-                });
-                break;
-            }
-
-            let pendingToolCalls = msg.tool_calls;
-
-            // Detect DSML/XML text tool calls when API returned none
-            // DeepSeek models sometimes emit tool calls as DSML text instead of
-            // using the API tool_calls mechanism. Parse them into real tool calls.
-            if (
-                (!pendingToolCalls || pendingToolCalls.length === 0) &&
-                msg.content
-            ) {
-                const dsmlCalls = parseDsmlToolCalls(msg.content, tools);
-                if (dsmlCalls.length > 0) {
-                    pendingToolCalls = dsmlCalls;
-                    log.debug('Recovered tool calls from DSML text', {
-                        count: dsmlCalls.length,
-                        tools: dsmlCalls.map(tc => tc.function.name),
-                        model: lastModel,
-                    });
-                }
-            }
-
-            // No tool calls → return text
-            if (!pendingToolCalls || pendingToolCalls.length === 0) {
-                const raw = msg.content ?? '';
-                const text = extractFromXml(raw).trim();
-
-                const durationMs = Date.now() - startTime;
-                void trackUsage(
-                    lastModel,
-                    lastUsage,
-                    durationMs,
-                    trackingContext,
-                );
-
-                return { text, toolCalls: toolCallRecords };
-            }
-
-            // ── Process tool calls with JSON repair ──
-            workingMessages.push({
-                role: 'assistant',
-                content: msg.content ?? null,
-                tool_calls: pendingToolCalls.map(tc => ({
-                    id: tc.id,
-                    type: 'function' as const,
-                    function: tc.function,
-                })),
-            });
-
-            for (const tc of pendingToolCalls) {
-                const tool = tools.find(t => t.name === tc.function.name);
-                let resultStr: string;
-
-                if (tool?.execute) {
-                    let args: Record<string, unknown>;
-                    try {
-                        args = JSON.parse(tc.function.arguments);
-                    } catch {
-                        try {
-                            args = repairTruncatedJson(tc.function.arguments);
-                            log.warn('Repaired truncated tool call JSON', {
-                                tool: tc.function.name,
-                                original: tc.function.arguments.slice(0, 200),
-                            });
-                        } catch {
-                            log.warn('Unrecoverable malformed tool call JSON', {
-                                tool: tc.function.name,
-                                arguments: tc.function.arguments.slice(0, 200),
-                            });
-                            args = {};
-                        }
-                    }
-
-                    // Validate required parameters before executing
-                    const required =
-                        (tool.parameters?.required as string[]) ?? [];
-                    const missing = required.filter(
-                        p => !(p in args) || args[p] == null,
-                    );
-
-                    if (missing.length > 0) {
-                        log.warn(
-                            'Tool call missing required params after parse/repair',
-                            {
-                                tool: tc.function.name,
-                                missing,
-                                argsKeys: Object.keys(args),
-                            },
-                        );
-                        resultStr = JSON.stringify({
-                            error:
-                                `Missing required parameters: ${missing.join(', ')}. ` +
-                                `Your tool call output was truncated before these fields were emitted. ` +
-                                `If writing long content, split into smaller chunks using the "append" parameter ` +
-                                `or reduce the content length.`,
-                        });
-                    } else {
-                        const result = await tool.execute(args);
-                        toolCallRecords.push({
-                            name: tool.name,
-                            arguments: args,
-                            result,
-                        });
-                        resultStr =
-                            typeof result === 'string' ? result : (
-                                JSON.stringify(result)
-                            );
-                    }
-                } else {
-                    resultStr = `Tool ${tc.function.name} not available`;
-                }
-
-                workingMessages.push({
-                    role: 'tool',
-                    content: resultStr,
-                    tool_call_id: tc.id,
-                });
-            }
-        }
-
-        // Exhausted all rounds — return what we have
-        const durationMs = Date.now() - startTime;
-        void trackUsage(lastModel, lastUsage, durationMs, trackingContext);
-        return { text: '', toolCalls: toolCallRecords };
+        return await openRouterToolLoop({
+            messages: workingMessages,
+            tools,
+            openaiTools,
+            modelList,
+            temperature,
+            maxTokens,
+            maxToolRounds,
+            trackingContext,
+            startTime,
+        });
     } catch (error: unknown) {
         const err = error as { statusCode?: number; message?: string };
 
-        // If OpenRouter failed, try Ollama text-only as last resort.
-        // Retrying WITHOUT tools gives a proper conversational response
-        // instead of the garbage search-query text from the tool-calling attempt.
-        if (OLLAMA_API_KEY || OLLAMA_LOCAL_URL) {
-            log.debug('OpenRouter failed, trying Ollama text-only fallback', {
-                error: err.message,
-                statusCode: err.statusCode,
-            });
-            const retryResult = await ollamaChat(messages, temperature, {
-                maxTokens,
-            });
-            if (retryResult?.text) {
-                const ollamaUsage =
-                    retryResult.usage ?
-                        ({
-                            inputTokens: retryResult.usage.prompt_tokens ?? 0,
-                            outputTokens:
-                                retryResult.usage.completion_tokens ?? 0,
-                            totalTokens: retryResult.usage.total_tokens ?? 0,
-                        } as unknown as OpenResponsesUsage)
-                    :   null;
-                void trackUsage(
-                    `ollama/${retryResult.model}`,
-                    ollamaUsage,
-                    Date.now() - startTime,
-                    trackingContext,
-                );
-                return { text: retryResult.text, toolCalls: [] };
-            }
-        }
+        // Retry Ollama text-only as last resort — gives a proper conversational
+        // response instead of garbage from the failed tool-calling attempt.
+        log.debug('OpenRouter failed, trying Ollama text-only fallback', {
+            error: err.message,
+            statusCode: err.statusCode,
+        });
+        const ollamaText = await tryOllamaLastResort(messages, temperature, maxTokens, startTime, trackingContext);
+        if (ollamaText) return { text: ollamaText, toolCalls: [] };
 
         if (err.statusCode === 401) {
-            throw new Error(
-                'Invalid OpenRouter API key — check your OPENROUTER_API_KEY',
-            );
+            throw new Error('Invalid OpenRouter API key — check your OPENROUTER_API_KEY');
         }
-        if (err.statusCode === 402) {
-            throw new Error(
-                'Insufficient OpenRouter credits — add credits at openrouter.ai',
-            );
-        }
-        if (err.statusCode === 429) {
-            throw new Error('OpenRouter rate limited — try again shortly');
-        }
+        throwForOpenRouterStatus(err.statusCode);
         throw new Error(`LLM API error: ${err.message ?? 'unknown error'}`);
     }
 }
@@ -1084,9 +1586,7 @@ function parseDsmlToolCalls(
     }>,
 ): Array<{ id: string; function: { name: string; arguments: string } }> {
     // Normalize DSML to standard XML
-    const normalized = text
-        .replace(/<[｜|]DSML[｜|]/g, '<')
-        .replace(/<\/[｜|]DSML[｜|]/g, '</');
+    const normalized = normalizeDsml(text);
 
     // Match <invoke name="toolname">...params...</invoke> blocks
     const invokePattern =
@@ -1124,11 +1624,14 @@ function parseDsmlToolCalls(
         }
 
         if (Object.keys(args).length > 0) {
+            // Normalize param aliases in DSML-parsed args
+            const { normalized } = normalizeToolArgs(toolName, args);
+
             calls.push({
                 id: `dsml_${Date.now()}_${calls.length}`,
                 function: {
                     name: toolName,
-                    arguments: JSON.stringify(args),
+                    arguments: JSON.stringify(normalized),
                 },
             });
         }
@@ -1149,11 +1652,8 @@ function parseDsmlToolCalls(
  * 3. If no XML detected, return text as-is
  */
 export function extractFromXml(text: string): string {
-    // Normalize DeepSeek DSML tags (e.g. <｜DSML｜function_calls>) to standard XML
-    // eslint-disable-next-line no-control-regex
-    text = text
-        .replace(/<[｜|]DSML[｜|]/g, '<')
-        .replace(/<\/[｜|]DSML[｜|]/g, '</');
+    // Normalize DeepSeek DSML tags to standard XML
+    text = normalizeDsml(text);
 
     // Quick check — if no XML function call patterns, return as-is
     if (!/<(?:function_?calls?|invoke|parameter)\b/i.test(text)) {

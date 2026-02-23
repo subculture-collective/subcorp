@@ -150,23 +150,33 @@ Respond with valid JSON only, no markdown fencing:
   "rationale": "why the collective needs this agent"
 }`;
 
-    // 6. Call LLM
-    const result = await llmGenerate({
-        messages: [
-            { role: 'system', content: systemPrompt },
-            {
-                role: 'user',
-                content:
-                    'Analyze the collective and propose a new agent if a genuine gap exists.',
+    // 6. Call LLM (with retries on empty response, back-off between attempts)
+    let result = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+        result = await llmGenerate({
+            messages: [
+                { role: 'system', content: systemPrompt },
+                {
+                    role: 'user',
+                    content:
+                        'Analyze the collective and propose a new agent if a genuine gap exists.',
+                },
+            ],
+            temperature: 0.85,
+            maxTokens: 1500,
+            trackingContext: {
+                agentId: proposerId,
+                context: 'agent_design',
             },
-        ],
-        temperature: 0.85,
-        maxTokens: 1500,
-        trackingContext: {
-            agentId: proposerId,
-            context: 'agent_design',
-        },
-    });
+        });
+        if (result && result.trim().length > 0) break;
+        log.warn('LLM returned empty for agent proposal, retrying', {
+            proposer: proposerId,
+            attempt: attempt + 1,
+        });
+        // Back off before next attempt (3s, then 6s)
+        await new Promise(r => setTimeout(r, 3000 * (attempt + 1)));
+    }
 
     // 7. Parse response
     let parsed: {

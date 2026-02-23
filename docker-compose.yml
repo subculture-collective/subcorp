@@ -73,6 +73,7 @@ services:
         build:
             context: .
             dockerfile: docker/toolbox/Dockerfile
+        image: subcult-toolbox:latest
         container_name: subcult-toolbox
         restart: unless-stopped
         env_file:

@@ -78,40 +78,62 @@ async function sendWithRetry(
     url: string,
     body: Record<string, unknown>,
 ): Promise<WebhookResult> {
+    const res = await fetchWithRetry429(
+        url,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        },
+        'Webhook POST',
+    );
+    if (!res) return null;
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        log.warn('Webhook POST failed', { status: res.status, body: text.slice(0, 200) });
+        return null;
+    }
+    return (await res.json()) as { id: string; channel_id: string };
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise(r => setTimeout(r, ms));
+}
+
+/**
+ * Generic fetch with 429 retry and exponential backoff.
+ * Parses Retry-After header on 429; falls back to 2s * (attempt+1).
+ * Returns the Response on success, null on non-OK status, and retries on 429/network errors.
+ */
+async function fetchWithRetry429(
+    url: string,
+    init: RequestInit,
+    label: string,
+): Promise<Response | null> {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
-            const res = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
+            const res = await fetch(url, init);
 
             if (res.status === 429) {
                 const retryAfterHeader = res.headers.get('Retry-After');
-                const retryMs = retryAfterHeader
-                    ? Math.ceil(parseFloat(retryAfterHeader) * 1000)
-                    : 2000 * (attempt + 1);
-                log.warn('Webhook rate limited, backing off', {
+                const retryMs =
+                    retryAfterHeader ?
+                        Math.ceil(parseFloat(retryAfterHeader) * 1000)
+                    :   2000 * (attempt + 1);
+                log.warn(`${label} rate limited, backing off`, {
                     retryMs,
                     attempt,
-                    queueKey: url.split('/webhooks/')[1]?.slice(0, 8),
                 });
-                await sleep(retryMs);
-                continue;
-            }
-
-            if (!res.ok) {
-                const text = await res.text().catch(() => '');
-                log.warn('Webhook POST failed', {
-                    status: res.status,
-                    body: text.slice(0, 200),
-                });
+                if (attempt < MAX_RETRIES) {
+                    await sleep(retryMs);
+                    continue;
+                }
                 return null;
             }
 
-            return (await res.json()) as { id: string; channel_id: string };
+            return res;
         } catch (err) {
-            log.warn('Webhook POST error', {
+            log.warn(`${label} fetch error`, {
                 error: (err as Error).message,
                 attempt,
             });
@@ -121,10 +143,6 @@ async function sendWithRetry(
         }
     }
     return null;
-}
-
-function sleep(ms: number): Promise<void> {
-    return new Promise(r => setTimeout(r, ms));
 }
 
 /** POST to a Discord webhook. Rate-limited per webhook URL. */
@@ -142,6 +160,12 @@ export async function postToWebhook(
     if (options.avatarUrl) body.avatar_url = options.avatarUrl;
     if (options.content) body.content = options.content;
     if (options.embeds) body.embeds = options.embeds;
+
+    // Guard: Discord rejects messages with no content and no embeds
+    if (!body.content && !body.embeds) {
+        log.warn('Skipping webhook post — no content or embeds');
+        return null;
+    }
 
     const key = webhookKey(options.webhookUrl);
 
@@ -208,32 +232,20 @@ async function discordFetch(
     path: string,
     options: RequestInit = {},
 ): Promise<Response> {
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-        const res = await fetch(`${DISCORD_API}${path}`, {
+    const res = await fetchWithRetry429(
+        `${DISCORD_API}${path}`,
+        {
             ...options,
             headers: {
                 Authorization: `Bot ${BOT_TOKEN}`,
                 'Content-Type': 'application/json',
                 ...options.headers,
             },
-        });
-
-        if (res.status === 429) {
-            const retryAfterHeader = res.headers.get('Retry-After');
-            const retryMs = retryAfterHeader
-                ? Math.ceil(parseFloat(retryAfterHeader) * 1000)
-                : 2000 * (attempt + 1);
-            log.warn('Discord API rate limited, backing off', { retryMs, attempt, path });
-            if (attempt < MAX_RETRIES) {
-                await sleep(retryMs);
-                continue;
-            }
-        }
-
-        return res;
-    }
-    // Unreachable, but TypeScript needs it
-    throw new Error('discordFetch: exhausted retries');
+        },
+        `Discord API ${path}`,
+    );
+    if (!res) throw new Error(`discordFetch: exhausted retries for ${path}`);
+    return res;
 }
 
 /**
@@ -254,9 +266,7 @@ export async function getOrCreateWebhook(
 
     try {
         // List existing webhooks for the channel
-        const listRes = await discordFetch(
-            `/channels/${channelId}/webhooks`,
-        );
+        const listRes = await discordFetch(`/channels/${channelId}/webhooks`);
         if (!listRes.ok) {
             log.warn('Failed to list webhooks', {
                 status: listRes.status,
@@ -272,7 +282,7 @@ export async function getOrCreateWebhook(
         }[];
 
         // Reuse existing webhook with our name
-        const existing = webhooks.find((w) => w.name === name);
+        const existing = webhooks.find(w => w.name === name);
         if (existing) {
             const url = `https://discord.com/api/webhooks/${existing.id}/${(existing as Record<string, string>).token}`;
             webhookCache.set(channelId, url);
@@ -349,49 +359,27 @@ export async function postToWebhookWithFiles(
 
     for (let i = 0; i < options.files.length; i++) {
         const file = options.files[i];
-        const blob = new Blob([new Uint8Array(file.data)], { type: file.contentType });
+        const blob = new Blob([new Uint8Array(file.data)], {
+            type: file.contentType,
+        });
         formData.append(`files[${i}]`, blob, file.filename);
     }
 
     // Queue through the same rate limiter — uses a custom send function for multipart
     const key = webhookKey(options.webhookUrl);
     const sendMultipart = async (): Promise<WebhookResult> => {
-        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-            try {
-                const res = await fetch(url.toString(), {
-                    method: 'POST',
-                    body: formData,
-                });
-
-                if (res.status === 429) {
-                    const retryAfterHeader = res.headers.get('Retry-After');
-                    const retryMs = retryAfterHeader
-                        ? Math.ceil(parseFloat(retryAfterHeader) * 1000)
-                        : 2000 * (attempt + 1);
-                    log.warn('Webhook multipart rate limited, backing off', { retryMs, attempt });
-                    await sleep(retryMs);
-                    continue;
-                }
-
-                if (!res.ok) {
-                    const text = await res.text().catch(() => '');
-                    log.warn('Webhook multipart POST failed', {
-                        status: res.status,
-                        body: text.slice(0, 200),
-                    });
-                    return null;
-                }
-
-                return (await res.json()) as { id: string; channel_id: string };
-            } catch (err) {
-                log.warn('Webhook multipart POST error', {
-                    error: (err as Error).message,
-                    attempt,
-                });
-                if (attempt < MAX_RETRIES) await sleep(1000 * (attempt + 1));
-            }
+        const res = await fetchWithRetry429(
+            url.toString(),
+            { method: 'POST', body: formData },
+            'Webhook multipart POST',
+        );
+        if (!res) return null;
+        if (!res.ok) {
+            const text = await res.text().catch(() => '');
+            log.warn('Webhook multipart POST failed', { status: res.status, body: text.slice(0, 200) });
+            return null;
         }
-        return null;
+        return (await res.json()) as { id: string; channel_id: string };
     };
 
     return new Promise<WebhookResult>(resolve => {

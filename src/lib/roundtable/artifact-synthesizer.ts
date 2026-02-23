@@ -122,7 +122,7 @@ export async function synthesizeArtifact(
                 ${prompt},
                 'conversation',
                 ${session.id},
-                180,
+                600,
                 15,
                 'pending'
             )
