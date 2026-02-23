@@ -66,6 +66,17 @@ async function pollAgentSessions(): Promise<boolean> {
         source: session.source,
     });
 
+    // Refresh updated_at on any mission step linked to this session,
+    // so recovery timeout measures from when work actually starts, not dispatch time
+    if (session.source === 'mission') {
+        await sql`
+            UPDATE ops_mission_steps
+            SET updated_at = NOW()
+            WHERE status = 'running'
+              AND result->>'agent_session_id' = ${session.id}
+        `;
+    }
+
     try {
         await executeAgentSession(session);
 

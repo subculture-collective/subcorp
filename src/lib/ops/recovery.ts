@@ -8,41 +8,100 @@ export async function recoverStaleSteps(): Promise<{ recovered: number }> {
     const staleThresholdMinutes = (policy.stale_threshold_minutes as number) ?? 30;
     const cutoff = new Date(Date.now() - staleThresholdMinutes * 60_000);
 
-    const staleRows = await sql<{ id: string; mission_id: string }[]>`
-        SELECT id, mission_id FROM ops_mission_steps
-        WHERE status = 'running'
-        AND updated_at < ${cutoff.toISOString()}
+    // Fetch running steps past the threshold, JOIN to their agent session if one exists
+    const staleRows = await sql<{
+        id: string;
+        mission_id: string;
+        session_id: string | null;
+        session_status: string | null;
+        session_error: string | null;
+    }[]>`
+        SELECT
+            s.id,
+            s.mission_id,
+            (s.result->>'agent_session_id')::uuid AS session_id,
+            sess.status AS session_status,
+            sess.error AS session_error
+        FROM ops_mission_steps s
+        LEFT JOIN ops_agent_sessions sess
+            ON sess.id = (s.result->>'agent_session_id')::uuid
+        WHERE s.status = 'running'
+          AND s.updated_at < ${cutoff.toISOString()}
     `;
 
     if (staleRows.length === 0) return { recovered: 0 };
 
-    const ids = staleRows.map(r => r.id);
-    const reason = `Recovered: step exceeded ${staleThresholdMinutes} minute timeout`;
-    await sql`
-        UPDATE ops_mission_steps
-        SET status = 'failed',
-            failure_reason = ${reason},
-            completed_at = NOW(),
-            updated_at = NOW()
-        WHERE id = ANY(${ids})
-    `;
+    let recovered = 0;
+    const affectedMissionIds = new Set<string>();
+
+    for (const row of staleRows) {
+        // Steps with a linked agent session: decide based on session status
+        if (row.session_id) {
+            if (row.session_status === 'succeeded') {
+                // Session completed — finalize step as succeeded (backup finalizer)
+                await sql`
+                    UPDATE ops_mission_steps
+                    SET status = 'succeeded',
+                        completed_at = NOW(),
+                        updated_at = NOW()
+                    WHERE id = ${row.id}
+                `;
+                recovered++;
+                affectedMissionIds.add(row.mission_id);
+            } else if (row.session_status === 'failed' || row.session_status === 'timed_out') {
+                // Session failed — propagate failure to step
+                const reason = row.session_error ?? `Agent session ${row.session_status}`;
+                await sql`
+                    UPDATE ops_mission_steps
+                    SET status = 'failed',
+                        failure_reason = ${reason},
+                        completed_at = NOW(),
+                        updated_at = NOW()
+                    WHERE id = ${row.id}
+                `;
+                recovered++;
+                affectedMissionIds.add(row.mission_id);
+            }
+            // If session is still 'running' or 'pending', leave the step alone —
+            // the session's own timeout (sweepStaleAgentSessions) handles that lifecycle.
+        } else {
+            // No linked session — dispatch itself failed or step never created a session.
+            // This is genuinely stale; apply the timestamp-based timeout.
+            const reason = `Recovered: step exceeded ${staleThresholdMinutes} minute timeout (no agent session)`;
+            await sql`
+                UPDATE ops_mission_steps
+                SET status = 'failed',
+                    failure_reason = ${reason},
+                    completed_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = ${row.id}
+            `;
+            recovered++;
+            affectedMissionIds.add(row.mission_id);
+        }
+    }
 
     // Finalize affected missions
-    const missionIds = [...new Set(staleRows.map(r => r.mission_id))];
-    for (const missionId of missionIds) {
+    for (const missionId of affectedMissionIds) {
         await maybeFinalializeMission(missionId);
     }
 
-    await emitEvent({
-        agent_id: 'mux',
-        kind: 'stale_steps_recovered',
-        title: `Recovered ${staleRows.length} stale step(s)`,
-        summary: `Steps exceeded ${staleThresholdMinutes}min timeout`,
-        tags: ['recovery', 'stale'],
-        metadata: { stepIds: ids, missionIds },
-    });
+    if (recovered > 0) {
+        await emitEvent({
+            agent_id: 'mux',
+            kind: 'stale_steps_recovered',
+            title: `Recovered ${recovered} stale step(s)`,
+            summary: `${recovered} steps resolved (session-aware recovery)`,
+            tags: ['recovery', 'stale'],
+            metadata: {
+                stepIds: staleRows.filter(r => r.session_status !== 'running' && r.session_status !== 'pending').map(r => r.id),
+                missionIds: [...affectedMissionIds],
+                skipped: staleRows.length - recovered,
+            },
+        });
+    }
 
-    return { recovered: staleRows.length };
+    return { recovered };
 }
 
 export async function maybeFinalializeMission(

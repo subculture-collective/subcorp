@@ -90,5 +90,5 @@ export function isValidAgent(id: string): id is AgentId {
 }
 
 // Daily proposal limits per agent
-export const DAILY_PROPOSAL_LIMIT = process.env.DAILY_PROPOSAL_LIMIT    ? parseInt(process.env.DAILY_PROPOSAL_LIMIT)
-    : 20;
+export const DAILY_PROPOSAL_LIMIT =
+    process.env.DAILY_PROPOSAL_LIMIT ? parseInt(process.env.DAILY_PROPOSAL_LIMIT) : 20;

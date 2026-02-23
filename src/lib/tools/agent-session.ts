@@ -3,7 +3,7 @@
 // executes tool calls, feeds results back until done or timeout.
 
 import { sql, jsonb } from '@/lib/db';
-import { llmGenerateWithTools, extractFromXml } from '@/lib/llm/client';
+import { llmGenerateWithTools, extractFromXml, normalizeDsml } from '@/lib/llm/client';
 import { getVoice } from '@/lib/roundtable/voices';
 import { getAgentTools, getDroidTools } from './registry';
 import { emitEvent } from '@/lib/ops/events';
@@ -12,7 +12,7 @@ import { getScratchpad } from '@/lib/ops/scratchpad';
 import { buildBriefing } from '@/lib/ops/situational-briefing';
 import { loadPrimeDirective } from '@/lib/ops/prime-directive';
 import { logger } from '@/lib/logger';
-import type { AgentId, LLMMessage, ToolCallRecord } from '../types';
+import type { AgentId, LLMMessage, ToolCallRecord, ToolDefinition } from '../types';
 import type { AgentSession } from './types';
 
 const log = logger.child({ module: 'agent-session' });
@@ -26,13 +26,16 @@ const TOOL_RESULT_MAX_LENGTH = 5000;
 /** Break early after this many consecutive LLM rounds with no text output. */
 const MAX_CONSECUTIVE_EMPTY_ROUNDS = 3;
 
+/** Max length for memory content previews in system prompt. */
+const MEMORY_PREVIEW_LENGTH = 200;
+
+/** Max length for recent session summary previews in system prompt. */
+const SESSION_SUMMARY_PREVIEW_LENGTH = 300;
+
 /** Strip XML function-call tags and other LLM artifacts from text */
 function sanitizeSummary(text: string): string {
     return (
-        text
-            // Normalize DeepSeek DSML tags to standard XML before stripping
-            .replace(/<[｜|]DSML[｜|]/g, '<')
-            .replace(/<\/[｜|]DSML[｜|]/g, '</')
+        normalizeDsml(text)
             // Remove XML-style tags (e.g. <function_calls>, <invoke>, <parameter>)
             .replace(/<\/?[a-z_][a-z0-9_-]*(?:\s[^>]*)?\s*>/gi, '')
             // Collapse runs of whitespace
@@ -64,56 +67,42 @@ function truncateToFirstSentences(text: string, maxLen: number): string {
     return truncated + '...';
 }
 
-/**
- * Execute an agent session: load voice, tools, and run the LLM+tools loop.
- * Updates the session row in-place as it progresses.
- */
-export async function executeAgentSession(
+/** Context loaded for an agent session before the LLM loop starts. */
+interface AgentSessionContext {
+    voiceName: string;
+    tools: ToolDefinition[];
+    systemPrompt: string;
+}
+
+/** Load agent context and build system prompt for a session. */
+async function loadAgentContext(
     session: AgentSession,
-): Promise<void> {
-    const startTime = Date.now();
-    const isDroid = session.agent_id.startsWith('droid-');
-    const agentId = session.agent_id as AgentId;
-    const allToolCalls: ToolCallRecord[] = [];
-    let llmRounds = 0;
+    isDroid: boolean,
+    agentId: AgentId,
+): Promise<AgentSessionContext> {
+    const voice = isDroid ? null : getVoice(agentId);
+    const voiceName = isDroid ? session.agent_id : (voice?.displayName ?? agentId);
 
-    // Mark session as running
-    await sql`
-        UPDATE ops_agent_sessions
-        SET status = 'running', started_at = NOW()
-        WHERE id = ${session.id}
-    `;
+    const tools =
+        isDroid ?
+            getDroidTools(session.agent_id)
+        :   getAgentTools(agentId, session.id);
 
-    try {
-        // Load agent voice (droids don't have voices)
-        const voice = isDroid ? null : getVoice(agentId);
-        const voiceName =
-            isDroid ? session.agent_id : (voice?.displayName ?? agentId);
+    const memories =
+        isDroid ?
+            []
+        :   await queryRelevantMemories(agentId, session.prompt, {
+                relevantLimit: 5,
+                recentLimit: 3,
+            });
 
-        // Load agent tools — droids get a limited toolset with ACL-bound file_write
-        const tools =
-            isDroid ?
-                getDroidTools(session.agent_id)
-            :   getAgentTools(agentId, session.id);
+    const scratchpad = isDroid ? '' : await getScratchpad(agentId);
+    const briefing = isDroid ? '' : await buildBriefing(agentId);
 
-        // Load memories via semantic relevance to the prompt (skip for droids)
-        const memories =
-            isDroid ?
-                []
-            :   await queryRelevantMemories(agentId, session.prompt, {
-                    relevantLimit: 5,
-                    recentLimit: 3,
-                });
-
-        // Load scratchpad (working memory) and situational briefing
-        const scratchpad = isDroid ? '' : await getScratchpad(agentId);
-        const briefing = isDroid ? '' : await buildBriefing(agentId);
-
-        // Load recent session outputs for context injection (skip for droids)
-        const recentSessions =
-            isDroid ?
-                []
-            :   await sql`
+    const recentSessions =
+        isDroid ?
+            []
+        :   await sql`
             SELECT agent_id, prompt, result, completed_at
             FROM ops_agent_sessions
             WHERE source = 'cron'
@@ -124,222 +113,235 @@ export async function executeAgentSession(
             LIMIT 5
         `;
 
-        // Load prime directive (best-effort — don't fail session if unavailable)
-        let primeDirective = '';
-        try {
-            primeDirective = await loadPrimeDirective();
-        } catch {
-            // Prime directive unavailable — continue without it
+    let primeDirective = '';
+    try {
+        primeDirective = await loadPrimeDirective();
+    } catch {
+        // Continue without directive
+    }
+
+    const systemPrompt = buildAgentSystemPrompt({
+        voice: voice ?? null,
+        voiceName,
+        primeDirective,
+        scratchpad,
+        briefing,
+        memories,
+        recentSessions: recentSessions as Array<{ agent_id: string; result: unknown }>,
+    });
+
+    return { voiceName, tools, systemPrompt };
+}
+
+/** Build the system prompt for an agent session from pre-loaded context. */
+function buildAgentSystemPrompt(ctx: {
+    voice: { systemDirective: string } | null;
+    voiceName: string;
+    primeDirective: string;
+    scratchpad: string;
+    briefing: string;
+    memories: Array<{ type: string; content: string }>;
+    recentSessions: Array<{ agent_id: string; result: unknown }>;
+}): string {
+    let prompt = '';
+
+    if (ctx.voice) {
+        prompt += `${ctx.voice.systemDirective}\n\n`;
+    }
+
+    if (ctx.primeDirective) {
+        prompt += `═══ PRIME DIRECTIVE ═══\n${ctx.primeDirective}\n\n`;
+    }
+
+    prompt += `You are ${ctx.voiceName}, operating in an autonomous agent session.\n`;
+    prompt += `You have tools available to accomplish your task. Use them through the provided function calling interface.\n`;
+    prompt += `When your task is complete, provide a clear summary of what you accomplished.\n`;
+    prompt += `IMPORTANT: Never output raw XML tags like <function_calls> or <invoke>. Use the structured tool calling API instead.\n\n`;
+
+    if (ctx.scratchpad) {
+        prompt += `═══ YOUR SCRATCHPAD (working memory) ═══\n${ctx.scratchpad}\n\n`;
+    }
+
+    if (ctx.briefing) {
+        prompt += `═══ CURRENT SITUATION ═══\n${ctx.briefing}\n\n`;
+    }
+
+    if (ctx.memories.length > 0) {
+        prompt += `═══ YOUR MEMORIES ═══\n`;
+        for (const m of ctx.memories) {
+            prompt += `- [${m.type}] ${m.content.slice(0, MEMORY_PREVIEW_LENGTH)}\n`;
+        }
+        prompt += `\n`;
+    }
+
+    if (ctx.recentSessions.length > 0) {
+        prompt += `Recent session outputs (for context):\n`;
+        for (const s of ctx.recentSessions) {
+            const summary =
+                (s.result as Record<string, unknown>)?.summary ??
+                (s.result as Record<string, unknown>)?.text ??
+                '(no summary)';
+            prompt += `- [${s.agent_id}] ${String(summary).slice(0, SESSION_SUMMARY_PREVIEW_LENGTH)}\n`;
+        }
+        prompt += '\n';
+    }
+
+    return prompt;
+}
+
+/**
+ * Run the LLM+tools loop for an agent session.
+ * Returns the final text output and accumulated tool call records.
+ */
+async function runAgentToolLoop(opts: {
+    session: AgentSession;
+    agentId: AgentId;
+    tools: ToolDefinition[];
+    messages: LLMMessage[];
+    startTime: number;
+}): Promise<{ lastText: string; toolCalls: ToolCallRecord[]; rounds: number }> {
+    const { session, agentId, tools, messages, startTime } = opts;
+    const allToolCalls: ToolCallRecord[] = [];
+    const maxRounds = session.max_tool_rounds;
+    const timeoutMs = session.timeout_seconds * 1000;
+    const softDeadlineMs = timeoutMs - SESSION_SOFT_DEADLINE_BUFFER_MS;
+    let lastText = '';
+    let consecutiveEmptyRounds = 0;
+    let llmRounds = 0;
+
+    for (let round = 0; round < maxRounds; round++) {
+        const elapsed = Date.now() - startTime;
+
+        if (elapsed > timeoutMs) {
+            await completeSession(
+                session.id, 'timed_out',
+                { summary: lastText || 'Session timed out before completing', rounds: llmRounds },
+                allToolCalls, llmRounds, 'Timeout exceeded',
+            );
+            return { lastText, toolCalls: allToolCalls, rounds: -1 }; // -1 signals timed_out (already written)
         }
 
-        // Build system prompt
-        let systemPrompt = '';
-        if (voice) {
-            systemPrompt += `${voice.systemDirective}\n\n`;
+        if (elapsed > softDeadlineMs && round > 0 && lastText) {
+            log.info('Soft deadline reached, finishing with current output', {
+                sessionId: session.id,
+                elapsed: Math.round(elapsed / 1000),
+                rounds: llmRounds,
+            });
+            break;
         }
 
-        if (primeDirective) {
-            systemPrompt += `═══ PRIME DIRECTIVE ═══\n${primeDirective}\n\n`;
+        llmRounds++;
+
+        const result = await llmGenerateWithTools({
+            messages,
+            temperature: 0.7,
+            maxTokens: 16_000,
+            model: session.model ?? undefined,
+            tools: tools.length > 0 ? tools : undefined,
+            maxToolRounds: 1,
+            trackingContext: { agentId, context: 'agent_session', sessionId: session.id },
+        });
+
+        if (result.text) {
+            lastText = result.text;
+            consecutiveEmptyRounds = 0;
+        } else {
+            consecutiveEmptyRounds++;
+        }
+        allToolCalls.push(...result.toolCalls);
+
+        log.debug('Agent session round completed', {
+            sessionId: session.id, round,
+            textLength: result.text.length,
+            toolCallCount: result.toolCalls.length,
+            cumulativeToolCalls: allToolCalls.length,
+            hasLastText: !!lastText,
+            consecutiveEmptyRounds,
+        });
+
+        if (result.toolCalls.length === 0) break;
+
+        if (!result.text && result.toolCalls.every(
+            tc => typeof tc.result === 'string' && tc.result.includes('not available'),
+        )) {
+            log.warn('Agent session breaking early — all tool calls returned not-available', {
+                sessionId: session.id, round,
+                toolCalls: result.toolCalls.map(tc => tc.name),
+            });
+            break;
         }
 
-        systemPrompt += `You are ${voiceName}, operating in an autonomous agent session.\n`;
-        systemPrompt += `You have tools available to accomplish your task. Use them through the provided function calling interface.\n`;
-        systemPrompt += `When your task is complete, provide a clear summary of what you accomplished.\n`;
-        systemPrompt += `IMPORTANT: Never output raw XML tags like <function_calls> or <invoke>. Use the structured tool calling API instead.\n\n`;
-
-        if (scratchpad) {
-            systemPrompt += `═══ YOUR SCRATCHPAD (working memory) ═══\n${scratchpad}\n\n`;
+        if (consecutiveEmptyRounds >= MAX_CONSECUTIVE_EMPTY_ROUNDS) {
+            log.warn('Agent session breaking early — consecutive empty rounds', {
+                sessionId: session.id, round,
+                cumulativeToolCalls: allToolCalls.length,
+            });
+            break;
         }
 
-        if (briefing) {
-            systemPrompt += `═══ CURRENT SITUATION ═══\n${briefing}\n\n`;
-        }
+        // Feed tool results back for the next round
+        const toolSummary = result.toolCalls
+            .map(tc => {
+                const resultStr = typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result);
+                const capped =
+                    resultStr.length > TOOL_RESULT_MAX_LENGTH ?
+                        resultStr.slice(0, TOOL_RESULT_MAX_LENGTH) + '... [truncated]'
+                    :   resultStr;
+                return `Tool ${tc.name}(${JSON.stringify(tc.arguments)}):\n${capped}`;
+            })
+            .join('\n\n');
 
-        if (memories.length > 0) {
-            systemPrompt += `═══ YOUR MEMORIES ═══\n`;
-            for (const m of memories) {
-                systemPrompt += `- [${m.type}] ${m.content.slice(0, 200)}\n`;
-            }
-            systemPrompt += `\n`;
+        if (result.text) {
+            messages.push({ role: 'assistant', content: result.text });
         }
+        messages.push({
+            role: 'user',
+            content: `Tool results:\n${toolSummary}\n\nContinue with your task. If you're done, provide a final summary.`,
+        });
+    }
 
-        if (recentSessions.length > 0) {
-            systemPrompt += `Recent session outputs (for context):\n`;
-            for (const s of recentSessions) {
-                const summary =
-                    (s.result as Record<string, unknown>)?.summary ??
-                    (s.result as Record<string, unknown>)?.text ??
-                    '(no summary)';
-                systemPrompt += `- [${s.agent_id}] ${String(summary).slice(0, 300)}\n`;
-            }
-            systemPrompt += '\n';
-        }
+    return { lastText, toolCalls: allToolCalls, rounds: llmRounds };
+}
 
-        // The LLM+tools loop
+/**
+ * Execute an agent session: load voice, tools, and run the LLM+tools loop.
+ * Updates the session row in-place as it progresses.
+ */
+export async function executeAgentSession(
+    session: AgentSession,
+): Promise<void> {
+    const startTime = Date.now();
+    const isDroid = session.agent_id.startsWith('droid-');
+    const agentId = session.agent_id as AgentId;
+
+    await sql`
+        UPDATE ops_agent_sessions
+        SET status = 'running', started_at = NOW()
+        WHERE id = ${session.id}
+    `;
+
+    try {
+        const { voiceName, tools, systemPrompt } = await loadAgentContext(session, isDroid, agentId);
+
         const messages: LLMMessage[] = [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: session.prompt },
         ];
 
-        const maxRounds = session.max_tool_rounds;
-        const timeoutMs = session.timeout_seconds * 1000;
-        let lastText = '';
-        let consecutiveEmptyRounds = 0;
+        const loopResult = await runAgentToolLoop({
+            session, agentId, tools, messages, startTime,
+        });
 
-        // Reserve time for the final write — stop issuing new LLM rounds
-        // when not enough time remains so the session can finish cleanly
-        const softDeadlineMs = timeoutMs - SESSION_SOFT_DEADLINE_BUFFER_MS;
+        // rounds === -1 means timed_out was already written inside the loop
+        if (loopResult.rounds === -1) return;
 
-        for (let round = 0; round < maxRounds; round++) {
-            const elapsed = Date.now() - startTime;
-
-            // Hard timeout — session has exceeded its budget
-            if (elapsed > timeoutMs) {
-                await completeSession(
-                    session.id,
-                    'timed_out',
-                    {
-                        summary:
-                            lastText || 'Session timed out before completing',
-                        rounds: llmRounds,
-                    },
-                    allToolCalls,
-                    llmRounds,
-                    'Timeout exceeded',
-                );
-                return;
-            }
-
-            // Soft deadline — not enough time for another full round, wrap up
-            if (elapsed > softDeadlineMs && round > 0 && lastText) {
-                log.info(
-                    'Soft deadline reached, finishing with current output',
-                    {
-                        sessionId: session.id,
-                        elapsed: Math.round(elapsed / 1000),
-                        rounds: llmRounds,
-                    },
-                );
-                break;
-            }
-
-            llmRounds++;
-
-            const result = await llmGenerateWithTools({
-                messages,
-                temperature: 0.7,
-                maxTokens: 16_000,
-                model: session.model ?? undefined,
-                tools: tools.length > 0 ? tools : undefined,
-                maxToolRounds: 1, // We handle the outer loop ourselves
-                trackingContext: {
-                    agentId,
-                    context: 'agent_session',
-                    sessionId: session.id,
-                },
-            });
-
-            // Only update lastText if we got actual content back
-            if (result.text) {
-                lastText = result.text;
-                consecutiveEmptyRounds = 0;
-            } else {
-                consecutiveEmptyRounds++;
-            }
-            allToolCalls.push(...result.toolCalls);
-
-            log.debug('Agent session round completed', {
-                sessionId: session.id,
-                round,
-                textLength: result.text.length,
-                toolCallCount: result.toolCalls.length,
-                cumulativeToolCalls: allToolCalls.length,
-                hasLastText: !!lastText,
-                consecutiveEmptyRounds,
-            });
-
-            // If no tool calls were made, we're done
-            if (result.toolCalls.length === 0) {
-                break;
-            }
-
-            // If we got tool calls but no text and no useful tool results,
-            // the model may be spinning on phantom calls — break early
-            if (
-                !result.text &&
-                result.toolCalls.every(
-                    tc =>
-                        typeof tc.result === 'string' &&
-                        tc.result.includes('not available'),
-                )
-            ) {
-                log.warn(
-                    'Agent session breaking early — all tool calls returned not-available',
-                    {
-                        sessionId: session.id,
-                        round,
-                        toolCalls: result.toolCalls.map(tc => tc.name),
-                    },
-                );
-                break;
-            }
-
-            // If we've had too many consecutive rounds with no text output,
-            // the model is likely stuck in a loop — break early
-            if (consecutiveEmptyRounds >= MAX_CONSECUTIVE_EMPTY_ROUNDS) {
-                log.warn(
-                    'Agent session breaking early — consecutive empty rounds',
-                    {
-                        sessionId: session.id,
-                        round,
-                        cumulativeToolCalls: allToolCalls.length,
-                    },
-                );
-                break;
-            }
-
-            // Feed tool results back as assistant + user messages
-            // Build a summary of tool results for the next round
-            const toolSummary = result.toolCalls
-                .map(tc => {
-                    const resultStr =
-                        typeof tc.result === 'string' ?
-                            tc.result
-                        :   JSON.stringify(tc.result);
-                    // Cap individual tool result to avoid context explosion
-                    const capped =
-                        resultStr.length > TOOL_RESULT_MAX_LENGTH ?
-                            resultStr.slice(0, TOOL_RESULT_MAX_LENGTH) + '... [truncated]'
-                        :   resultStr;
-                    return `Tool ${tc.name}(${JSON.stringify(tc.arguments)}):\n${capped}`;
-                })
-                .join('\n\n');
-
-            // Add the assistant response and tool results
-            if (result.text) {
-                messages.push({ role: 'assistant', content: result.text });
-            }
-            messages.push({
-                role: 'user',
-                content: `Tool results:\n${toolSummary}\n\nContinue with your task. If you're done, provide a final summary.`,
-            });
-        }
-
-        // Success — extract content from XML wrappers if present
-        const cleanedText = extractFromXml(lastText);
+        const cleanedText = extractFromXml(loopResult.lastText);
         await completeSession(
-            session.id,
-            'succeeded',
-            {
-                text: cleanedText,
-                summary: sanitizeSummary(cleanedText),
-                rounds: llmRounds,
-            },
-            allToolCalls,
-            llmRounds,
+            session.id, 'succeeded',
+            { text: cleanedText, summary: sanitizeSummary(cleanedText), rounds: loopResult.rounds },
+            loopResult.toolCalls, loopResult.rounds,
         );
 
-        // Emit completion event — short preview only, full artifact posts separately
         const summaryPreview = truncateToFirstSentences(cleanedText, 2000);
         await emitEvent({
             agent_id: agentId,
@@ -350,29 +352,17 @@ export async function executeAgentSession(
             metadata: {
                 sessionId: session.id,
                 source: session.source,
-                rounds: llmRounds,
-                toolCalls: allToolCalls.length,
+                rounds: loopResult.rounds,
+                toolCalls: loopResult.toolCalls.length,
             },
         });
     } catch (err) {
         const errorMsg = (err as Error).message;
-        log.error('Agent session failed', {
-            error: err,
-            sessionId: session.id,
-            agentId,
-            rounds: llmRounds,
-        });
+        log.error('Agent session failed', { error: err, sessionId: session.id, agentId });
 
         await completeSession(
-            session.id,
-            'failed',
-            {
-                error: errorMsg,
-                rounds: llmRounds,
-            },
-            allToolCalls,
-            llmRounds,
-            errorMsg,
+            session.id, 'failed', { error: errorMsg, rounds: 0 },
+            [], 0, errorMsg,
         );
 
         await emitEvent({
@@ -380,11 +370,7 @@ export async function executeAgentSession(
             kind: 'agent_session_failed',
             title: `Agent session failed: ${errorMsg.slice(0, 100)}`,
             tags: ['agent_session', 'failed', session.source],
-            metadata: {
-                sessionId: session.id,
-                error: errorMsg,
-                rounds: llmRounds,
-            },
+            metadata: { sessionId: session.id, error: errorMsg },
         });
     }
 }

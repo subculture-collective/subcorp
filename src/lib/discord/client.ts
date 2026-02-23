@@ -6,6 +6,12 @@ const log = logger.child({ module: 'discord' });
 const DISCORD_API = 'https://discord.com/api/v10';
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
+/** Discord channel type for public threads. */
+const DISCORD_PUBLIC_THREAD = 11;
+
+/** Auto-archive duration: 24 hours (in minutes). */
+const AUTO_ARCHIVE_24H_MINUTES = 1440;
+
 // In-memory webhook cache: channelId -> webhookUrl
 const webhookCache = new Map<string, string>();
 
@@ -145,37 +151,47 @@ async function fetchWithRetry429(
     return null;
 }
 
-/** POST to a Discord webhook. Rate-limited per webhook URL. */
-export async function postToWebhook(
-    options: WebhookPostOptions,
-): Promise<WebhookResult> {
+/** Build the webhook URL (with wait=true, optional thread_id) and JSON payload from options. */
+function buildWebhookUrlAndPayload(options: WebhookPostOptions): {
+    url: string;
+    payload: Record<string, unknown>;
+} | null {
     const url = new URL(options.webhookUrl);
     url.searchParams.set('wait', 'true');
     if (options.threadId) {
         url.searchParams.set('thread_id', options.threadId);
     }
 
-    const body: Record<string, unknown> = {};
-    if (options.username) body.username = options.username;
-    if (options.avatarUrl) body.avatar_url = options.avatarUrl;
-    if (options.content) body.content = options.content;
-    if (options.embeds) body.embeds = options.embeds;
+    const payload: Record<string, unknown> = {};
+    if (options.username) payload.username = options.username;
+    if (options.avatarUrl) payload.avatar_url = options.avatarUrl;
+    if (options.content) payload.content = options.content;
+    if (options.embeds) payload.embeds = options.embeds;
 
     // Guard: Discord rejects messages with no content and no embeds
-    if (!body.content && !body.embeds) {
+    if (!payload.content && !payload.embeds) {
         log.warn('Skipping webhook post — no content or embeds');
         return null;
     }
 
+    return { url: url.toString(), payload };
+}
+
+/** POST to a Discord webhook. Rate-limited per webhook URL. */
+export async function postToWebhook(
+    options: WebhookPostOptions,
+): Promise<WebhookResult> {
+    const built = buildWebhookUrlAndPayload(options);
+    if (!built) return null;
+
     const key = webhookKey(options.webhookUrl);
 
-    const fullUrl = url.toString();
     return new Promise<WebhookResult>(resolve => {
         if (!webhookQueues.has(key)) {
             webhookQueues.set(key, []);
         }
         webhookQueues.get(key)!.push({
-            send: () => sendWithRetry(fullUrl, body),
+            send: () => sendWithRetry(built.url, built.payload),
             resolve,
         });
         drainQueue(key);
@@ -201,8 +217,8 @@ export async function createThread(
             method: 'POST',
             body: JSON.stringify({
                 name: threadName.slice(0, 100), // Discord limit: 100 chars
-                type: 11, // PUBLIC_THREAD
-                auto_archive_duration: 1440, // 24 hours
+                type: DISCORD_PUBLIC_THREAD,
+                auto_archive_duration: AUTO_ARCHIVE_24H_MINUTES,
             }),
         });
 
@@ -342,20 +358,11 @@ export async function postToWebhookWithFiles(
         return postToWebhook(options);
     }
 
-    const url = new URL(options.webhookUrl);
-    url.searchParams.set('wait', 'true');
-    if (options.threadId) {
-        url.searchParams.set('thread_id', options.threadId);
-    }
-
-    const payload: Record<string, unknown> = {};
-    if (options.username) payload.username = options.username;
-    if (options.avatarUrl) payload.avatar_url = options.avatarUrl;
-    if (options.content) payload.content = options.content;
-    if (options.embeds) payload.embeds = options.embeds;
+    const built = buildWebhookUrlAndPayload(options);
+    if (!built) return null;
 
     const formData = new FormData();
-    formData.append('payload_json', JSON.stringify(payload));
+    formData.append('payload_json', JSON.stringify(built.payload));
 
     for (let i = 0; i < options.files.length; i++) {
         const file = options.files[i];
@@ -369,7 +376,7 @@ export async function postToWebhookWithFiles(
     const key = webhookKey(options.webhookUrl);
     const sendMultipart = async (): Promise<WebhookResult> => {
         const res = await fetchWithRetry429(
-            url.toString(),
+            built.url,
             { method: 'POST', body: formData },
             'Webhook multipart POST',
         );

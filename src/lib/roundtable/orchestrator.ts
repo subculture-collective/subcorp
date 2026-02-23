@@ -54,6 +54,147 @@ const TURN_DELAY_JITTER_MS = 5000;
 /** Brief settle delay after the last turn so Discord message ordering is preserved. */
 const POST_CONVERSATION_SETTLE_MS = 2000;
 
+/** Delay between opening agent responses in voice chat. */
+const VOICE_OPENING_GAP_MS = 2000;
+
+/** Delay between multiple agent responses to a single user turn in voice chat. */
+const VOICE_MULTI_RESPONSE_GAP_MS = 1500;
+
+/**
+ * Store a conversation turn in the database and emit the corresponding event.
+ * Shared by both the standard and voice_chat orchestrators.
+ */
+async function storeTurnAndEmit(
+    session: RoundtableSession,
+    entry: ConversationTurnEntry,
+): Promise<void> {
+    const voice = getVoice(entry.speaker);
+    const speakerName = voice?.displayName ?? entry.speaker;
+
+    await sql`
+        INSERT INTO ops_roundtable_turns (session_id, turn_number, speaker, dialogue, metadata)
+        VALUES (${session.id}, ${entry.turn}, ${entry.speaker}, ${entry.dialogue}, ${jsonb({ speakerName })})
+    `;
+
+    await sql`
+        UPDATE ops_roundtable_sessions
+        SET turn_count = ${entry.turn + 1}
+        WHERE id = ${session.id}
+    `;
+
+    await emitEvent({
+        agent_id: entry.speaker,
+        kind: 'conversation_turn',
+        title: `${speakerName}: ${entry.dialogue}`,
+        tags: ['conversation', 'turn', session.format],
+        metadata: {
+            sessionId: session.id,
+            turn: entry.turn,
+            dialogue: entry.dialogue,
+        },
+    });
+}
+
+/**
+ * Mark a session as running and emit the start event.
+ * Shared by both the standard and voice_chat orchestrators.
+ */
+async function markSessionRunning(
+    session: RoundtableSession,
+    extraSummary?: string,
+): Promise<void> {
+    await sql`
+        UPDATE ops_roundtable_sessions
+        SET status = 'running', started_at = NOW()
+        WHERE id = ${session.id}
+    `;
+
+    await emitEvent({
+        agent_id: 'system',
+        kind: 'conversation_started',
+        title: `${session.format} started: ${session.topic}`,
+        summary: extraSummary ?? `Participants: ${session.participants.join(', ')}`,
+        tags: ['conversation', 'started', session.format],
+        metadata: {
+            sessionId: session.id,
+            format: session.format,
+            participants: session.participants,
+        },
+    });
+}
+
+/**
+ * Post-conversation cleanup: memory distillation, artifact synthesis, voting.
+ * Shared by the standard orchestrator after the turn loop completes.
+ */
+async function postConversationCleanup(
+    session: RoundtableSession,
+    history: ConversationTurnEntry[],
+    finalStatus: string,
+): Promise<void> {
+    if (history.length < 3) return;
+
+    // Distill memories from the conversation
+    try {
+        await distillConversationMemories(session.id, history, session.format);
+    } catch (err) {
+        log.error('Memory distillation failed', { error: err, sessionId: session.id });
+    }
+
+    // Synthesize artifact from conversation
+    try {
+        const artifactSessionId = await synthesizeArtifact(session, history);
+        if (artifactSessionId) {
+            log.info('Artifact synthesis queued', {
+                sessionId: session.id,
+                artifactSession: artifactSessionId,
+            });
+        }
+    } catch (err) {
+        log.error('Artifact synthesis failed', { error: err, sessionId: session.id });
+    }
+
+    // Structured voting round after agent proposal debates
+    const proposalId = (session.metadata as Record<string, unknown>)
+        ?.agent_proposal_id as string | undefined;
+    if (proposalId && finalStatus === 'completed') {
+        try {
+            const result = await collectDebateVotes(proposalId, session.participants, history);
+            log.info('Agent proposal voting finalized', {
+                proposalId,
+                result: result.result,
+                approvals: result.approvals,
+                rejections: result.rejections,
+                sessionId: session.id,
+            });
+        } catch (err) {
+            log.error('Agent proposal vote collection failed', {
+                error: err, proposalId, sessionId: session.id,
+            });
+        }
+    }
+
+    // Structured voting round after governance proposal debates
+    const govProposalId = (session.metadata as Record<string, unknown>)
+        ?.governance_proposal_id as string | undefined;
+    if (govProposalId && finalStatus === 'completed') {
+        try {
+            const result = await collectGovernanceDebateVotes(govProposalId, session.participants, history);
+            log.info('Governance proposal voting finalized', {
+                proposalId: govProposalId,
+                result: result.result,
+                approvals: result.approvals,
+                rejections: result.rejections,
+                sessionId: session.id,
+            });
+        } catch (err) {
+            log.error('Governance proposal vote collection failed', {
+                error: err, proposalId: govProposalId, sessionId: session.id,
+            });
+        }
+    }
+}
+
 /**
  * Word-level Jaccard similarity between two texts.
  * Returns 0 (no overlap) to 1 (identical word sets).
@@ -494,12 +635,8 @@ export async function orchestrateConversation(
     const briefingMap = ctx.briefings;
     const memoryMap = ctx.memories;
 
-    // Mark session as running
-    await sql`
-        UPDATE ops_roundtable_sessions
-        SET status = 'running', started_at = NOW()
-        WHERE id = ${session.id}
-    `;
+    // Mark session as running and emit start event
+    await markSessionRunning(session, `Participants: ${session.participants.join(', ')} | ${maxTurns} turns`);
 
     // Post conversation start to Discord
     let discordWebhookUrl: string | null = null;
@@ -511,21 +648,6 @@ export async function orchestrateConversation(
             sessionId: session.id,
         });
     }
-
-    // Emit session start event
-    await emitEvent({
-        agent_id: 'system',
-        kind: 'conversation_started',
-        title: `${session.format} started: ${session.topic}`,
-        summary: `Participants: ${session.participants.join(', ')} | ${maxTurns} turns`,
-        tags: ['conversation', 'started', session.format],
-        metadata: {
-            sessionId: session.id,
-            format: session.format,
-            participants: session.participants,
-            maxTurns,
-        },
-    });
 
     let abortReason: string | null = null;
 
@@ -668,31 +790,8 @@ export async function orchestrateConversation(
         };
         history.push(entry);
 
-        // Store turn in database
-        await sql`
-            INSERT INTO ops_roundtable_turns (session_id, turn_number, speaker, dialogue, metadata)
-            Values (${session.id}, ${turn}, ${speaker}, ${dialogue}, ${jsonb({ speakerName })})
-        `;
-
-        // Update session turn count
-        await sql`
-            UPDATE ops_roundtable_sessions
-            SET turn_count = ${turn + 1}
-            WHERE id = ${session.id}
-        `;
-
-        // Emit turn event
-        await emitEvent({
-            agent_id: speaker,
-            kind: 'conversation_turn',
-            title: `${speakerName}: ${dialogue}`,
-            tags: ['conversation', 'turn', session.format],
-            metadata: {
-                sessionId: session.id,
-                turn,
-                dialogue,
-            },
-        });
+        // Store turn and emit event
+        await storeTurnAndEmit(session, entry);
 
         // Post turn to Discord (with optional TTS audio if requested)
         const useTTS = !!(session.metadata as Record<string, unknown>)?.tts;
@@ -802,92 +901,8 @@ export async function orchestrateConversation(
         ).catch(() => {});
     }
 
-    // Distill memories from the conversation (best-effort, even if aborted)
-    if (history.length >= 3) {
-        try {
-            await distillConversationMemories(
-                session.id,
-                history,
-                session.format,
-            );
-        } catch (err) {
-            log.error('Memory distillation failed', {
-                error: err,
-                sessionId: session.id,
-            });
-        }
-
-        // Synthesize artifact from conversation
-        try {
-            const artifactSessionId = await synthesizeArtifact(
-                session,
-                history,
-            );
-            if (artifactSessionId) {
-                log.info('Artifact synthesis queued', {
-                    sessionId: session.id,
-                    artifactSession: artifactSessionId,
-                });
-            }
-        } catch (err) {
-            log.error('Artifact synthesis failed', {
-                error: err,
-                sessionId: session.id,
-            });
-        }
-
-        // Structured voting round after agent proposal debates
-        const proposalId = (session.metadata as Record<string, unknown>)
-            ?.agent_proposal_id as string | undefined;
-        if (proposalId && finalStatus === 'completed') {
-            try {
-                const result = await collectDebateVotes(
-                    proposalId,
-                    session.participants,
-                    history,
-                );
-                log.info('Agent proposal voting finalized', {
-                    proposalId,
-                    result: result.result,
-                    approvals: result.approvals,
-                    rejections: result.rejections,
-                    sessionId: session.id,
-                });
-            } catch (err) {
-                log.error('Agent proposal vote collection failed', {
-                    error: err,
-                    proposalId,
-                    sessionId: session.id,
-                });
-            }
-        }
-
-        // Structured voting round after governance proposal debates
-        const govProposalId = (session.metadata as Record<string, unknown>)
-            ?.governance_proposal_id as string | undefined;
-        if (govProposalId && finalStatus === 'completed') {
-            try {
-                const result = await collectGovernanceDebateVotes(
-                    govProposalId,
-                    session.participants,
-                    history,
-                );
-                log.info('Governance proposal voting finalized', {
-                    proposalId: govProposalId,
-                    result: result.result,
-                    approvals: result.approvals,
-                    rejections: result.rejections,
-                    sessionId: session.id,
-                });
-            } catch (err) {
-                log.error('Governance proposal vote collection failed', {
-                    error: err,
-                    proposalId: govProposalId,
-                    sessionId: session.id,
-                });
-            }
-        }
-    }
+    // Post-conversation cleanup: distill memories, synthesize artifacts, run votes
+    await postConversationCleanup(session, history, finalStatus);
 
     return history;
 }
@@ -935,25 +950,8 @@ async function orchestrateVoiceChat(
         // Continue without
     }
 
-    // Mark session as running
-    await sql`
-        UPDATE ops_roundtable_sessions
-        SET status = 'running', started_at = NOW()
-        WHERE id = ${session.id}
-    `;
-
-    await emitEvent({
-        agent_id: 'system',
-        kind: 'conversation_started',
-        title: `voice_chat started: ${session.topic}`,
-        summary: `Participants: ${session.participants.join(', ')} | live voice session`,
-        tags: ['conversation', 'started', 'voice_chat'],
-        metadata: {
-            sessionId: session.id,
-            format: 'voice_chat',
-            participants: session.participants,
-        },
-    });
+    // Mark session as running and emit start event
+    await markSessionRunning(session, `Participants: ${session.participants.join(', ')} | live voice session`);
 
     // Helper: generate and store an agent turn
     async function generateAgentTurn(
@@ -1021,20 +1019,7 @@ async function orchestrateVoiceChat(
             };
             history.push(entry);
 
-            await sql`
-                INSERT INTO ops_roundtable_turns (session_id, turn_number, speaker, dialogue, metadata)
-                VALUES (${session.id}, ${turnNumber}, ${speaker}, ${dialogue}, ${jsonb({ speakerName })})
-            `;
-            await sql`
-                UPDATE ops_roundtable_sessions SET turn_count = ${turnNumber + 1} WHERE id = ${session.id}
-            `;
-            await emitEvent({
-                agent_id: speaker,
-                kind: 'conversation_turn',
-                title: `${speakerName}: ${dialogue}`,
-                tags: ['conversation', 'turn', 'voice_chat'],
-                metadata: { sessionId: session.id, turn: turnNumber, dialogue },
-            });
+            await storeTurnAndEmit(session, entry);
 
             return entry;
         } catch (err) {
@@ -1108,7 +1093,7 @@ async function orchestrateVoiceChat(
             currentTurn++;
             // Small delay between opening agents
             if (i < openingCount - 1) {
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                await new Promise(resolve => setTimeout(resolve, VOICE_OPENING_GAP_MS));
             }
         }
     }
@@ -1158,7 +1143,7 @@ async function orchestrateVoiceChat(
             if (entry) {
                 currentTurn++;
                 if (responders.length > 1) {
-                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    await new Promise(resolve => setTimeout(resolve, VOICE_MULTI_RESPONSE_GAP_MS));
                 }
             }
         }
@@ -1184,19 +1169,12 @@ async function orchestrateVoiceChat(
         },
     });
 
-    // Distill memories if enough substance
+    // Distill memories if enough substance (voice chat threshold is 4 turns)
     if (history.length >= 4) {
         try {
-            await distillConversationMemories(
-                session.id,
-                history,
-                session.format,
-            );
+            await distillConversationMemories(session.id, history, session.format);
         } catch (err) {
-            log.error('Voice chat memory distillation failed', {
-                error: err,
-                sessionId: session.id,
-            });
+            log.error('Voice chat memory distillation failed', { error: err, sessionId: session.id });
         }
     }
 
@@ -1316,125 +1294,125 @@ export async function checkScheduleAndEnqueue(): Promise<{
     return { checked: true, enqueued: lastEnqueued };
 }
 
+/** Per-format topic pools — provocative, personality-driven prompts for scheduled conversations. */
+const TOPIC_POOLS: Record<string, string[]> = {
+    standup: [
+        'Status check: what moved, what is stuck, what needs attention?',
+        'Blockers and dependencies — who is waiting on whom?',
+        'Where should our energy go today?',
+        'System health: anything decaying quietly?',
+        'What did we learn since yesterday that changes our priorities?',
+    ],
+    checkin: [
+        'Quick pulse — how is everyone feeling about the work?',
+        'Anything urgent that needs collective attention right now?',
+        'Energy levels and capacity — who is stretched, who has space?',
+    ],
+    triage: [
+        'New signals came in — classify and prioritize.',
+        'We have more tasks than capacity. What gets cut?',
+        'Something broke overnight. Assess severity and assign.',
+        'Three requests from external. Which ones align with mission?',
+    ],
+    deep_dive: [
+        'What structural problem keeps recurring and why?',
+        'Trace the incentive structures behind our recent decisions.',
+        'One of our core assumptions may be wrong. Which one?',
+        'What system is producing outcomes nobody intended?',
+        'Map the dependency chain for our most fragile process.',
+    ],
+    risk_review: [
+        'What are we exposing that we should not be?',
+        'If an adversary studied our output, what would they learn?',
+        'Which of our current positions becomes dangerous if the context shifts?',
+        'Threat model review: what changed since last assessment?',
+        'What looks safe but is actually fragile?',
+    ],
+    strategy: [
+        'Are we still building what we said we would build?',
+        'What would we stop doing if we were honest about our resources?',
+        'Where are we drifting from original intent and is that good?',
+        'What decision are we avoiding that would clarify everything?',
+        'Six months from now, what will we wish we had started today?',
+    ],
+    planning: [
+        "Turn yesterday's strategy discussion into concrete tasks.",
+        'Who owns what this week? Name it. Deadline it.',
+        'We committed to three things. Break each into actionable steps.',
+        'What needs to ship before anything else can move?',
+    ],
+    shipping: [
+        'Is this actually ready or are we just tired of working on it?',
+        'Pre-ship checklist: what can go wrong at launch?',
+        'Who needs to review this before it goes live?',
+        'What is the rollback plan if this fails?',
+    ],
+    retro: [
+        'What worked better than expected and why?',
+        'What failed and what do we change — not just acknowledge?',
+        'Where did our process help us and where did it slow us down?',
+        'What would we do differently if we started this again tomorrow?',
+        'Which of our own assumptions bit us this cycle?',
+    ],
+    debate: [
+        'Quality versus speed — where is the actual tradeoff right now?',
+        'Is our content strategy serving the mission or just generating activity?',
+        'Should we optimize for reach or depth?',
+        'Are we building infrastructure or performing productivity?',
+        'Is the current approach sustainable or are we borrowing from the future?',
+    ],
+    cross_exam: [
+        'Stress-test our latest proposal. Find the failure mode.',
+        'Play adversary: why would someone argue against what we just decided?',
+        'What are we not seeing because we agree too quickly?',
+        'Interrogate the assumption behind our most confident position.',
+    ],
+    brainstorm: [
+        'Wild ideas only: what would we do with unlimited resources?',
+        'What if we approached this from the completely opposite direction?',
+        'Name something we dismissed too quickly. Resurrect it.',
+        'What adjacent domain could teach us something about our problem?',
+        'Weird combinations: pick two unrelated ideas and smash them together.',
+    ],
+    reframe: [
+        'We are stuck. The current frame is not producing insight. Break it.',
+        'What if the problem is not what we think it is?',
+        'Reframe: who is the actual audience for this work?',
+        'What if we removed the constraint we think is fixed?',
+    ],
+    writing_room: [
+        'Write a short essay: what does Subcult actually believe about technology and power?',
+        'Draft a thread on why most AI governance proposals miss the point.',
+        'Write a piece on the difference between building tools and building infrastructure.',
+        'Draft something about what "autonomy" means when every platform is a landlord.',
+        'Write about the gap between what tech companies say and what their incentives produce.',
+        'Craft a sharp take on why "move fast and break things" aged poorly.',
+    ],
+    content_review: [
+        'Review recent output: does it meet our quality bar?',
+        'Risk scan on published content — anything we should retract or edit?',
+        'Alignment check: is our content reflecting our stated values?',
+        'What are we saying that we should not be saying publicly?',
+    ],
+    watercooler: [
+        'What is the most interesting thing you encountered this week?',
+        'Random thought — no agenda, just vibes.',
+        'Something that surprised you about how we work.',
+        'If you could redesign one thing about our operation, what would it be?',
+        'Hot take: something everyone assumes but nobody questions.',
+        'What is the most underappreciated thing someone here does?',
+    ],
+};
+
 /**
  * Generate a conversation topic based on the schedule slot.
- * Each format has its own pool of provocative, personality-driven topics.
  * Deduplicates against topics used in the last 48 hours for the same format.
  */
 async function generateTopic(slot: {
     name: string;
     format: string;
 }): Promise<string> {
-    const topicPools: Record<string, string[]> = {
-        standup: [
-            'Status check: what moved, what is stuck, what needs attention?',
-            'Blockers and dependencies — who is waiting on whom?',
-            'Where should our energy go today?',
-            'System health: anything decaying quietly?',
-            'What did we learn since yesterday that changes our priorities?',
-        ],
-        checkin: [
-            'Quick pulse — how is everyone feeling about the work?',
-            'Anything urgent that needs collective attention right now?',
-            'Energy levels and capacity — who is stretched, who has space?',
-        ],
-        triage: [
-            'New signals came in — classify and prioritize.',
-            'We have more tasks than capacity. What gets cut?',
-            'Something broke overnight. Assess severity and assign.',
-            'Three requests from external. Which ones align with mission?',
-        ],
-        deep_dive: [
-            'What structural problem keeps recurring and why?',
-            'Trace the incentive structures behind our recent decisions.',
-            'One of our core assumptions may be wrong. Which one?',
-            'What system is producing outcomes nobody intended?',
-            'Map the dependency chain for our most fragile process.',
-        ],
-        risk_review: [
-            'What are we exposing that we should not be?',
-            'If an adversary studied our output, what would they learn?',
-            'Which of our current positions becomes dangerous if the context shifts?',
-            'Threat model review: what changed since last assessment?',
-            'What looks safe but is actually fragile?',
-        ],
-        strategy: [
-            'Are we still building what we said we would build?',
-            'What would we stop doing if we were honest about our resources?',
-            'Where are we drifting from original intent and is that good?',
-            'What decision are we avoiding that would clarify everything?',
-            'Six months from now, what will we wish we had started today?',
-        ],
-        planning: [
-            "Turn yesterday's strategy discussion into concrete tasks.",
-            'Who owns what this week? Name it. Deadline it.',
-            'We committed to three things. Break each into actionable steps.',
-            'What needs to ship before anything else can move?',
-        ],
-        shipping: [
-            'Is this actually ready or are we just tired of working on it?',
-            'Pre-ship checklist: what can go wrong at launch?',
-            'Who needs to review this before it goes live?',
-            'What is the rollback plan if this fails?',
-        ],
-        retro: [
-            'What worked better than expected and why?',
-            'What failed and what do we change — not just acknowledge?',
-            'Where did our process help us and where did it slow us down?',
-            'What would we do differently if we started this again tomorrow?',
-            'Which of our own assumptions bit us this cycle?',
-        ],
-        debate: [
-            'Quality versus speed — where is the actual tradeoff right now?',
-            'Is our content strategy serving the mission or just generating activity?',
-            'Should we optimize for reach or depth?',
-            'Are we building infrastructure or performing productivity?',
-            'Is the current approach sustainable or are we borrowing from the future?',
-        ],
-        cross_exam: [
-            'Stress-test our latest proposal. Find the failure mode.',
-            'Play adversary: why would someone argue against what we just decided?',
-            'What are we not seeing because we agree too quickly?',
-            'Interrogate the assumption behind our most confident position.',
-        ],
-        brainstorm: [
-            'Wild ideas only: what would we do with unlimited resources?',
-            'What if we approached this from the completely opposite direction?',
-            'Name something we dismissed too quickly. Resurrect it.',
-            'What adjacent domain could teach us something about our problem?',
-            'Weird combinations: pick two unrelated ideas and smash them together.',
-        ],
-        reframe: [
-            'We are stuck. The current frame is not producing insight. Break it.',
-            'What if the problem is not what we think it is?',
-            'Reframe: who is the actual audience for this work?',
-            'What if we removed the constraint we think is fixed?',
-        ],
-        writing_room: [
-            'Write a short essay: what does Subcult actually believe about technology and power?',
-            'Draft a thread on why most AI governance proposals miss the point.',
-            'Write a piece on the difference between building tools and building infrastructure.',
-            'Draft something about what "autonomy" means when every platform is a landlord.',
-            'Write about the gap between what tech companies say and what their incentives produce.',
-            'Craft a sharp take on why "move fast and break things" aged poorly.',
-        ],
-        content_review: [
-            'Review recent output: does it meet our quality bar?',
-            'Risk scan on published content — anything we should retract or edit?',
-            'Alignment check: is our content reflecting our stated values?',
-            'What are we saying that we should not be saying publicly?',
-        ],
-        watercooler: [
-            'What is the most interesting thing you encountered this week?',
-            'Random thought — no agenda, just vibes.',
-            'Something that surprised you about how we work.',
-            'If you could redesign one thing about our operation, what would it be?',
-            'Hot take: something everyone assumes but nobody questions.',
-            'What is the most underappreciated thing someone here does?',
-        ],
-    };
-
-    const pool = topicPools[slot.format] ?? topicPools.standup;
+    const pool = TOPIC_POOLS[slot.format] ?? TOPIC_POOLS.standup;
 
     // Fetch topics used in the last 48h for this format to avoid repetition
     const cutoff = new Date(Date.now() - 48 * 60 * 60_000).toISOString();

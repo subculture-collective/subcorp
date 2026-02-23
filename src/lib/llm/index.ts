@@ -7,6 +7,7 @@ export {
     extractJson,
     estimateTokens,
     promptSection,
+    normalizeDsml,
     getOpenRouterClient,
 } from './client';
 export { getEmbedding } from './embeddings';

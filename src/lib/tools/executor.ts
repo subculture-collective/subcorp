@@ -10,6 +10,16 @@ const MAX_STDOUT = 50 * 1024; // 50KB cap
 const MAX_STDERR = 10 * 1024; // 10KB cap
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/** Extract the exit code from a child_process error. Defaults to 1 for unknown errors. */
+function getExitCode(error: Error): number {
+    const err = error as unknown as Record<string, unknown>;
+    // execFile provides the exit status in error.status for non-signal exits
+    if (typeof err.status === 'number') return err.status;
+    // Fallback to error.code if it's numeric
+    if (typeof err.code === 'number') return err.code;
+    return 1;
+}
+
 /**
  * Execute a command inside the toolbox container via `docker exec`.
  * Output is capped to avoid flooding LLM context.
@@ -36,19 +46,10 @@ export async function execInToolbox(
             let exitCode = 0;
 
             if (error) {
-                // node child_process sets killed=true on timeout
                 if (error.killed || error.code === 'ERR_CHILD_PROCESS_STDIO_FINAL_CLOSE') {
                     timedOut = true;
                 }
-                exitCode = (error as NodeJS.ErrnoException & { code?: number | string }).code
-                    ? typeof (error as unknown as { code: number }).code === 'number'
-                        ? (error as unknown as { code: number }).code
-                        : 1
-                    : 1;
-                // execFile provides exit code in error.code for non-signal exits
-                if ('status' in error && typeof (error as unknown as { status: number }).status === 'number') {
-                    exitCode = (error as unknown as { status: number }).status;
-                }
+                exitCode = getExitCode(error);
             }
 
             // Cap output
