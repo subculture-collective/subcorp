@@ -29,8 +29,8 @@ if (!process.env.DATABASE_URL) {
     process.exit(1);
 }
 
-if (!process.env.OPENROUTER_API_KEY) {
-    log.fatal('Missing OPENROUTER_API_KEY');
+if (!process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_ENABLED !== 'false') {
+    log.fatal('Missing OPENROUTER_API_KEY (set OPENROUTER_ENABLED=false to run without OpenRouter)');
     process.exit(1);
 }
 
@@ -777,19 +777,27 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
             }
         }
 
+        // Route coding steps to the coding model, everything else uses default
+        const CODING_STEP_KINDS = new Set([
+            'patch_code', 'self_evolution', 'github_pr', 'github_issue',
+            'create_pull_request', 'draft_product_spec',
+        ]);
+        const stepModel = CODING_STEP_KINDS.has(step.kind) ? 'qwen3:14b' : null;
+
         // Create an agent session so the step gets full tool access
         const [session] = await sql`
             INSERT INTO ops_agent_sessions (
                 agent_id, prompt, source, source_id,
-                timeout_seconds, max_tool_rounds, status
+                timeout_seconds, max_tool_rounds, status, model
             ) VALUES (
                 ${agentId},
                 ${prompt},
                 'mission',
                 ${step.mission_id},
                 1800,
-                15,
-                'pending'
+                30,
+                'pending',
+                ${stepModel}
             )
             RETURNING id
         `;
@@ -1563,8 +1571,8 @@ async function pollLoop(): Promise<void> {
             log.error('Poll loop error', { error: err });
         }
 
-        // Wait 15 seconds between polls
-        await new Promise(resolve => setTimeout(resolve, 15_000));
+        // Wait 5 seconds between polls
+        await new Promise(resolve => setTimeout(resolve, 5_000));
     }
 }
 
@@ -1588,7 +1596,7 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 log.info('Unified worker started', {
     workerId: WORKER_ID,
     database: !!process.env.DATABASE_URL,
-    openrouter: !!process.env.OPENROUTER_API_KEY,
+    openrouter: process.env.OPENROUTER_ENABLED !== 'false' && !!process.env.OPENROUTER_API_KEY,
     ollama:
         process.env.OLLAMA_ENABLED !== 'false' ?
             process.env.OLLAMA_BASE_URL || 'no-url'

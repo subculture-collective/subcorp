@@ -135,7 +135,7 @@ Rules:
         const response = await llmGenerate({
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.3,
-            maxTokens: 800,
+            maxTokens: 2000,
             trackingContext: {
                 agentId: 'system',
                 context: 'sanctum-distillation',

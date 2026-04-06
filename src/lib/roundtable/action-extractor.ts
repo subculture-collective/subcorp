@@ -89,7 +89,7 @@ export async function extractActionsFromArtifact(
                 },
             ],
             temperature: 0.3,
-            maxTokens: 1000,
+            maxTokens: 3000,
             trackingContext: {
                 agentId: 'system',
                 context: 'action-extraction',

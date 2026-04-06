@@ -173,7 +173,7 @@ If no extractable creative content exists, respond with:
                 { role: 'user', content: extractionPrompt },
             ],
             temperature: 0.3,
-            maxTokens: 4000,
+            maxTokens: 8000,
             trackingContext: {
                 context: 'content_extraction',
             },
@@ -458,7 +458,7 @@ Respond ONLY with valid JSON (no markdown fencing):
                 { role: 'user', content: reviewPrompt },
             ],
             temperature: 0.2,
-            maxTokens: 2000,
+            maxTokens: 4000,
             trackingContext: {
                 context: 'content_review',
             },

@@ -120,7 +120,7 @@ ${driftRules}${actionRules}
         const response = await llmGenerate({
             messages: [{ role: 'user', content: memoriesPrompt }],
             temperature: 0.3,
-            maxTokens: 1500,
+            maxTokens: 4000,
             trackingContext: {
                 agentId: 'system',
                 context: 'distillation',
@@ -140,7 +140,12 @@ ${driftRules}${actionRules}
             action_items?: ActionItem[];
         }>(response);
         if (!parsed) {
-            log.warn('No JSON found in memories LLM response', { sessionId });
+            log.warn('No JSON found in memories LLM response', {
+                sessionId,
+                responseLength: response.length,
+                responsePreview: response.slice(0, 300),
+                responseEnd: response.slice(-100),
+            });
             return 0;
         }
     } catch (err) {

@@ -31,7 +31,11 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN apk add --no-cache docker-cli && \
+RUN apk add --no-cache docker-cli git && \
+    wget -qO /tmp/gh.tar.gz https://github.com/cli/cli/releases/download/v2.74.1/gh_2.74.1_linux_amd64.tar.gz && \
+    tar -xzf /tmp/gh.tar.gz -C /tmp && \
+    mv /tmp/gh_2.74.1_linux_amd64/bin/gh /usr/local/bin/gh && \
+    rm -rf /tmp/gh* && \
     addgroup --system --gid 1001 nodejs && \
     adduser  --system --uid 1001 nextjs
 

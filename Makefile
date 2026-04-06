@@ -9,6 +9,24 @@
         engage disengage help
 
 # ──────────────────────────────────────────
+# Service name variables (match docker-compose.yml)
+# ──────────────────────────────────────────
+
+SVC_APP     := subcult-corp-app
+SVC_WORKER  := subcult-corp-worker
+SVC_SANCTUM := subcult-sanctum
+SVC_TOOLBOX := subcult-toolbox
+
+# External postgres container (NOT managed by this compose file)
+PG_CONTAINER := pg16-pgvector
+PG_USER      := subcult
+PG_SUPERUSER := onnwee
+PG_DB        := subcult_ops
+
+# Project root on host — for mounting seed scripts into containers
+PROJECT_ROOT := $(shell pwd)
+
+# ──────────────────────────────────────────
 # Development
 # ──────────────────────────────────────────
 
@@ -44,13 +62,13 @@ restart: ## Restart all containers
 	docker compose restart
 
 rebuild: ## Rebuild app images (no cache) and recreate containers (preserves toolbox)
-	docker compose build --no-cache app worker sanctum
+	docker compose build --no-cache $(SVC_APP) $(SVC_WORKER) $(SVC_SANCTUM)
 	docker compose up -d --force-recreate --remove-orphans
 	docker image prune -f
 
 rebuild-toolbox: ## Rebuild only the toolbox image (slow — Go/Python/security tools)
-	docker compose build --no-cache toolbox
-	docker compose up -d --force-recreate toolbox
+	docker compose build --no-cache $(SVC_TOOLBOX)
+	docker compose up -d --force-recreate $(SVC_TOOLBOX)
 	@echo "Toolbox rebuilt."
 
 status: ## Show status of all containers
@@ -64,86 +82,116 @@ logs: ## Tail logs from all containers
 	docker compose logs -f --tail=50
 
 logs-app: ## Tail app container logs
-	docker compose logs -f --tail=50 app
+	docker compose logs -f --tail=50 $(SVC_APP)
 
 logs-worker: ## Tail unified worker logs
-	docker compose logs -f --tail=50 worker
+	docker compose logs -f --tail=50 $(SVC_WORKER)
 
 logs-toolbox: ## Tail toolbox container logs
-	docker compose logs -f --tail=50 toolbox
+	docker compose logs -f --tail=50 $(SVC_TOOLBOX)
 
-logs-db: ## Tail Postgres logs
-	docker compose logs -f --tail=50 postgres
+logs-db: ## Tail Postgres logs (external container)
+	docker logs -f --tail=50 $(PG_CONTAINER)
 
 # ──────────────────────────────────────────
 # Database
 # ──────────────────────────────────────────
 
-db-migrate: ## Run all SQL migrations against the container DB
+db-migrate: ## Run all SQL migrations against the Postgres container
 	@for f in db/migrations/*.sql; do \
 		echo "Running $$f..."; \
-		docker compose exec -T postgres psql -U subcult -d subcult_ops -f - < "$$f" 2>&1 | tail -1; \
+		docker exec -i $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB) < "$$f" 2>&1 | tail -1; \
 	done
 	@echo "Migrations complete."
 
 db-shell: ## Open psql shell in the Postgres container
-	docker compose exec postgres psql -U subcult -d subcult_ops
+	docker exec -it $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB)
 
 # ──────────────────────────────────────────
 # Database Seeding
+#
+# Seeds run inside a one-off app container (same image, same network,
+# same DATABASE_URL from .env) with the host scripts/ mounted in.
+# This avoids needing Node on the host or baking seed scripts into
+# the production image.
 # ──────────────────────────────────────────
 
-DB_URL := postgresql://subcult:$(shell grep POSTGRES_PASSWORD .env.local | cut -d= -f2)@127.0.0.1:5433/subcult_ops
+define RUN_SEED
+	docker compose run --rm \
+		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
+		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
+		--no-deps \
+		$(SVC_APP) \
+		node
+endef
 
 seed: ## Seed everything (agents, policies, triggers, relationships)
-	DATABASE_URL="$(DB_URL)" node scripts/go-live/seed.mjs
+	$(RUN_SEED) scripts/go-live/seed.mjs
 
 seed-agents: ## Seed agent registry only
-	DATABASE_URL="$(DB_URL)" node scripts/go-live/seed.mjs --only agents
+	$(RUN_SEED) scripts/go-live/seed.mjs --only agents
 
 seed-policy: ## Seed policies only
-	DATABASE_URL="$(DB_URL)" node scripts/go-live/seed.mjs --only policy
+	$(RUN_SEED) scripts/go-live/seed.mjs --only policy
 
 seed-triggers: ## Seed trigger rules only
-	DATABASE_URL="$(DB_URL)" node scripts/go-live/seed.mjs --only triggers
+	$(RUN_SEED) scripts/go-live/seed.mjs --only triggers
 
 seed-relationships: ## Seed agent relationships only
-	DATABASE_URL="$(DB_URL)" node scripts/go-live/seed.mjs --only relationships
+	$(RUN_SEED) scripts/go-live/seed.mjs --only relationships
 
 seed-rss: ## Seed RSS feeds only
-	DATABASE_URL="$(DB_URL)" node scripts/go-live/seed.mjs --only rss-feeds
+	$(RUN_SEED) scripts/go-live/seed.mjs --only rss-feeds
 
 seed-discord: ## Seed Discord channels only
-	DATABASE_URL="$(DB_URL)" node scripts/go-live/seed.mjs --only discord-channels
+	$(RUN_SEED) scripts/go-live/seed.mjs --only discord-channels
 
 purge-discord: ## Purge all messages from Discord channels
-	DATABASE_URL="$(DB_URL)" node scripts/go-live/purge-discord.mjs
+	docker compose run --rm \
+		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
+		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
+		--no-deps \
+		$(SVC_APP) \
+		node scripts/go-live/purge-discord.mjs
 
 # ──────────────────────────────────────────
 # Fresh Start
 # ──────────────────────────────────────────
 
-nuke: ## Wipe everything: containers, volumes, images — full reset (including toolbox)
+nuke: ## Wipe everything: containers, volumes, images, DB — full reset (including toolbox)
 	docker compose down -v --rmi local --remove-orphans
-	@echo "Nuked. All containers, volumes, and local images removed."
+	@echo "Nuking database $(PG_DB)..."
+	@docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c \
+		"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$(PG_DB)' AND pid <> pg_backend_pid();" \
+		>/dev/null 2>&1 || true
+	@docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c "DROP DATABASE IF EXISTS $(PG_DB);" 2>/dev/null || true
+	@echo "Nuked. All containers, volumes, local images, and database removed."
 
-fresh: ## Fresh start: stop → rebuild app → migrate → seed (preserves toolbox image)
+fresh: ## Fresh start: stop → nuke DB → rebuild app → migrate → seed (preserves toolbox image)
 	docker compose down -v --remove-orphans
-	docker compose build --no-cache app worker sanctum
-	@if ! docker image inspect subcult-toolbox:latest >/dev/null 2>&1; then \
+	@echo "Nuking database $(PG_DB)..."
+	@docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c \
+		"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$(PG_DB)' AND pid <> pg_backend_pid();" \
+		>/dev/null 2>&1 || true
+	docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c "DROP DATABASE IF EXISTS $(PG_DB);"
+	docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c "CREATE DATABASE $(PG_DB) OWNER $(PG_USER);"
+	docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d $(PG_DB) -c "CREATE EXTENSION IF NOT EXISTS vector;"
+	@echo "Database $(PG_DB) recreated with pgvector."
+	docker compose build --no-cache $(SVC_APP) $(SVC_WORKER) $(SVC_SANCTUM)
+	@if ! docker image inspect subcult-corp-subcult-toolbox:latest >/dev/null 2>&1; then \
 		echo "Toolbox image not found, building..."; \
-		docker compose build toolbox; \
+		docker compose build $(SVC_TOOLBOX); \
 	else \
 		echo "Toolbox image cached, skipping rebuild."; \
 	fi
 	docker compose up -d --remove-orphans
 	docker image prune -f
-	@echo "Waiting for Postgres to be healthy..."
-	@until docker compose exec -T postgres pg_isready -U subcult -d subcult_ops >/dev/null 2>&1; do sleep 1; done
+	@echo "Waiting for Postgres to be ready..."
+	@until docker exec $(PG_CONTAINER) pg_isready -U $(PG_USER) -d $(PG_DB) >/dev/null 2>&1; do sleep 1; done
 	$(MAKE) db-migrate
 	$(MAKE) seed
 	$(MAKE) purge-discord
-	docker compose exec toolbox /usr/local/bin/init-workspace.sh
+	docker compose exec $(SVC_TOOLBOX) /usr/local/bin/init-workspace.sh
 	@echo "Fresh start complete. Run 'make heartbeat' to kick things off."
 
 prune: ## Clean up orphaned containers, dangling images, and build cache
@@ -153,34 +201,39 @@ prune: ## Clean up orphaned containers, dangling images, and build cache
 	@echo "Cleanup complete."
 
 init-workspace: ## Re-initialize workspace (dirs, prime directive, permissions)
-	docker compose exec toolbox /usr/local/bin/init-workspace.sh
+	docker compose exec $(SVC_TOOLBOX) /usr/local/bin/init-workspace.sh
 
 # ──────────────────────────────────────────
 # Verification & Monitoring
 # ──────────────────────────────────────────
 
 verify: ## Run launch verification checks
-	DATABASE_URL="$(DB_URL)" node scripts/go-live/verify-launch.mjs
+	docker compose run --rm \
+		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
+		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
+		--no-deps \
+		$(SVC_APP) \
+		node scripts/go-live/verify-launch.mjs
 
 heartbeat: ## Trigger heartbeat (via Docker internal network)
-	@CRON_SECRET=$$(grep CRON_SECRET .env.local 2>/dev/null | cut -d= -f2); \
-	docker compose exec app wget -qO- \
+	@CRON_SECRET=$$(grep CRON_SECRET .env 2>/dev/null | cut -d= -f2); \
+	docker compose exec $(SVC_APP) wget -qO- \
 		--header="Authorization: Bearer $$CRON_SECRET" \
 		http://127.0.0.1:3000/api/ops/heartbeat | \
 		python3 -m json.tool
 
 engage: ## Enable the system (heartbeat will process work)
-	@docker compose exec -T postgres psql -U subcult -d subcult_ops -c \
+	@docker exec -i $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB) -c \
 		"UPDATE ops_policy SET value = '{\"enabled\": true}' WHERE key = 'system_enabled';" \
 		&& echo "System ENGAGED"
 
 disengage: ## Disable the system (heartbeat returns early, no work processed)
-	@docker compose exec -T postgres psql -U subcult -d subcult_ops -c \
+	@docker exec -i $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB) -c \
 		"UPDATE ops_policy SET value = '{\"enabled\": false}' WHERE key = 'system_enabled';" \
 		&& echo "System DISENGAGED"
 
 heartbeat-ext: ## Trigger heartbeat (via external URL)
-	@CRON_SECRET=$$(grep CRON_SECRET .env.local 2>/dev/null | cut -d= -f2); \
+	@CRON_SECRET=$$(grep CRON_SECRET .env 2>/dev/null | cut -d= -f2); \
 	curl -s -H "Authorization: Bearer $$CRON_SECRET" \
 		https://subcorp.subcult.tv/api/ops/heartbeat | \
 		python3 -m json.tool

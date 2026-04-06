@@ -92,7 +92,7 @@ export const spawnDroidTool: NativeTool = {
                     'droid',
                     ${droidId},
                     ${timeout},
-                    8,
+                    30,
                     'pending',
                     ${sql.json({ droid_id: droidId, output_path: outputPath })}::jsonb
                 )

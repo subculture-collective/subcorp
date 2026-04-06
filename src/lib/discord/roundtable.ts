@@ -165,6 +165,31 @@ export async function postArtifactToDiscord(
     });
 }
 
+/**
+ * Post a meeting debrief to the roundtable's channel.
+ * Posted before the artifact so the feed shows: debrief → artifact.
+ */
+export async function postDebriefToDiscord(
+    roundtableSessionId: string,
+    format: string,
+    debriefMarkdown: string,
+): Promise<void> {
+    const channelName = getChannelForFormat(format as RoundtableSession['format']);
+    const webhookUrl = await getWebhookUrl(channelName);
+    if (!webhookUrl) return;
+
+    const username = '📋 Subcult Debrief';
+    const formatted = formatForDiscord(debriefMarkdown);
+    const maxChunk = 1990;
+    const chunks = splitAtBoundaries(formatted, maxChunk);
+
+    for (const chunk of chunks) {
+        await postToWebhook({ webhookUrl, username, content: chunk });
+    }
+
+    log.info('Debrief posted to Discord', { roundtableSessionId, chunks: chunks.length });
+}
+
 /** Split dialogue text at sentence/paragraph boundaries to stay under maxLen. */
 function splitDialogue(text: string, maxLen: number): string[] {
     if (text.length <= maxLen) return [text];

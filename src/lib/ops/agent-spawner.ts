@@ -132,7 +132,7 @@ Agent details:
             },
         ],
         temperature: 0.7,
-        maxTokens: 2000,
+        maxTokens: 4000,
         trackingContext: {
             agentId: proposal.proposed_by,
             context: 'agent_spawn',
@@ -177,7 +177,7 @@ Agent details:
             },
         ],
         temperature: 0.7,
-        maxTokens: 2000,
+        maxTokens: 4000,
         trackingContext: {
             agentId: proposal.proposed_by,
             context: 'agent_spawn',

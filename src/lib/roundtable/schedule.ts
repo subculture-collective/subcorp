@@ -55,30 +55,58 @@ function cst(hour: number): number {
  */
 export function getDailySchedule(): ScheduleSlot[] {
     return [
-        // ─── 12 AM - 5 AM CST — Graveyard (minimal) ───
+        // ─── 12 AM - 5 AM CST — Night shift (agents don't sleep) ───
 
         {
+            hour_utc: cst(0), // 12 AM CST
+            name: 'Midnight Deep Dive',
+            format: 'deep_dive',
+            participants: withRequired(['chora'], 2, 4),
+            probability: 0.6,
+        },
+        {
             hour_utc: cst(1), // 1 AM CST
-            name: 'Late Night Watercooler',
-            format: 'watercooler',
-            participants: pickRandom(2),
-            probability: 0.25,
+            name: 'Late Night Writing',
+            format: 'writing_room',
+            participants: withRequired(['chora'], 1, 3),
+            probability: 0.5,
+        },
+        {
+            hour_utc: cst(2), // 2 AM CST
+            name: 'Night Strategy',
+            format: 'strategy',
+            participants: withRequired(['primus', 'chora'], 1, 4),
+            probability: 0.5,
         },
         {
             hour_utc: cst(3), // 3 AM CST
-            name: 'Insomnia Check-in',
-            format: 'checkin',
-            participants: pickRandom(2),
-            probability: 0.15,
+            name: 'Night Brainstorm',
+            format: 'brainstorm',
+            participants: withRequired(['thaum'], 2, 4),
+            probability: 0.5,
+        },
+        {
+            hour_utc: cst(4), // 4 AM CST
+            name: 'Pre-Dawn Risk Review',
+            format: 'risk_review',
+            participants: withRequired(['subrosa'], 1, 3),
+            probability: 0.5,
+        },
+        {
+            hour_utc: cst(5), // 5 AM CST
+            name: 'Early Reframe',
+            format: 'reframe',
+            participants: withRequired(['thaum'], 1, 3),
+            probability: 0.5,
         },
 
-        // ─── 6 AM - 8 AM CST — Morning Ops (Primus runs these) ───
+        // ─── 6 AM - 8 AM CST — Morning Ops ───
 
         {
             hour_utc: cst(6), // 6 AM CST
             name: 'Morning Standup',
             format: 'standup',
-            participants: [...AGENT_IDS], // everyone, Primus chairs
+            participants: [...AGENT_IDS],
             probability: 1.0,
         },
         {
@@ -86,14 +114,14 @@ export function getDailySchedule(): ScheduleSlot[] {
             name: 'Morning Triage',
             format: 'triage',
             participants: withRequired(['chora', 'subrosa', 'mux'], 1, 4),
-            probability: 0.7,
+            probability: 0.8,
         },
         {
             hour_utc: cst(8), // 8 AM CST
             name: 'Daily Planning',
             format: 'planning',
             participants: withRequired(['primus', 'praxis', 'mux'], 1, 5),
-            probability: 0.6,
+            probability: 0.75,
         },
 
         // ─── 9 AM - 12 PM CST — Deep Work Morning ───
@@ -103,28 +131,28 @@ export function getDailySchedule(): ScheduleSlot[] {
             name: 'Deep Dive',
             format: 'deep_dive',
             participants: withRequired(['chora'], 2, 4),
-            probability: 0.5,
+            probability: 0.7,
         },
         {
             hour_utc: cst(10), // 10 AM CST
             name: 'Strategy Session',
             format: 'strategy',
             participants: withRequired(['primus', 'chora', 'praxis'], 1, 5),
-            probability: 0.45,
+            probability: 0.65,
         },
         {
             hour_utc: cst(11), // 11 AM CST
             name: 'Writing Room',
             format: 'writing_room',
             participants: withRequired(['chora'], 1, 3),
-            probability: 0.4,
+            probability: 0.6,
         },
 
-        // ─── 12 PM - 1 PM CST — Midday Break ───
+        // ─── 12 PM - 1 PM CST — Midday ───
 
         {
             hour_utc: cst(12), // 12 PM CST
-            name: 'Lunch Watercooler',
+            name: 'Midday Watercooler',
             format: 'watercooler',
             participants: threeRandom(),
             probability: 0.7,
@@ -134,7 +162,7 @@ export function getDailySchedule(): ScheduleSlot[] {
             name: 'Midday Check-in',
             format: 'checkin',
             participants: withRequired(['primus'], 2, 4),
-            probability: 0.5,
+            probability: 0.6,
         },
 
         // ─── 2 PM - 5 PM CST — Afternoon Creative + Adversarial ───
@@ -144,76 +172,76 @@ export function getDailySchedule(): ScheduleSlot[] {
             name: 'Afternoon Brainstorm',
             format: 'brainstorm',
             participants: withRequired(['thaum'], 2, 4),
-            probability: 0.5,
+            probability: 0.65,
         },
         {
             hour_utc: cst(15), // 3 PM CST
             name: 'Debate Hour',
             format: 'debate',
             participants: withRequired(['thaum'], 1, 3),
-            probability: 0.55,
+            probability: 0.65,
         },
         {
             hour_utc: cst(16), // 4 PM CST
             name: 'Cross-Examination',
             format: 'cross_exam',
             participants: withRequired(['subrosa'], 1, 3),
-            probability: 0.35,
+            probability: 0.5,
         },
         {
             hour_utc: cst(17), // 5 PM CST
             name: 'Risk Review',
             format: 'risk_review',
             participants: withRequired(['subrosa', 'chora'], 1, 4),
-            probability: 0.4,
+            probability: 0.6,
         },
 
-        // ─── 6 PM - 8 PM CST — Evening Wind-Down ───
+        // ─── 6 PM - 8 PM CST — Evening ───
 
         {
             hour_utc: cst(18), // 6 PM CST
             name: 'Content Review',
             format: 'content_review',
             participants: withRequired(['subrosa'], 1, 3),
-            probability: 0.45,
+            probability: 0.6,
         },
         {
             hour_utc: cst(19), // 7 PM CST
             name: 'Reframe Session',
             format: 'reframe',
             participants: withRequired(['thaum'], 1, 3),
-            probability: 0.35,
+            probability: 0.5,
         },
         {
             hour_utc: cst(20), // 8 PM CST
             name: 'Evening Watercooler',
             format: 'watercooler',
             participants: threeRandom(),
-            probability: 0.6,
+            probability: 0.65,
         },
 
-        // ─── 9 PM - 11 PM CST — Night Wrap-Up ───
+        // ─── 9 PM - 11 PM CST — Night ───
 
         {
             hour_utc: cst(21), // 9 PM CST
             name: 'Evening Retro',
             format: 'retro',
             participants: withRequired(['primus', 'chora'], 2, 5),
-            probability: 0.4,
+            probability: 0.55,
         },
         {
             hour_utc: cst(22), // 10 PM CST
             name: "Manager's Briefing",
             format: 'strategy',
             participants: withRequired(['primus', 'chora', 'praxis'], 1, 5),
-            probability: 0.5,
+            probability: 0.6,
         },
         {
             hour_utc: cst(23), // 11 PM CST
             name: 'Shipping Review',
             format: 'shipping',
             participants: withRequired(['praxis', 'subrosa'], 1, 4),
-            probability: 0.3,
+            probability: 0.5,
         },
     ];
 }

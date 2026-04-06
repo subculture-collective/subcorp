@@ -128,6 +128,7 @@ async function loadAgentContext(
         briefing,
         memories,
         recentSessions: recentSessions as Array<{ agent_id: string; result: unknown }>,
+        toolNames: tools.map(t => t.name),
     });
 
     return { voiceName, tools, systemPrompt };
@@ -142,6 +143,7 @@ function buildAgentSystemPrompt(ctx: {
     briefing: string;
     memories: Array<{ type: string; content: string }>;
     recentSessions: Array<{ agent_id: string; result: unknown }>;
+    toolNames: string[];
 }): string {
     let prompt = '';
 
@@ -156,7 +158,14 @@ function buildAgentSystemPrompt(ctx: {
     prompt += `You are ${ctx.voiceName}, operating in an autonomous agent session.\n`;
     prompt += `You have tools available to accomplish your task. Use them through the provided function calling interface.\n`;
     prompt += `When your task is complete, provide a clear summary of what you accomplished.\n`;
-    prompt += `IMPORTANT: Never output raw XML tags like <function_calls> or <invoke>. Use the structured tool calling API instead.\n\n`;
+    prompt += `IMPORTANT: Never output raw XML tags like <function_calls> or <invoke>. Use the structured tool calling API instead.\n`;
+    prompt += `IMPORTANT: Only call tools from the list below. Do NOT invent tool names.\n\n`;
+
+    if (ctx.toolNames.length > 0) {
+        prompt += `═══ AVAILABLE TOOLS ═══\n`;
+        prompt += `You may ONLY use these tools: ${ctx.toolNames.join(', ')}\n`;
+        prompt += `Do NOT call tools like "google:search", "tool_code", "propose_action", or any other name not listed above.\n\n`;
+    }
 
     if (ctx.scratchpad) {
         prompt += `═══ YOUR SCRATCHPAD (working memory) ═══\n${ctx.scratchpad}\n\n`;
@@ -238,7 +247,7 @@ async function runAgentToolLoop(opts: {
             maxTokens: 16_000,
             model: session.model ?? undefined,
             tools: tools.length > 0 ? tools : undefined,
-            maxToolRounds: 1,
+            maxToolRounds: 20,
             trackingContext: { agentId, context: 'agent_session', sessionId: session.id },
         });
 

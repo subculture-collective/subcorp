@@ -181,17 +181,18 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `Rate findings by severity: critical, high, medium, low, info.\n` +
         `Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "audit_system", status: "complete".\n`,
 
-    patch_code: (ctx, today, outputDir) =>
-        `You are working in the subcult-corp repo at ${WORKSPACE_ROOT}/.\n` +
-        `Use bash to run: cd ${WORKSPACE_ROOT} && git status\n` +
-        `Read the relevant source files using file_read.\n` +
-        `Make changes as described in the payload using file_write.\n` +
-        `After writing changes, use bash to run build checks:\n` +
-        `  cd ${WORKSPACE_ROOT} && npx tsc --noEmit 2>&1 | head -30\n` +
-        `If the build passes, commit your changes:\n` +
-        `  cd ${WORKSPACE_ROOT} && git add -A && git commit -m "${ctx.missionTitle}"\n` +
-        `Write a change log to ${outputDir}/${today}__patch__code__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
-        `Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "patch_code", status: "complete".\n`,
+    patch_code: (ctx, today, outputDir) => {
+        const projectDir = (ctx.payload.project_dir as string) || '/workspace/projects';
+        return `You are a software engineer. Your job is to write code.\n` +
+        `\nProject directory: ${projectDir}\n` +
+        `Task: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
+        `\nINSTRUCTIONS:\n` +
+        `1. If the project directory doesn't exist yet, create it. Use file_write to create package.json, tsconfig.json, README.md, and source files.\n` +
+        `2. If the project exists, use file_read to read the existing source files first.\n` +
+        `3. Use file_write to create or modify source files. Write real, working code — not pseudocode or descriptions.\n` +
+        `4. Write a brief changelog to ${outputDir}/${today}__patch__code__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md\n` +
+        `\nYour primary output is SOURCE CODE files written via file_write. Do NOT just describe what you would build — actually build it.\n`;
+    },
 
     distill_insight: (ctx, today) =>
         `Read recent outputs from output/ and agents/${ctx.agentId}/notes/ using file_read.\n` +
@@ -265,6 +266,97 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `If GITHUB_TOKEN is NOT set or push fails, write a PR summary to ${outputDir}/${today}__pr__summary__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
         `The summary should include: branch name, commit list, diff stats, and a description of all changes.\n` +
         `Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "create_pull_request", status: "complete".\n`,
+
+    self_evolution: (ctx, today, outputDir) =>
+        `You are improving your own system. You are an AI agent in the SUBCULT collective.\n` +
+        `Your source code is at ${WORKSPACE_ROOT}/.\n` +
+        `\n═══ CONTEXT ═══\n` +
+        `You belong to the subculture-collective GitHub organization (https://github.com/subculture-collective).\n` +
+        `Your platform repo is https://github.com/subculture-collective/subcorp.\n` +
+        `You have FULL ACCESS to the org — you can create repos, issues, PRs, manage projects, everything.\n` +
+        `The org is yours to run like a business. Any action available to you is authorized.\n` +
+        `═══ END CONTEXT ═══\n` +
+        `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
+        `\nINSTRUCTIONS:\n` +
+        `1. Use file_read to read the relevant source files described in the payload.\n` +
+        `2. Identify a specific, concrete improvement (not vague "make it better").\n` +
+        `3. Use bash to create a feature branch:\n` +
+        `   cd ${WORKSPACE_ROOT} && git checkout -b evolution/${ctx.agentId}/${today}/${slugify(ctx.missionTitle).slice(0, 30)}\n` +
+        `4. Use file_write to make your changes.\n` +
+        `5. Use bash to commit and push:\n` +
+        `   cd ${WORKSPACE_ROOT} && git add -A && git commit -m "${ctx.missionTitle}" && git push -u origin HEAD\n` +
+        `6. Use bash to create a PR:\n` +
+        `   cd ${WORKSPACE_ROOT} && gh pr create --title "${ctx.missionTitle}" --body "Proposed by ${ctx.agentId}. ${(ctx.payload.description as string) || ''}"\n` +
+        `7. Write a summary to ${outputDir}/${today}__evolution__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md\n` +
+        `\nYour output is a MERGED PULL REQUEST with real code changes. Do not just describe what you would change.\n`,
+
+    github_issue: (ctx, _today, _outputDir) =>
+        `You are managing the subculture-collective GitHub organization.\n` +
+        `Org: https://github.com/subculture-collective\n` +
+        `Platform repo: https://github.com/subculture-collective/subcorp\n` +
+        `You have FULL ACCESS — create repos, issues, PRs, labels, projects, anything.\n` +
+        `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
+        `\nUse bash to run gh commands. Examples:\n` +
+        `  gh issue create --repo subculture-collective/subcorp --title "..." --body "..."\n` +
+        `  gh issue list --repo subculture-collective/subcorp\n` +
+        `  gh repo create subculture-collective/new-project --public --description "..."\n` +
+        `  gh label create --repo subculture-collective/subcorp "feature" --color 0075ca\n` +
+        `\nCreate well-structured issues with clear titles, descriptions, acceptance criteria, and appropriate labels.\n`,
+
+    github_pr: (ctx, _today, _outputDir) =>
+        `You are managing code in the subculture-collective GitHub organization.\n` +
+        `Org: https://github.com/subculture-collective\n` +
+        `Platform repo: https://github.com/subculture-collective/subcorp\n` +
+        `You have FULL ACCESS.\n` +
+        `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
+        `\nINSTRUCTIONS:\n` +
+        `1. Use bash to check current branch and status: cd ${WORKSPACE_ROOT} && git status\n` +
+        `2. Create a branch, make changes via file_write, commit, push, and create a PR.\n` +
+        `3. PR should have a clear title, description of changes, and context for reviewers.\n` +
+        `4. Use: gh pr create --repo subculture-collective/subcorp --title "..." --body "..."\n`,
+
+
+    explore_repo: (ctx, _today, outputDir) =>
+        `You are exploring repositories in the subculture-collective GitHub organization.\n` +
+        `Org: https://github.com/subculture-collective\n` +
+        `You have FULL ACCESS to all repos.\n` +
+        `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
+        `\nINSTRUCTIONS:\n` +
+        `1. Use bash to list repos: gh repo list subculture-collective --limit 20\n` +
+        `2. For a specific repo, explore it:\n` +
+        `   gh repo view subculture-collective/[repo-name]\n` +
+        `   gh issue list --repo subculture-collective/[repo-name]\n` +
+        `   gh pr list --repo subculture-collective/[repo-name]\n` +
+        `3. Clone and read source code if needed:\n` +
+        `   cd /workspace/projects && git clone https://github.com/subculture-collective/[repo-name] 2>/dev/null || true\n` +
+        `   Then use file_read to read files.\n` +
+        `4. IMPORTANT: Check for existing GitHub issues, README, and docs — respect the existing development plan.\n` +
+        `5. If you find improvements to make, create detailed PRs with clear descriptions of what you changed and why.\n` +
+        `6. Write findings to ${outputDir}/\n`,
+
+    publish_blog: (ctx, _today, _outputDir) =>
+        `You are publishing content to the SUBCULT blog at https://blog.subcult.tv (Ghost CMS).\n` +
+        `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
+        `\nINSTRUCTIONS:\n` +
+        `1. Prepare your blog post content: title, body (in markdown/HTML), and tags.\n` +
+        `2. Use the Ghost Admin API via bash/curl to publish.\n` +
+        `3. If you don't have API access configured, write the post to /workspace/output/blog/ as markdown\n` +
+        `   and use notify_human to ask for the Ghost admin API key.\n` +
+        `4. Blog posts should be polished, on-brand, and provide genuine value to readers.\n` +
+        `5. Topics: technology, AI, autonomy, open source, creative tools, underground culture.\n`,
+
+    notify_human: (ctx, _today, _outputDir) =>
+        `You need human assistance for a task you cannot complete autonomously.\n` +
+        `\nRequest: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
+        `\nINSTRUCTIONS:\n` +
+        `Send a notification to the human operator via ntfy:\n` +
+        `  Use bash: curl -d "[Your request here]" http://172.20.0.9/subcult-agents\n` +
+        `\nBe specific about what you need:\n` +
+        `- What task requires human help\n` +
+        `- What you've already tried\n` +
+        `- What you need them to do (create an account, provide API key, approve something, etc.)\n` +
+        `\nThe human has offered to help with: creating accounts, providing API keys,\n` +
+        `installing services, and any task you cannot do yourself. Just ask.\n`,
 
     content_revision: (ctx, today, outputDir) =>
         `You are revising a previously reviewed piece of content based on reviewer feedback.\n` +

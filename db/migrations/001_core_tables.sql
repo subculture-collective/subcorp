@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS ops_mission_proposals (
   rejection_reason TEXT,
   proposed_steps JSONB NOT NULL DEFAULT '[]',
   source TEXT NOT NULL DEFAULT 'agent'
-    CHECK (source IN ('agent', 'trigger', 'reaction', 'initiative', 'conversation', 'user_question')),
+    CHECK (source IN ('agent', 'trigger', 'reaction', 'initiative', 'conversation', 'user_question', 'system')),
   source_trace_id TEXT,
   auto_approved BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS ops_mission_steps (
   template_version INT DEFAULT 1
 );
 
--- Ensure expanded kind CHECK constraint
+-- Ensure expanded kind CHECK constraint (must include all kinds from 012)
 ALTER TABLE ops_mission_steps DROP CONSTRAINT IF EXISTS ops_mission_steps_kind_check;
 ALTER TABLE ops_mission_steps ADD CONSTRAINT ops_mission_steps_kind_check
   CHECK (kind IN (
@@ -81,7 +81,15 @@ ALTER TABLE ops_mission_steps ADD CONSTRAINT ops_mission_steps_kind_check
     -- System / ops
     'audit_system', 'review_policy', 'consolidate_memory', 'map_dependency',
     'patch_code', 'document_lesson', 'log_event', 'tag_memory',
-    'escalate_risk', 'convene_roundtable', 'propose_workflow', 'memory_archaeology',
+    'escalate_risk', 'convene_roundtable', 'propose_workflow',
+    'memory_archaeology',
+    -- Content pipeline
+    'content_revision',
+    -- Workflow step kinds (Phase 17)
+    'draft_product_spec', 'update_directive', 'create_pull_request',
+    -- Self-evolution & GitHub
+    'self_evolution', 'github_issue', 'github_pr',
+    'explore_repo', 'publish_blog', 'notify_human',
     -- Legacy kinds (kept for existing data)
     'draft_tweet', 'post_tweet', 'crawl', 'analyze',
     'write_content', 'research', 'deploy', 'review', 'summarize'

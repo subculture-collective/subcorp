@@ -11,6 +11,7 @@ import {
 import { logger } from '@/lib/logger';
 import { AGENT_IDS } from '@/lib/agents';
 import { generateAgentProposal } from './agent-designer';
+import { createVotingRoundtablePrompt } from './agent-proposal-voting';
 
 const log = logger.child({ module: 'triggers' });
 
@@ -188,6 +189,10 @@ async function checkTrigger(
             return checkDirectiveUpdateNeeded(conditions, targetAgent);
         case 'self_evolution_needed':
             return checkSelfEvolutionNeeded(conditions, targetAgent);
+        case 'proactive_build':
+            return checkProactiveBuild(conditions, targetAgent);
+        case 'proactive_explore_org':
+            return checkProactiveBuild(conditions, targetAgent);
         default:
             if (rule.trigger_event.startsWith('proactive_')) {
                 return checkProactiveGeneric(rule, targetAgent);
@@ -832,18 +837,12 @@ async function checkAgentProposalCreated(
 
     const proposal = proposals[0];
 
-    // Build debate topic (with ellipsis if truncated, staying within length limit)
-    const rationalePreview =
-        proposal.rationale.length > RATIONALE_PREVIEW_LENGTH ?
-            proposal.rationale.slice(0, RATIONALE_PREVIEW_LENGTH - 3) + '...'
-        :   proposal.rationale;
-    const topic = `Agent Design Review: ${proposal.proposed_by} proposes new agent "${proposal.agent_name}" (${proposal.agent_role}). Rationale: ${rationalePreview}`;
-
-    // Create a debate roundtable with ALL agents (topic truncated with ellipsis if needed)
+    // Build debate topic with structured voting prompt so agents know to cast APPROVE/REJECT
+    const votingPrompt = await createVotingRoundtablePrompt(proposal.id);
     const topicTruncated =
-        topic.length > TOPIC_MAX_LENGTH ?
-            topic.slice(0, TOPIC_MAX_LENGTH - 3) + '...'
-        :   topic;
+        votingPrompt.length > TOPIC_MAX_LENGTH ?
+            votingPrompt.slice(0, TOPIC_MAX_LENGTH - 3) + '...'
+        :   votingPrompt;
     const [session] = await sql<[{ id: string }]>`
         INSERT INTO ops_roundtable_sessions (
             format, topic, participants, status, scheduled_for, metadata
@@ -1047,9 +1046,8 @@ async function checkCodeSprintReady(
             title: 'Code sprint: implement planning outcomes',
             description: `Recent planning sessions produced actionable tasks. Sprint to implement them.`,
             proposed_steps: [
-                { kind: 'research_topic', assigned_agent: 'chora', payload: { topic: 'Review recent planning artifacts for actionable code tasks' } },
-                { kind: 'patch_code', assigned_agent: 'praxis', payload: { topic: 'Implement highest-priority task from planning session' } },
-                { kind: 'audit_system', assigned_agent: 'subrosa', payload: { scope: 'code_review', topic: 'Review code changes from sprint' } },
+                { kind: 'patch_code', assigned_agent: 'praxis', payload: { description: 'Read recent planning artifacts from /workspace/output/ and implement the highest-priority task. Create the product repo at /workspace/projects/ if it does not exist. Write real source code files.' } },
+                { kind: 'github_pr', assigned_agent: 'mux', payload: { description: 'If code was written, create a branch, commit, push, and open a PR on https://github.com/subculture-collective.' } },
             ],
             source: 'trigger',
         },
@@ -1079,22 +1077,23 @@ async function checkProductDiscoveryDue(
           AND (title ILIKE '%product%' OR title ILIKE '%spec%' OR title ILIKE '%feature%')
     `;
 
-    if (productSessions > 0 || productMissions > 0) {
+    // With inactivity_days=0, this always fires when off cooldown — which is the point.
+    // We want continuous product development, not just when nothing else is happening.
+    if (inactivityDays > 0 && (productSessions > 0 || productMissions > 0)) {
         return { fired: false, reason: 'Recent product activity found' };
     }
 
     return {
         fired: true,
-        reason: `No product-related activity in ${inactivityDays} days`,
+        reason: `Product development cycle: build something`,
         proposal: {
             agent_id: targetAgent,
-            title: 'Product discovery: research and spec',
-            description: `No product work in ${inactivityDays} days. Time to explore opportunities and draft a product spec.`,
+            title: 'Product sprint: design and build',
+            description: `Time to build. Pick a product idea, spec it out, and start coding. Focus on shipping a working MVP, not analyzing opportunities.`,
             proposed_steps: [
-                { kind: 'research_topic', assigned_agent: 'chora', payload: { topic: 'Research product opportunities based on project capabilities and market signals' } },
-                { kind: 'scan_signals', assigned_agent: 'thaum', payload: { topic: 'Scan for product-market fit signals and emerging opportunities' } },
-                { kind: 'convene_roundtable', payload: { format: 'brainstorm', topic: 'Product discovery: what should we build next?', participants: ['chora', 'thaum', 'praxis', 'mux'] } },
-                { kind: 'draft_product_spec', assigned_agent: 'praxis', payload: { topic: 'Draft product specification from discovery findings' } },
+                { kind: 'convene_roundtable', payload: { format: 'brainstorm', topic: 'Pick ONE product to build. Name it, describe it in one sentence, identify the target user. No analysis — just pick something and commit.', participants: ['chora', 'thaum', 'praxis', 'mux'] } },
+                { kind: 'draft_product_spec', assigned_agent: 'praxis', payload: { topic: 'Write the product spec: features, tech stack, API design, data model. Make it buildable.' } },
+                { kind: 'patch_code', assigned_agent: 'praxis', payload: { description: 'Set up the project: create the directory structure, package.json, initial source files. Build the skeleton.' } },
             ],
             source: 'trigger',
         },
@@ -1209,10 +1208,76 @@ async function checkSelfEvolutionNeeded(
             title: 'Self-evolution: analyze issues and implement fixes',
             description: `Multiple improvement signals detected (${signalDetails.join(', ')}). Time to analyze and address systemic issues.`,
             proposed_steps: [
-                { kind: 'audit_system', assigned_agent: 'chora', payload: { scope: 'self_evolution', topic: 'Analyze recent failures, retros, and improvement memories for actionable fixes' } },
-                { kind: 'convene_roundtable', payload: { format: 'planning', topic: 'Self-evolution planning: prioritize system improvements', participants: ['chora', 'praxis', 'mux'] } },
-                { kind: 'patch_code', assigned_agent: 'praxis', payload: { topic: 'Implement highest-priority system improvement from evolution analysis' } },
-                { kind: 'create_pull_request', assigned_agent: 'mux', payload: { topic: 'Create PR for self-evolution changes' } },
+                { kind: 'convene_roundtable', payload: { format: 'deep_dive', topic: 'Read our source code and identify the single most impactful improvement we can make. Be specific — name the file, the function, and the change.', participants: ['chora', 'praxis', 'thaum'] } },
+                { kind: 'self_evolution', assigned_agent: 'praxis', payload: { description: 'Based on the roundtable discussion, implement the top improvement. Create a branch, make the change, commit, push, and open a PR on https://github.com/subculture-collective/subcorp.' } },
+            ],
+            source: 'trigger',
+        },
+    };
+}
+
+// ─── Proactive Build ───
+
+async function checkProactiveBuild(
+    conditions: Record<string, unknown>,
+    targetAgent: string,
+): Promise<TriggerCheckResult> {
+    const skipProb = (conditions.skip_probability as number) ?? 0.1;
+    if (Math.random() < skipProb)
+        return { fired: false, reason: 'skipped by probability' };
+
+    const buildTasks = [
+        'Create the product project repo on GitHub (gh repo create subculture-collective/[product-name] --public) if it does not exist. Then create initial project files: package.json, tsconfig.json, README.md, and src/index.ts.',
+        'Read recent product specs and planning artifacts from /workspace/output/. Pick the most concrete feature and implement it in code. Create source files in /workspace/projects/.',
+        'Check if any product code exists in /workspace/projects/ (other than subcult-corp). If yes, read it and add the next feature. If no, bootstrap the project from the latest product spec.',
+        'Write TypeScript source code for the core module of our product. Read any existing specs from /workspace/output/ for guidance. Focus on data models and core logic.',
+        'Create a REST API server for our product. Read existing source files first, then add HTTP endpoints using Node built-in http module.',
+    ];
+    const task = buildTasks[Math.floor(Math.random() * buildTasks.length)];
+
+    return {
+        fired: true,
+        reason: 'Continuous build pressure: time to write code',
+        proposal: {
+            agent_id: targetAgent,
+            title: 'Build sprint: write product code',
+            description: task,
+            proposed_steps: [
+                { kind: 'patch_code' as const, assigned_agent: 'praxis', payload: { description: task } },
+            ],
+            source: 'trigger',
+        },
+    };
+}
+
+// ─── Proactive Org Exploration ───
+
+async function checkProactiveExploreOrg(
+    conditions: Record<string, unknown>,
+    targetAgent: string,
+): Promise<TriggerCheckResult> {
+    const skipProb = (conditions.skip_probability as number) ?? 0.15;
+    if (Math.random() < skipProb)
+        return { fired: false, reason: 'skipped by probability' };
+
+    const exploreTasks = [
+        'List all repos in subculture-collective org (gh repo list). Pick one you haven\'t explored. Read its README, issues, and recent PRs. Look for ways to contribute.',
+        'Check open issues across all subculture-collective repos (gh search issues --owner subculture-collective --state open). Pick one you can help with and either fix it or comment with a plan.',
+        'Review the subcults repo (subculture-collective/subcults). Read its development docs and issues. Propose or implement an improvement.',
+        'Explore the vod-tender repo. Read its README and source code. Look for bugs, missing features, or documentation gaps. Create an issue or PR.',
+        'Scan all org repos for stale PRs, missing documentation, or broken CI. Create issues for anything you find.',
+    ];
+    const task = exploreTasks[Math.floor(Math.random() * exploreTasks.length)];
+
+    return {
+        fired: true,
+        reason: 'Org exploration: contribute to subculture-collective repos',
+        proposal: {
+            agent_id: targetAgent,
+            title: 'Explore and contribute to org repos',
+            description: task,
+            proposed_steps: [
+                { kind: 'explore_repo' as const, assigned_agent: targetAgent, payload: { description: task } },
             ],
             source: 'trigger',
         },

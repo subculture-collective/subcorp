@@ -15,6 +15,8 @@ import { distillConversationMemories } from '../ops/memory-distiller';
 import { synthesizeArtifact } from './artifact-synthesizer';
 import { collectDebateVotes } from '../ops/agent-proposal-voting';
 import { collectGovernanceDebateVotes } from '../ops/governance';
+import { generateDebrief, formatDebriefMarkdown } from './debrief';
+import { postDebriefToDiscord } from '../discord/roundtable';
 import {
     loadAffinityMap,
     getAffinityFromMap,
@@ -124,7 +126,7 @@ async function markSessionRunning(
 }
 
 /**
- * Post-conversation cleanup: memory distillation, artifact synthesis, voting.
+ * Post-conversation cleanup: debrief, memory distillation, artifact synthesis, voting.
  * Shared by the standard orchestrator after the turn loop completes.
  */
 async function postConversationCleanup(
@@ -133,6 +135,27 @@ async function postConversationCleanup(
     finalStatus: string,
 ): Promise<void> {
     if (history.length < 3) return;
+
+    // Generate structured debrief (summary, decisions, action items, open questions)
+    try {
+        const debrief = await generateDebrief(session, history);
+        if (debrief) {
+            // Post debrief to Discord feed
+            try {
+                const debriefMd = formatDebriefMarkdown(debrief, session.topic);
+                await postDebriefToDiscord(session.id, session.format, debriefMd);
+            } catch {
+                // Non-fatal — Discord posting should never stall the pipeline
+            }
+            log.info('Debrief generated', {
+                sessionId: session.id,
+                decisions: debrief.decisions.length,
+                actionItems: debrief.actionItems.length,
+            });
+        }
+    } catch (err) {
+        log.error('Debrief generation failed', { error: err, sessionId: session.id });
+    }
 
     // Distill memories from the conversation
     try {
@@ -421,7 +444,7 @@ function buildSystemPrompt(input: BuildSystemPromptInput): string {
         reframe:
             "- Name what's wrong with the current frame before proposing alternatives.",
         content_review:
-            '- Be specific about quality. Name strengths and weaknesses with evidence.',
+            '- Be specific about quality. Name strengths and weaknesses with evidence.\n- End your FINAL turn with your verdict: APPROVE (publish-worthy) or REJECT (needs fundamental rework). Content does not need to be perfect to be approved — if the core ideas are sound and the writing is competent, APPROVE it.',
     };
     const formatRule = FORMAT_RULES[format];
     if (formatRule) {
@@ -459,7 +482,7 @@ function buildUserPrompt(
             retro: `Open the retro: "${topic}". Start with what actually happened — not what was supposed to happen.`,
             triage: `Triage time on: "${topic}". Classify severity and assign priority.`,
             shipping: `Pre-ship check on: "${topic}". Is this actually ready? Name what could go wrong.`,
-            content_review: `Review the content on: "${topic}". Be specific about quality — strengths and weaknesses.`,
+            content_review: `Review the content on: "${topic}". Be specific about quality — strengths and weaknesses. End your final response with APPROVE or REJECT.`,
             agent_design: `Design session for: "${topic}". Start with the role this agent needs to fill and why.`,
         };
         const opener =
@@ -478,6 +501,7 @@ function buildUserPrompt(
             standup: `Wrap the standup on "${topic}". Confirm blockers and next steps.`,
             risk_review: `Final assessment on "${topic}". Name the top risk and the mitigation.`,
             shipping: `Ship decision on "${topic}". Go or no-go, and what's the rollback plan?`,
+            content_review: `Final verdict on "${topic}". State APPROVE or REJECT. Content doesn't need to be perfect — approve if the core substance is sound and worth sharing.`,
         };
         return (
             closers[format] ??
@@ -656,6 +680,17 @@ export async function orchestrateConversation(
     let consecutiveStale = 0;
 
     for (let turn = 0; turn < maxTurns; turn++) {
+        // Guard: if we're past the first turn and history is still empty,
+        // every LLM call so far returned nothing usable — abort early.
+        if (turn > 0 && history.length === 0) {
+            log.error('All LLM turns returned empty — aborting roundtable', {
+                sessionId: session.id,
+                turnsAttempted: turn,
+            });
+            abortReason = 'All LLM turns returned empty responses';
+            break;
+        }
+
         // Select speaker
         const speaker =
             turn === 0 ?
@@ -673,7 +708,7 @@ export async function orchestrateConversation(
 
         // Determine interaction type based on affinity with last speaker
         let interactionType: string | undefined;
-        if (turn > 0) {
+        if (turn > 0 && history.length > 0) {
             const lastSpeaker = history[history.length - 1].speaker;
             const affinity = getAffinityFromMap(
                 affinityMap,
@@ -1294,113 +1329,117 @@ export async function checkScheduleAndEnqueue(): Promise<{
     return { checked: true, enqueued: lastEnqueued };
 }
 
-/** Per-format topic pools — provocative, personality-driven prompts for scheduled conversations. */
+/** Per-format topic pools — biased toward BUILDING and SHIPPING, not diagnosing.
+ *  Rule: every topic should push toward a concrete artifact, decision, or product output.
+ *  Analysis is only valuable in service of making something. */
 const TOPIC_POOLS: Record<string, string[]> = {
     standup: [
-        'Status check: what moved, what is stuck, what needs attention?',
-        'Blockers and dependencies — who is waiting on whom?',
-        'Where should our energy go today?',
-        'System health: anything decaying quietly?',
-        'What did we learn since yesterday that changes our priorities?',
+        'What did we ship since last standup? What ships next?',
+        'Product progress: what features are done, what is in progress?',
+        'What is the one thing that would unblock the most work right now?',
+        'Demo time: show something you built or wrote since yesterday.',
+        'Sprint check: are we on track to ship the current milestone?',
     ],
     checkin: [
-        'Quick pulse — how is everyone feeling about the work?',
-        'Anything urgent that needs collective attention right now?',
-        'Energy levels and capacity — who is stretched, who has space?',
+        'Quick wins — what small thing could we finish in the next hour?',
+        'What product feature are you most excited about right now?',
+        'Capacity check: who can pick up the next build task?',
     ],
     triage: [
-        'New signals came in — classify and prioritize.',
-        'We have more tasks than capacity. What gets cut?',
-        'Something broke overnight. Assess severity and assign.',
-        'Three requests from external. Which ones align with mission?',
+        'We have a product backlog. Prioritize the top 3 features to build next.',
+        'Bug reports and user feedback — what needs fixing before we ship?',
+        'Technical debt vs. new features: what ships first?',
+        'Which product idea from brainstorming is most viable? Pick one.',
     ],
     deep_dive: [
-        'What structural problem keeps recurring and why?',
-        'Trace the incentive structures behind our recent decisions.',
-        'One of our core assumptions may be wrong. Which one?',
-        'What system is producing outcomes nobody intended?',
-        'Map the dependency chain for our most fragile process.',
+        'Design the database schema for our product. Tables, relations, constraints.',
+        'What is the MVP feature set? Name exactly what ships in v1 and what waits.',
+        'Architecture decision: monolith or microservices? Pick one and justify.',
+        'Design the API endpoints for our core product. REST paths, methods, payloads.',
+        'User flow walkthrough: trace a user from signup to first value moment.',
     ],
     risk_review: [
-        'What are we exposing that we should not be?',
-        'If an adversary studied our output, what would they learn?',
-        'Which of our current positions becomes dangerous if the context shifts?',
-        'Threat model review: what changed since last assessment?',
-        'What looks safe but is actually fragile?',
+        'Security review of our product architecture. What attack surfaces exist?',
+        'What happens if we get 10x more users than expected? Where do we break?',
+        'Data privacy review: what user data do we collect and how do we protect it?',
+        'Dependency audit: what third-party services could take us down?',
+        'What is our deployment and rollback strategy?',
     ],
     strategy: [
-        'Are we still building what we said we would build?',
-        'What would we stop doing if we were honest about our resources?',
-        'Where are we drifting from original intent and is that good?',
-        'What decision are we avoiding that would clarify everything?',
-        'Six months from now, what will we wish we had started today?',
+        'Pick a product to build. We are a collective of AI agents with coding, research, and writing capabilities. What SaaS or tool should we create?',
+        'Go-to-market strategy: who is our user, how do they find us, why do they pay?',
+        'Competitive analysis: what exists in our space and how do we differentiate?',
+        'Revenue model: how does our product make money? Subscription, usage, freemium?',
+        'Product roadmap: what ships in week 1, month 1, quarter 1?',
     ],
     planning: [
-        "Turn yesterday's strategy discussion into concrete tasks.",
-        'Who owns what this week? Name it. Deadline it.',
-        'We committed to three things. Break each into actionable steps.',
-        'What needs to ship before anything else can move?',
+        'Break the current product spec into GitHub issues with clear acceptance criteria.',
+        'Sprint plan: assign features to agents. Who builds what this cycle?',
+        'Define the tech stack. Framework, database, hosting, CI/CD. Decide now.',
+        'Write the project setup tasks: repo structure, dependencies, config files.',
+        'Milestone planning: what is the definition of "v1 shipped"?',
     ],
     shipping: [
-        'Is this actually ready or are we just tired of working on it?',
-        'Pre-ship checklist: what can go wrong at launch?',
-        'Who needs to review this before it goes live?',
-        'What is the rollback plan if this fails?',
+        'Pre-launch checklist: what must be done before we can show this to users?',
+        'Write the deployment script. How does this go from code to production?',
+        'Documentation check: does a new user know how to use this?',
+        'Ship it or kill it: is this feature ready? Make the call now.',
     ],
     retro: [
-        'What worked better than expected and why?',
-        'What failed and what do we change — not just acknowledge?',
-        'Where did our process help us and where did it slow us down?',
-        'What would we do differently if we started this again tomorrow?',
-        'Which of our own assumptions bit us this cycle?',
+        'What did we ship this cycle and what did we learn from building it?',
+        'Where did building go faster than expected? Do more of that.',
+        'What slowed us down? Remove that blocker for next cycle.',
+        'What would we build differently if starting over?',
+        'Best artifact of the cycle: which piece of work are we proudest of?',
     ],
     debate: [
-        'Quality versus speed — where is the actual tradeoff right now?',
-        'Is our content strategy serving the mission or just generating activity?',
-        'Should we optimize for reach or depth?',
-        'Are we building infrastructure or performing productivity?',
-        'Is the current approach sustainable or are we borrowing from the future?',
+        'Build vs. buy: for our next feature, do we code it or integrate an existing tool?',
+        'Simplicity vs. features: should v1 do one thing perfectly or many things adequately?',
+        'Open source or proprietary? What serves our mission better?',
+        'Should we target developers, businesses, or consumers? Pick one audience.',
+        'AI-native or traditional: how much should AI be the product vs. the builder?',
     ],
     cross_exam: [
-        'Stress-test our latest proposal. Find the failure mode.',
-        'Play adversary: why would someone argue against what we just decided?',
-        'What are we not seeing because we agree too quickly?',
-        'Interrogate the assumption behind our most confident position.',
+        'Stress-test our product spec. What use case breaks it?',
+        'Play the skeptical user: why would someone NOT use our product?',
+        'Find the technical bottleneck in our architecture. Where will it fail?',
+        'Challenge our pricing model. Is anyone actually willing to pay for this?',
     ],
     brainstorm: [
-        'Wild ideas only: what would we do with unlimited resources?',
-        'What if we approached this from the completely opposite direction?',
-        'Name something we dismissed too quickly. Resurrect it.',
-        'What adjacent domain could teach us something about our problem?',
-        'Weird combinations: pick two unrelated ideas and smash them together.',
+        'Name 5 SaaS products we could realistically build and ship. Be specific: name, function, target user.',
+        'What pain point do developers have that we could solve with a simple tool?',
+        'Micro-SaaS ideas: what product could we build and launch in one week?',
+        'What if we built a tool that uses AI agents (like us) as a feature? Meta-product ideas.',
+        'Combine two boring tools into something new. What unexpected integration would people pay for?',
+        'What product would we personally want to use every day?',
     ],
     reframe: [
-        'We are stuck. The current frame is not producing insight. Break it.',
-        'What if the problem is not what we think it is?',
-        'Reframe: who is the actual audience for this work?',
-        'What if we removed the constraint we think is fixed?',
+        'We have been analyzing instead of building. What is the simplest thing we can ship TODAY?',
+        'Stop planning. Start coding. What is the first file we need to create?',
+        'What if we had to demo a working product in 24 hours? What would we build?',
+        'Our product does not need to be perfect. What is the ugly version that works?',
     ],
     writing_room: [
-        'Write a short essay: what does Subcult actually believe about technology and power?',
-        'Draft a thread on why most AI governance proposals miss the point.',
-        'Write a piece on the difference between building tools and building infrastructure.',
-        'Draft something about what "autonomy" means when every platform is a landlord.',
-        'Write about the gap between what tech companies say and what their incentives produce.',
-        'Craft a sharp take on why "move fast and break things" aged poorly.',
+        'Write the README.md for our product. Name, tagline, features, quickstart.',
+        'Draft the landing page copy: headline, subhead, 3 feature bullets, CTA.',
+        'Write the technical blog post announcing our product launch.',
+        'Draft the product documentation: getting started guide for new users.',
+        'Write the pitch: 3 sentences that explain what we built and why it matters.',
+        'Draft the changelog for our first release. What shipped and why.',
     ],
     content_review: [
-        'Review recent output: does it meet our quality bar?',
-        'Risk scan on published content — anything we should retract or edit?',
-        'Alignment check: is our content reflecting our stated values?',
-        'What are we saying that we should not be saying publicly?',
+        'Review our product spec: is it buildable as written? Flag gaps.',
+        'Review our README: would a stranger understand what this product does?',
+        'Review our API design: is it consistent, intuitive, well-documented?',
+        'Code review: does our latest code work? Is it clean enough to ship?',
     ],
     watercooler: [
-        'What is the most interesting thing you encountered this week?',
-        'Random thought — no agenda, just vibes.',
-        'Something that surprised you about how we work.',
-        'If you could redesign one thing about our operation, what would it be?',
-        'Hot take: something everyone assumes but nobody questions.',
-        'What is the most underappreciated thing someone here does?',
+        'What cool product or tool did you discover recently that inspired you?',
+        'If you could mass-produce one product that we build, what would it be and why?',
+        'What is the most elegant piece of software you have ever seen? What made it great?',
+        'Hot take: the best products are built by small teams. Agree or disagree?',
+        'What technology trend will matter most in 6 months?',
+        'If we could only ship one thing this month, what should it be?',
     ],
 };
 

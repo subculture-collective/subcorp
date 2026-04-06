@@ -41,6 +41,7 @@ export type ProposalSource =
     | 'reaction'
     | 'initiative'
     | 'conversation'
+    | 'user_question'
     | 'system';
 
 export interface ProposalInput {
@@ -127,7 +128,13 @@ export type StepKind =
     | 'draft_product_spec'
     | 'update_directive'
     | 'create_pull_request'
-    | 'content_revision';
+    | 'content_revision'
+    | 'self_evolution'
+    | 'github_issue'
+    | 'github_pr'
+    | 'explore_repo'
+    | 'publish_blog'
+    | 'notify_human';
 
 export type StepStatus =
     | 'queued'

@@ -1,117 +1,74 @@
-# ─── SUBCORP — Docker Compose ───
-# 4 containers: postgres (pgvector), app, worker, toolbox
-services:
-    # ── PostgreSQL (pgvector) ──
-    postgres:
-        image: pgvector/pgvector:pg16
-        container_name: subcult-postgres
-        restart: unless-stopped
-        env_file:
-            - .env.local
-        environment:
-            POSTGRES_USER: subcult
-            POSTGRES_DB: subcult_ops
-        ports:
-            - '127.0.0.1:5433:5432'
-        volumes:
-            - pgdata:/var/lib/postgresql/data
-        healthcheck:
-            test: ['CMD-SHELL', 'pg_isready -U subcult -d subcult_ops']
-            interval: 10s
-            timeout: 5s
-            retries: 5
-        networks:
-            - internal
-
-    # ── Next.js App ──
-    app:
-        build: .
-        container_name: subcult-app
-        restart: unless-stopped
-        depends_on:
-            postgres:
-                condition: service_healthy
-        env_file:
-            - .env.local
-        environment:
-            - LOG_FORMAT=pretty
-        group_add:
-            - '988'
-        volumes:
-            - /var/run/docker.sock:/var/run/docker.sock
-            - workspace:/workspace
-        networks:
-            - web
-            - internal
-
-    # ── Unified Worker ──
-    # Handles: roundtable conversations, mission steps, initiatives, agent sessions
-    worker:
-        build: .
-        container_name: subcult-worker
-        restart: unless-stopped
-        command: ['node', 'scripts/unified-worker/dist/index.js']
-        depends_on:
-            postgres:
-                condition: service_healthy
-        env_file:
-            - .env.local
-        environment:
-            - LOG_FORMAT=pretty
-        group_add:
-            - '988'
-        volumes:
-            - /var/run/docker.sock:/var/run/docker.sock
-            - workspace:/workspace
-        networks:
-            - internal
-
-    # ── Toolbox ──
-    # Agent execution environment — bash, python, node, CLI tools
-    # Worker executes commands here via `docker exec subcult-toolbox`
-    toolbox:
-        build:
-            context: .
-            dockerfile: docker/toolbox/Dockerfile
-        image: subcult-toolbox:latest
-        container_name: subcult-toolbox
-        restart: unless-stopped
-        env_file:
-            - .env.local
-        volumes:
-            - workspace:/workspace
-        networks:
-            - internal
-
-    # ── Sanctum WebSocket Server ──
-    # Real-time multi-agent chat interface
-    sanctum:
-        build: .
-        container_name: subcult-sanctum
-        restart: unless-stopped
-        command: ['node', 'scripts/sanctum-server/dist/server.js']
-        depends_on:
-            postgres:
-                condition: service_healthy
-        env_file:
-            - .env.local
-        environment:
-            - LOG_FORMAT=pretty
-        group_add:
-            - '988'
-        volumes:
-            - /var/run/docker.sock:/var/run/docker.sock
-            - workspace:/workspace
-        networks:
-            - web
-            - internal
+networks:
+  projects:
+    name: projects
+    external: true
+  dev:
+    name: dev
+    external: true
 
 volumes:
-    pgdata:
-    workspace:
+  workspace:
 
-networks:
-    web:
-        external: true
-    internal:
-        driver: bridge
+services:
+  subcult-corp-app:
+    build: .
+    container_name: subcult-corp-app
+    networks: [projects, dev]
+    env_file: .env
+    environment:
+      - LOG_FORMAT=pretty
+    group_add:
+      - "987"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - workspace:/workspace
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+    restart: unless-stopped
+
+  subcult-corp-worker:
+    build: .
+    container_name: subcult-corp-worker
+    command: ['node', 'scripts/unified-worker/dist/index.js']
+    networks: [projects, dev]
+    env_file: .env
+    environment:
+      - LOG_FORMAT=pretty
+    group_add:
+      - "987"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - workspace:/workspace
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+    restart: unless-stopped
+
+  subcult-toolbox:
+    build:
+      context: .
+      dockerfile: docker/toolbox/Dockerfile
+    container_name: subcult-toolbox
+    networks: [projects]
+    env_file: .env
+    volumes:
+      - workspace:/workspace
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+    restart: unless-stopped
+
+  subcult-sanctum:
+    build: .
+    container_name: subcult-sanctum
+    command: ['node', 'scripts/sanctum-server/dist/server.js']
+    networks: [projects, dev]
+    env_file: .env
+    environment:
+      - LOG_FORMAT=pretty
+    group_add:
+      - "987"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - workspace:/workspace
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+    restart: unless-stopped

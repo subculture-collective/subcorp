@@ -248,7 +248,7 @@ export async function generateNewsDigest(
             },
         ],
         temperature: 0.5,
-        maxTokens: 500,
+        maxTokens: 2000,
         trackingContext: { agentId: 'mux', context: 'news_digest' },
     });
 

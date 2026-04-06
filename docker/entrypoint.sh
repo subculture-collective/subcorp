@@ -24,4 +24,15 @@ if [ -d /app/db/migrations ] && [ -n "$DATABASE_URL" ]; then
     "
 fi
 
+# Configure git and gh for agent operations
+if command -v git >/dev/null 2>&1; then
+    git config --global user.name "subcult-agents"
+    git config --global user.email "subcorp@subcult.tv"
+    git config --global init.defaultBranch main
+fi
+if command -v gh >/dev/null 2>&1 && [ -n "$GITHUB_TOKEN" ]; then
+    # gh uses GITHUB_TOKEN env var automatically — no login needed
+    gh config set git_protocol https 2>/dev/null || true
+fi
+
 exec "$@"

@@ -93,6 +93,8 @@ function buildSynthesisPrompt(
     prompt += `5. Also include the full artifact content as your text response\n\n`;
 
     prompt += `Do NOT just repeat the transcript. Synthesize, structure, and add value.\n`;
+    prompt += `Do NOT start with meta-commentary about your task ("The user wants me to...", "As an AI...", "I will proceed with..."). Start directly with the artifact content — the title heading.\n`;
+    prompt += `Do NOT produce analysis about analysis. If the conversation was about building something, the artifact should be the SPEC or PLAN, not a report about the discussion. Produce the actual deliverable.\n`;
 
     return prompt;
 }
@@ -123,7 +125,7 @@ export async function synthesizeArtifact(
                 'conversation',
                 ${session.id},
                 600,
-                15,
+                30,
                 'pending'
             )
             RETURNING id

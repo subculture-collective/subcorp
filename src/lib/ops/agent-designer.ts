@@ -163,7 +163,7 @@ Respond with valid JSON only, no markdown fencing:
                 },
             ],
             temperature: 0.85,
-            maxTokens: 1500,
+            maxTokens: 4000,
             trackingContext: {
                 agentId: proposerId,
                 context: 'agent_design',

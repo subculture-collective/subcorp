@@ -168,7 +168,7 @@ Rules for dreaming:
             },
         ],
         temperature: DREAM_TEMPERATURE,
-        maxTokens: 300,
+        maxTokens: 2000,
         trackingContext: {
             agentId,
             context: 'dream_cycle',

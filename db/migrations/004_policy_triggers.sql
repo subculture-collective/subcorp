@@ -49,8 +49,8 @@ CREATE TABLE IF NOT EXISTS ops_agent_reactions (
   target_agent TEXT NOT NULL,
   source_event_id UUID REFERENCES ops_agent_events(id),
   reaction_type TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+  status TEXT NOT NULL DEFAULT 'queued'
+    CHECK (status IN ('pending', 'queued', 'processing', 'completed', 'failed')),
   payload JSONB DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   processed_at TIMESTAMPTZ

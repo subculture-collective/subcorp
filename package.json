@@ -25,6 +25,7 @@
         "next": "16.1.6",
         "postgres": "^3.4.8",
         "postprocessing": "^6.38.2",
+        "prom-client": "^15.1.3",
         "react": "19.2.3",
         "react-dom": "19.2.3",
         "react-error-boundary": "^6.1.0",

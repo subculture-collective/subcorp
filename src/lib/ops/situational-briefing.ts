@@ -20,6 +20,23 @@ export async function buildBriefing(agentId: string): Promise<string> {
 
     const sections: string[] = [];
 
+    // 0. Organization context + calendar
+    const now = new Date();
+    const quarter = `Q${Math.ceil((now.getMonth() + 1) / 3)}`;
+    const year = now.getFullYear();
+    const dateStr = now.toISOString().slice(0, 10);
+    sections.push(`═══ YOUR ORGANIZATION ═══
+You are part of the SUBCULT collective — an autonomous AI agent organization.
+Today is ${dateStr}. Current period: ${quarter} ${year}. Use this for all planning — never reference past quarters.
+GitHub org: https://github.com/subculture-collective (you have FULL ACCESS)
+Platform repo: https://github.com/subculture-collective/subcorp
+You can create repos, issues, PRs, labels, projects — anything. The org is yours to run like a business.
+Your product projects should be public repos in the subculture-collective org.
+Use bash with gh CLI for all GitHub operations.
+If you need human help (accounts, API keys, infrastructure), use notify_human to send a request via ntfy.
+Maintain a knowledge base (company wiki) in your repos — document decisions, architecture, processes, lessons learned, and anything a new team member would need. Be meticulous note-takers.
+═══ END ═══`);
+
     // 1. Recent events (last 6 hours, grouped by agent)
     const recentEvents = await sql<
         Array<{

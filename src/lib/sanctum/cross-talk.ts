@@ -136,7 +136,7 @@ Respond in character. Be direct, under 400 characters. Do NOT prefix with your n
             },
         ],
         temperature: 0.85,
-        maxTokens: 250,
+        maxTokens: 1500,
         trackingContext: {
             agentId: summon.target,
             context: 'sanctum-summon',
@@ -229,7 +229,7 @@ Brief follow-up, under 300 characters. Do NOT prefix with your name.`;
                         },
                     ],
                     temperature: 0.9,
-                    maxTokens: 200,
+                    maxTokens: 1500,
                     trackingContext: {
                         agentId: reactor.agentId,
                         context: 'sanctum-crosstalk',

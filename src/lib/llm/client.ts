@@ -19,6 +19,13 @@ const log = logger.child({ module: 'llm' });
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
 
+/**
+ * Master switch for OpenRouter. Set OPENROUTER_ENABLED=false to route ALL calls
+ * through Ollama only. When disabled, OpenRouter is never called — not even as fallback.
+ * Default: true (for backward compat). Set to false when running Ollama-only.
+ */
+const OPENROUTER_ENABLED = process.env.OPENROUTER_ENABLED !== 'false';
+
 /** Normalize model ID — strip erroneous openrouter/ prefix (only openrouter/auto is valid with that prefix) */
 function normalizeModel(id: string): string {
     if (id === 'openrouter/auto') return id;
@@ -30,7 +37,15 @@ function normalizeModel(id: string): string {
 const MAX_MODELS_ARRAY = 3;
 
 /** Default max output tokens for Ollama calls when not specified by caller. */
-const OLLAMA_DEFAULT_MAX_TOKENS = 250;
+const OLLAMA_DEFAULT_MAX_TOKENS = 16384;
+
+/**
+ * Check if a model name refers to a Gemma 4 variant.
+ * Used to apply recommended sampling parameters (temperature=1.0, top_p=0.95, top_k=64).
+ */
+function isGemma4Model(model: string): boolean {
+    return /^gemma4(:|$)/i.test(model);
+}
 
 /** Timeout for direct /chat/completions fallback calls (text-only, last resort). */
 const OPENROUTER_CHAT_TIMEOUT_MS = 30_000;
@@ -183,9 +198,9 @@ let _client: OpenRouter | null = null;
 
 function getClient(): OpenRouter {
     if (!_client) {
-        if (!OPENROUTER_API_KEY) {
+        if (!OPENROUTER_ENABLED || !OPENROUTER_API_KEY) {
             throw new Error(
-                'Missing OPENROUTER_API_KEY environment variable. Set it in .env.local',
+                'OpenRouter is disabled or missing API key. Set OPENROUTER_ENABLED=true and OPENROUTER_API_KEY in .env',
             );
         }
         _client = new OpenRouter({ apiKey: OPENROUTER_API_KEY });
@@ -196,7 +211,7 @@ function getClient(): OpenRouter {
 /** Re-export the singleton for direct SDK access when needed */
 export { getClient as getOpenRouterClient };
 
-// ─── Ollama (cloud via ollama.com + local via Tailscale) ───
+// ─── Ollama (cloud via ollama.com + local network) ───
 // Set OLLAMA_ENABLED=false to disable all Ollama paths (defaults to true when credentials exist)
 
 const OLLAMA_ENABLED = process.env.OLLAMA_ENABLED !== 'false';
@@ -205,6 +220,8 @@ const OLLAMA_LOCAL_URL =
 const OLLAMA_CLOUD_URL = 'https://ollama.com';
 const OLLAMA_API_KEY = OLLAMA_ENABLED ? (process.env.OLLAMA_API_KEY ?? '') : '';
 const OLLAMA_TIMEOUT_MS = 60_000;
+/** Model override via env — when set, ONLY this model is used for local Ollama. */
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? '';
 
 interface OllamaModelSpec {
     model: string;
@@ -215,7 +232,10 @@ interface OllamaModelSpec {
 /**
  * Ordered fallback chain — cloud models first (free, capable), local models as fallback.
  * Cloud models hit ollama.com with API key auth.
- * Local models hit the Tailscale Ollama instance.
+ * Local models hit the network Ollama instance.
+ *
+ * When OLLAMA_MODEL is set in env, only that model is used for local calls
+ * (skips the hardcoded fallback list).
  */
 function getOllamaModels(): OllamaModelSpec[] {
     const models: OllamaModelSpec[] = [];
@@ -241,20 +261,33 @@ function getOllamaModels(): OllamaModelSpec[] {
         );
     }
 
-    // Local models via Tailscale (always available, no auth)
+    // Local/network models via OLLAMA_BASE_URL
     if (OLLAMA_LOCAL_URL) {
-        models.push(
-            { model: 'qwen3-coder:30b', baseUrl: OLLAMA_LOCAL_URL },
-            { model: 'llama3.2:latest', baseUrl: OLLAMA_LOCAL_URL },
-        );
+        if (OLLAMA_MODEL) {
+            // Env-specified model — single entry, no hardcoded fallback list
+            models.push({ model: OLLAMA_MODEL, baseUrl: OLLAMA_LOCAL_URL });
+        } else {
+            // Default fallback list when no model is pinned
+            models.push(
+                { model: 'qwen3-coder:30b', baseUrl: OLLAMA_LOCAL_URL },
+                { model: 'llama3.2:latest', baseUrl: OLLAMA_LOCAL_URL },
+            );
+        }
     }
 
     return models;
 }
 
-/** Strip <think>...</think> blocks from reasoning model output */
+/** Strip thinking blocks from reasoning model output.
+ *  Handles multiple formats:
+ *  - <think>...</think> (DeepSeek, Qwen)
+ *  - <|channel>thought\n...<channel|> (Gemma 4)
+ */
 function stripThinking(text: string): string {
-    return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    return text
+        .replace(/<think>[\s\S]*?<\/think>/g, '')
+        .replace(/<\|channel>thought\n[\s\S]*?<channel\|>/g, '')
+        .trim();
 }
 
 /** Normalize DeepSeek DSML tags (e.g. <｜DSML｜...>) to standard XML. */
@@ -356,10 +389,12 @@ function toOpenResponsesUsage(
  */
 function parseAndNormalizeToolArgs(
     toolName: string,
-    rawArgs: string,
+    rawArgsInput: string | Record<string, unknown>,
     model: string,
     round?: number,
 ): { args: Record<string, unknown>; remapped: Record<string, string> } {
+    // Native Ollama /api/chat returns arguments as an object, not a string
+    const rawArgs: string = typeof rawArgsInput === 'string' ? rawArgsInput : JSON.stringify(rawArgsInput);
     let args: Record<string, unknown>;
     try {
         args = JSON.parse(rawArgs);
@@ -456,14 +491,25 @@ async function ollamaChat(
         maxTokens?: number;
         tools?: ToolDefinition[];
         maxToolRounds?: number;
+        model?: string;
     },
 ): Promise<OllamaChatResult | null> {
+    // If a specific model is requested, use only that model
+    if (options?.model) {
+        const baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+        const spec = { model: options.model, baseUrl, apiKey: '' };
+        const maxTokens = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
+        const tools = options?.tools;
+        const maxToolRounds = options?.maxToolRounds ?? 10;
+        const openaiTools = tools && tools.length > 0 ? tools.map(t => ({ type: 'function' as const, function: { name: t.name, description: t.description, parameters: t.parameters } })) : undefined;
+        return ollamaChatWithModel({ spec, messages, temperature, maxTokens, tools, openaiTools, maxToolRounds });
+    }
     const models = getOllamaModels();
     if (models.length === 0) return null;
 
     const maxTokens = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
     const tools = options?.tools;
-    const maxToolRounds = options?.maxToolRounds ?? 3;
+    const maxToolRounds = options?.maxToolRounds ?? 10;
 
     // Convert tools to OpenAI function-calling format
     const openaiTools =
@@ -549,11 +595,21 @@ async function ollamaChatWithModel(
                 OLLAMA_TIMEOUT_MS,
             );
 
+            // Use Ollama's native /api/chat endpoint (not /v1/chat/completions)
+            // because the OpenAI-compatible endpoint ignores num_ctx, causing
+            // prompts to be truncated at 4096 tokens.
             const body: Record<string, unknown> = {
                 model,
                 messages: workingMessages,
-                temperature,
-                max_tokens: maxTokens,
+                stream: false,
+                options: {
+                    // Gemma 4: use 1.0 for text generation, but 0.7 for tool calling
+                    // to keep tool use focused and reduce thinking-block leakage
+                    temperature: isGemma4Model(model) ? (openaiTools ? 0.7 : 1.0) : temperature,
+                    num_ctx: 131072,
+                    ...(isGemma4Model(model) ? { top_k: 64, top_p: 0.95 } : {}),
+                    ...(isGemma4Model(model) ? {} : { num_predict: maxTokens }),
+                },
             };
             // Always include tools so the model has context for tool results.
             // On the final round, use tool_choice: "none" to get a text response.
@@ -564,7 +620,7 @@ async function ollamaChatWithModel(
                 body.tool_choice = 'none';
             }
 
-            const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+            const response = await fetch(`${baseUrl}/api/chat`, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify(body),
@@ -582,32 +638,59 @@ async function ollamaChatWithModel(
                 return null;
             }
 
-            const data = (await response.json()) as {
-                choices?: [
-                    {
-                        message?: {
-                            content?: string;
-                            tool_calls?: Array<{
-                                id: string;
-                                function: { name: string; arguments: string };
-                            }>;
-                        };
-                    },
-                ];
-                usage?: OllamaUsage;
+            // Native /api/chat response format
+            const rawData = (await response.json()) as {
+                message?: {
+                    content?: string;
+                    reasoning?: string;
+                    tool_calls?: Array<{
+                        function: { name: string; arguments: string | Record<string, unknown> };
+                    }>;
+                };
+                done?: boolean;
+                done_reason?: string;
+                prompt_eval_count?: number;
+                eval_count?: number;
             };
 
-            const msg = data.choices?.[0]?.message;
+            // Map native format to our internal expectations
+            const msg = rawData.message;
+            const finishReason = rawData.done_reason === 'stop' || (rawData.done && !msg?.tool_calls?.length) ? 'stop' : msg?.tool_calls?.length ? 'tool_calls' : 'stop';
+            // Synthesize usage from native fields
+            const data = {
+                usage: {
+                    prompt_tokens: rawData.prompt_eval_count ?? 0,
+                    completion_tokens: rawData.eval_count ?? 0,
+                    total_tokens: (rawData.prompt_eval_count ?? 0) + (rawData.eval_count ?? 0),
+                } as OllamaUsage,
+            };
+
+            // Debug: log raw response structure for diagnosis
+            log.debug('Ollama raw response', {
+                model,
+                round,
+                finishReason,
+                contentLength: (msg?.content ?? '').length,
+                reasoningLength: (msg?.reasoning ?? '').length,
+                contentPreview: (msg?.content ?? '').slice(0, 80) || '(empty)',
+                hasToolCalls: !!(msg?.tool_calls?.length),
+                usage: data.usage,
+            });
             if (!msg) {
                 log.warn('Ollama model returned no message', {
                     model,
-                    hasChoices: !!data.choices?.length,
+                    hasMessage: !!msg,
                 });
                 return null;
             }
 
+            // Native /api/chat tool_calls may lack `id` — generate one
+            const rawToolCalls = msg.tool_calls?.map((tc, i) => ({
+                id: (tc as { id?: string }).id ?? `call_${round}_${i}`,
+                function: tc.function,
+            }));
             const ollamaPendingToolCalls = filterPhantomToolCalls(
-                msg.tool_calls,
+                rawToolCalls,
                 { model, round },
             );
 
@@ -617,7 +700,10 @@ async function ollamaChatWithModel(
                 ollamaPendingToolCalls.length === 0
             ) {
                 const raw = msg.content ?? '';
-                const text = extractFromXml(stripThinking(raw)).trim();
+                const stripped = extractFromXml(stripThinking(raw)).trim();
+                // If stripping thinking blocks produces empty content but raw wasn't empty,
+                // the model put useful output inside thinking tags — preserve it.
+                const text = stripped.length > 0 ? stripped : extractFromXml(raw).trim();
                 if (text.length === 0 && toolCallRecords.length === 0) {
                     log.warn('Ollama model returned empty text', {
                         model,
@@ -692,7 +778,8 @@ async function ollamaChatWithModel(
                         availableTools: tools?.map(t => t.name) ?? [],
                         model,
                     });
-                    resultStr = `Tool ${tc.function.name} not available`;
+                    const availableNames = tools?.map(t => t.name).join(', ') ?? 'none';
+                    resultStr = `ERROR: Tool "${tc.function.name}" does not exist. Available tools: ${availableNames}. Use ONLY these exact tool names.`;
                 }
 
                 workingMessages.push({
@@ -925,13 +1012,12 @@ export async function llmGenerate(
     const {
         messages,
         temperature = 0.7,
-        maxTokens = 200,
+        maxTokens = 4000,
         model,
         tools,
         trackingContext,
     } = options;
 
-    const client = getClient();
     const startTime = Date.now();
 
     log.debug('llmGenerate starting', {
@@ -948,14 +1034,23 @@ export async function llmGenerate(
     const systemMessage = messages.find(m => m.role === 'system');
     const conversationMessages = messages.filter(m => m.role !== 'system');
 
-    // ── Try Ollama first — but ONLY when no tools are needed ──
+    // ── Try Ollama first (always — text-only and tool calls alike) ──
     const hasToolsDefined = tools && tools.length > 0;
-    if (!hasToolsDefined) {
-        const ollamaText = await tryOllamaFirst(messages, temperature, maxTokens, startTime, trackingContext);
-        if (ollamaText) return ollamaText;
+    const ollamaText = await tryOllamaFirst(messages, temperature, maxTokens, startTime, trackingContext);
+    if (ollamaText) return ollamaText;
+
+    // ── OpenRouter fallback (only when enabled) ──
+    if (!OPENROUTER_ENABLED) {
+        log.warn('Ollama returned empty and OpenRouter is disabled', {
+            context: trackingContext?.context,
+            agentId: trackingContext?.agentId,
+            ollamaAvailable: !!(OLLAMA_API_KEY || OLLAMA_LOCAL_URL),
+            durationMs: Date.now() - startTime,
+        });
+        return '';
     }
 
-    // ── OpenRouter (cloud) ──
+    const client = getClient();
     const resolved =
         model ?
             [normalizeModel(model)]
@@ -1163,7 +1258,8 @@ async function executeToolCall(
     const tool = tools.find(t => t.name === tc.function.name);
 
     if (!tool?.execute) {
-        return `Tool ${tc.function.name} not available`;
+        const availableNames = tools.map(t => t.name).join(', ');
+        return `ERROR: Tool "${tc.function.name}" does not exist. Available tools: ${availableNames}. Use ONLY these exact tool names.`;
     }
 
     const { args } = parseAndNormalizeToolArgs(
@@ -1489,7 +1585,7 @@ export async function llmGenerateWithTools(
     const {
         messages,
         temperature = 0.7,
-        maxTokens = 200,
+        maxTokens = 4000,
         model,
         tools = [],
         maxToolRounds = 3,
@@ -1511,10 +1607,38 @@ export async function llmGenerateWithTools(
         agentId: trackingContext?.agentId,
     });
 
-    // ── Try Ollama first — but ONLY when no tools are needed ──
-    if (!hasTools) {
-        const ollamaText = await tryOllamaFirst(messages, temperature, maxTokens, startTime, trackingContext);
-        if (ollamaText) return { text: ollamaText, toolCalls: [] };
+    // ── Try Ollama first — WITH tool support ──
+    const ollamaResult = await ollamaChat(messages, temperature, {
+        maxTokens,
+        tools: hasTools ? tools : undefined,
+        maxToolRounds,
+        model,
+    });
+    if (ollamaResult?.text || (ollamaResult?.toolCalls && ollamaResult.toolCalls.length > 0)) {
+        log.debug('Ollama succeeded (with tools)', {
+            model: ollamaResult.model,
+            context: trackingContext?.context,
+            textLength: ollamaResult.text.length,
+            toolCallCount: ollamaResult.toolCalls.length,
+        });
+        void trackUsage(
+            `ollama/${ollamaResult.model}`,
+            toOpenResponsesUsage(ollamaResult.usage),
+            Date.now() - startTime,
+            trackingContext,
+        );
+        return { text: ollamaResult.text, toolCalls: ollamaResult.toolCalls };
+    }
+
+    // ── OpenRouter fallback (only when enabled) ──
+    if (!OPENROUTER_ENABLED) {
+        log.warn('Ollama returned empty and OpenRouter is disabled (tool call)', {
+            context: trackingContext?.context,
+            agentId: trackingContext?.agentId,
+            hasTools,
+            toolNames: tools.map(t => t.name),
+        });
+        return { text: '', toolCalls: [] };
     }
 
     // ── OpenRouter (cloud) — raw fetch with JSON repair ──
