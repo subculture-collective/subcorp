@@ -137,17 +137,29 @@ async function fetchWithRetry429(
                 return null;
             }
 
+            // Retry on server errors (5xx)
+            if (res.status >= 500 && attempt < MAX_RETRIES) {
+                log.warn(`${label} server error ${res.status}, retrying`, {
+                    status: res.status,
+                    attempt,
+                });
+                await sleep(1000 * (attempt + 1));
+                continue;
+            }
+
             return res;
         } catch (err) {
             log.warn(`${label} fetch error`, {
                 error: (err as Error).message,
                 attempt,
+                retriesLeft: MAX_RETRIES - attempt,
             });
             if (attempt < MAX_RETRIES) {
                 await sleep(1000 * (attempt + 1));
             }
         }
     }
+    log.error(`${label} all retries exhausted`);
     return null;
 }
 

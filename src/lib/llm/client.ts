@@ -219,7 +219,7 @@ const OLLAMA_LOCAL_URL =
     OLLAMA_ENABLED ? (process.env.OLLAMA_BASE_URL ?? '') : '';
 const OLLAMA_CLOUD_URL = 'https://ollama.com';
 const OLLAMA_API_KEY = OLLAMA_ENABLED ? (process.env.OLLAMA_API_KEY ?? '') : '';
-const OLLAMA_TIMEOUT_MS = 60_000;
+const OLLAMA_TIMEOUT_MS = 120_000;
 /** Model override via env — when set, ONLY this model is used for local Ollama. */
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? '';
 
@@ -609,6 +609,16 @@ async function ollamaChatWithModel(
             // Use Ollama's native /api/chat endpoint (not /v1/chat/completions)
             // because the OpenAI-compatible endpoint ignores num_ctx, causing
             // prompts to be truncated at 4096 tokens.
+            // Estimate token count from messages to right-size the KV cache.
+            // Over-allocating num_ctx (e.g. 131072) causes ~16s overhead per request
+            // from KV cache allocation, even for small prompts.
+            const estimatedTokens = workingMessages.reduce(
+                (sum, m) => sum + Math.ceil(((m.content as string) ?? '').length / 3.5),
+                0,
+            );
+            // Add headroom for tool schemas + response tokens, round up to nearest 4096
+            const numCtx = Math.min(131072, Math.max(8192, Math.ceil((estimatedTokens + maxTokens + 2048) / 4096) * 4096));
+
             const body: Record<string, unknown> = {
                 model,
                 messages: workingMessages,
@@ -617,7 +627,7 @@ async function ollamaChatWithModel(
                     // Gemma 4: use 1.0 for text generation, but 0.7 for tool calling
                     // to keep tool use focused and reduce thinking-block leakage
                     temperature: isGemma4Model(model) ? (openaiTools ? 0.7 : 1.0) : temperature,
-                    num_ctx: 131072,
+                    num_ctx: numCtx,
                     ...(isGemma4Model(model) ? { top_k: 64, top_p: 0.95 } : {}),
                     ...(isGemma4Model(model) ? {} : { num_predict: maxTokens }),
                 },

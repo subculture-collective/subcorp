@@ -15,7 +15,7 @@ import path from 'node:path';
  */
 export const WRITE_ACLS: Record<AgentId, string[]> = {
     chora:   ['agents/chora/', 'output/reports/', 'output/briefings/', 'output/digests/'],
-    subrosa: ['agents/subrosa/', 'output/reviews/'],
+    subrosa: ['agents/subrosa/', 'output/reviews/', 'output/reports/'],
     thaum:   ['agents/thaum/', 'output/'],
     praxis:  ['agents/praxis/', 'output/', 'projects/subcult-corp/'],
     mux:     ['agents/mux/', 'output/', 'projects/subcult-corp/'],

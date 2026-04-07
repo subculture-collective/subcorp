@@ -431,6 +431,35 @@ const policies = [
         description: 'Default thresholds for trigger condition evaluation',
     },
 
+    // ─── Content focus ───
+    {
+        key: 'content_focus_policy',
+        value: {
+            enabled: true,
+            external_target_ratio: 0.7,
+            internal_cap_per_day: 5,
+            external_topics: [
+                'AI and machine learning',
+                'developer tools and platforms',
+                'open source ecosystem',
+                'digital autonomy and privacy',
+                'creative technology',
+                'startup culture',
+                'platform economics',
+                'emerging tech trends',
+            ],
+            internal_topics_allowed: [
+                'critical bug fixes',
+                'security issues',
+                'scheduled maintenance',
+            ],
+            guidance:
+                'At least 70% of agent output should be externally valuable. Internal work should be limited to genuine operational needs, not speculative meta-work.',
+        },
+        description:
+            'Defines the target ratio of external vs internal agent work.',
+    },
+
     // ─── Veto authority ───
     {
         key: 'veto_authority',
@@ -637,7 +666,7 @@ const triggers = [
             skip_probability: 0.1,
         },
         action_config: { target_agent: 'thaum', action: 'surface_patterns' },
-        cooldown_minutes: 45,
+        cooldown_minutes: 30,
         enabled: true,
     },
     {
@@ -713,7 +742,7 @@ const triggers = [
         trigger_event: 'proactive_draft_tweet',
         conditions: { topics: ['AI insights', 'tech commentary', 'productivity tips', 'industry observations'], skip_probability: 0.15 },
         action_config: { target_agent: 'chora' },
-        cooldown_minutes: 60,
+        cooldown_minutes: 30,
         enabled: true,
     },
     {
@@ -721,7 +750,7 @@ const triggers = [
         trigger_event: 'proactive_research',
         conditions: { topics: ['multi-agent systems', 'LLM optimization', 'autonomous workflows', 'knowledge management'], skip_probability: 0.1 },
         action_config: { target_agent: 'chora' },
-        cooldown_minutes: 90,
+        cooldown_minutes: 45,
         enabled: true,
     },
     {
@@ -729,7 +758,7 @@ const triggers = [
         trigger_event: 'proactive_analyze_ops',
         conditions: { skip_probability: 0.1 },
         action_config: { target_agent: 'subrosa' },
-        cooldown_minutes: 120,
+        cooldown_minutes: 480,
         enabled: true,
     },
     {
@@ -737,7 +766,7 @@ const triggers = [
         trigger_event: 'proactive_content_plan',
         conditions: { topics: ['content calendar', 'audience growth', 'engagement strategy'], skip_probability: 0.2 },
         action_config: { target_agent: 'praxis' },
-        cooldown_minutes: 120,
+        cooldown_minutes: 60,
         enabled: true,
     },
     {
@@ -745,7 +774,7 @@ const triggers = [
         trigger_event: 'proactive_health_check',
         conditions: { skip_probability: 0.05 },
         action_config: { target_agent: 'subrosa' },
-        cooldown_minutes: 90,
+        cooldown_minutes: 360,
         enabled: true,
     },
     {
@@ -753,7 +782,7 @@ const triggers = [
         trigger_event: 'proactive_memory_consolidation',
         conditions: { skip_probability: 0.1 },
         action_config: { target_agent: 'chora' },
-        cooldown_minutes: 240,
+        cooldown_minutes: 480,
         enabled: true,
     },
     {
@@ -761,7 +790,7 @@ const triggers = [
         trigger_event: 'proactive_proposal_triage',
         conditions: { pending_threshold: 3 },
         action_config: { target_agent: 'mux', action: 'triage_proposals' },
-        cooldown_minutes: 60,
+        cooldown_minutes: 240,
         enabled: true,
     },
     {
@@ -769,7 +798,7 @@ const triggers = [
         trigger_event: 'proactive_ops_report',
         conditions: {},
         action_config: { target_agent: 'mux', action: 'ops_report' },
-        cooldown_minutes: 180,
+        cooldown_minutes: 720,
         enabled: true,
     },
     {

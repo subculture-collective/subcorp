@@ -414,7 +414,7 @@ async function pollRoundtables(): Promise<boolean> {
                 const turns = await sql<
                     Array<{ agent_id: string; dialogue: string }>
                 >`
-                    SELECT agent_id, dialogue FROM ops_roundtable_turns
+                    SELECT speaker AS agent_id, dialogue FROM ops_roundtable_turns
                     WHERE session_id = ${session.id}
                     ORDER BY turn_number ASC
                 `;
@@ -1393,6 +1393,50 @@ async function sweepStaleAgentSessions(): Promise<boolean> {
     return stale.length > 0;
 }
 
+/** Sweep mission steps stuck in 'running' with no active agent session (e.g. after worker restart) */
+async function sweepOrphanedMissionSteps(): Promise<boolean> {
+    const orphaned = await sql<
+        { id: string; mission_id: string; kind: string; assigned_agent: string | null }[]
+    >`
+        UPDATE ops_mission_steps
+        SET status = 'failed',
+            failure_reason = 'Swept — step running with no active agent session',
+            completed_at = NOW(),
+            updated_at = NOW()
+        WHERE status = 'running'
+          AND started_at < NOW() - INTERVAL '15 minutes'
+          AND (
+            result->>'agent_session_id' IS NULL
+            OR NOT EXISTS (
+              SELECT 1 FROM ops_agent_sessions s
+              WHERE s.id = (result->>'agent_session_id')::uuid
+                AND s.status = 'running'
+            )
+          )
+        RETURNING id, mission_id, kind, assigned_agent
+    `;
+
+    if (orphaned.length > 0) {
+        log.warn('Swept orphaned mission steps', {
+            count: orphaned.length,
+            steps: orphaned.map(s => ({
+                id: s.id,
+                missionId: s.mission_id,
+                kind: s.kind,
+                agent: s.assigned_agent,
+            })),
+        });
+
+        // Finalize any missions that are now complete
+        const missionIds = [...new Set(orphaned.map(s => s.mission_id))];
+        for (const missionId of missionIds) {
+            await finalizeMissionIfComplete(missionId);
+        }
+    }
+
+    return orphaned.length > 0;
+}
+
 /** Check if all steps in a mission are done, finalize if so */
 async function finalizeMissionIfComplete(missionId: string): Promise<void> {
     const [counts] = await sql<
@@ -1564,6 +1608,9 @@ async function pollLoop(): Promise<void> {
 
             // Sweep stale agent sessions stuck in 'running' past their timeout
             await sweepStaleAgentSessions();
+
+            // Sweep orphaned mission steps (no active session, e.g. after worker restart)
+            await sweepOrphanedMissionSteps();
 
             // Initiatives — check every other loop
             await pollInitiatives();
