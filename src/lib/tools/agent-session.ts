@@ -385,6 +385,22 @@ export async function executeAgentSession(
 }
 
 /** Update session to terminal status */
+/** Strip null bytes and invalid Unicode escapes that Postgres rejects in JSONB */
+function sanitizeForJsonb(obj: unknown): unknown {
+    if (typeof obj === 'string') {
+        return obj.replace(/\u0000/g, '').replace(/\\u0000/g, '');
+    }
+    if (Array.isArray(obj)) return obj.map(sanitizeForJsonb);
+    if (obj && typeof obj === 'object') {
+        const clean: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(obj)) {
+            clean[k] = sanitizeForJsonb(v);
+        }
+        return clean;
+    }
+    return obj;
+}
+
 async function completeSession(
     sessionId: string,
     status: string,
@@ -396,16 +412,16 @@ async function completeSession(
     await sql`
         UPDATE ops_agent_sessions
         SET status = ${status},
-            result = ${jsonb(result)},
+            result = ${jsonb(sanitizeForJsonb(result) as Record<string, unknown>)},
             tool_calls = ${jsonb(
-                toolCalls.map(tc => ({
+                sanitizeForJsonb(toolCalls.map(tc => ({
                     name: tc.name,
                     arguments: tc.arguments,
                     result:
                         typeof tc.result === 'string' ?
                             tc.result.slice(0, 2000)
                         :   tc.result,
-                })),
+                }))) as unknown[],
             )},
             llm_rounds = ${llmRounds},
             error = ${error ?? null},
