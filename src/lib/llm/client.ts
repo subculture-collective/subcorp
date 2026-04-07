@@ -308,10 +308,21 @@ async function tryOllamaFirst(
     maxTokens: number,
     startTime: number,
     trackingContext?: LLMGenerateOptions['trackingContext'],
+    modelOverride?: string,
 ): Promise<string | null> {
     if (!OLLAMA_API_KEY && !OLLAMA_LOCAL_URL) return null;
 
-    const ollamaResult = await ollamaChat(messages, temperature, { maxTokens });
+    // Resolve context-specific Ollama model from routing table
+    let ollamaModel = modelOverride;
+    if (!ollamaModel && trackingContext?.context) {
+        try {
+            const routed = await resolveModels(trackingContext.context);
+            const ollamaCandidate = routed.find((m: string) => m.includes(':'));
+            if (ollamaCandidate) ollamaModel = ollamaCandidate;
+        } catch { /* routing unavailable, use default */ }
+    }
+
+    const ollamaResult = await ollamaChat(messages, temperature, { maxTokens, model: ollamaModel });
     if (ollamaResult?.text) {
         log.debug('Ollama succeeded', {
             model: ollamaResult.model,
@@ -494,8 +505,8 @@ async function ollamaChat(
         model?: string;
     },
 ): Promise<OllamaChatResult | null> {
-    // If a specific model is requested, use only that model
-    if (options?.model) {
+    // If a specific model is requested (Ollama format with colon), use it directly
+    if (options?.model && options.model.includes(':')) {
         const baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
         const spec = { model: options.model, baseUrl, apiKey: '' };
         const maxTokens = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
@@ -1608,11 +1619,20 @@ export async function llmGenerateWithTools(
     });
 
     // ── Try Ollama first — WITH tool support ──
+    // Resolve context-specific Ollama model if no explicit model given
+    let resolvedModel = model;
+    if (!resolvedModel && trackingContext?.context) {
+        try {
+            const routed = await resolveModels(trackingContext.context);
+            const ollamaCandidate = routed.find((m: string) => m.includes(':'));
+            if (ollamaCandidate) resolvedModel = ollamaCandidate;
+        } catch { /* use default */ }
+    }
     const ollamaResult = await ollamaChat(messages, temperature, {
         maxTokens,
         tools: hasTools ? tools : undefined,
         maxToolRounds,
-        model,
+        model: resolvedModel,
     });
     if (ollamaResult?.text || (ollamaResult?.toolCalls && ollamaResult.toolCalls.length > 0)) {
         log.debug('Ollama succeeded (with tools)', {

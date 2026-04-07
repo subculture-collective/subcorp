@@ -782,7 +782,7 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
             'patch_code', 'self_evolution', 'github_pr', 'github_issue',
             'create_pull_request', 'draft_product_spec',
         ]);
-        const stepModel = CODING_STEP_KINDS.has(step.kind) ? 'qwen3:14b' : null;
+        const stepModel = CODING_STEP_KINDS.has(step.kind) ? 'qwen2.5-coder:14b' : null;
 
         // Create an agent session so the step gets full tool access
         const [session] = await sql`
