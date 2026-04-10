@@ -5,7 +5,7 @@ import {
     getDreamWithSources,
     type DreamType,
 } from '@/lib/ops/dreams';
-import { withRequestContext } from '@/middleware';
+import { withRequestContext } from '@/lib/with-request-context';
 
 export const dynamic = 'force-dynamic';
 

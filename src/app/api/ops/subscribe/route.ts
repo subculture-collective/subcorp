@@ -1,7 +1,7 @@
 // POST /api/ops/subscribe — public email subscription endpoint
 import { NextRequest, NextResponse } from 'next/server';
 import { subscribe } from '@/lib/ops/subscribers';
-import { withRequestContext } from '@/middleware';
+import { withRequestContext } from '@/lib/with-request-context';
 
 export const dynamic = 'force-dynamic';
 

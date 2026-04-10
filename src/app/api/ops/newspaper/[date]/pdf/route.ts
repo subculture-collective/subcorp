@@ -1,7 +1,7 @@
 // /api/ops/newspaper/[date]/pdf — Serve newspaper PDF from DB
 import { NextRequest, NextResponse } from 'next/server';
 import { getEditionPdf } from '@/lib/ops/newspaper';
-import { withRequestContext } from '@/middleware';
+import { withRequestContext } from '@/lib/with-request-context';
 
 export const dynamic = 'force-dynamic';
 

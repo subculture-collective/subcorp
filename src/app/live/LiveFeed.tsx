@@ -13,6 +13,7 @@ const KIND_DISPLAY: Record<string, { icon: string; label: string }> = {
     conversation_completed: { icon: '✅', label: 'Conversation completed' },
     content_draft_created: { icon: '📝', label: 'Content drafted' },
     content_published: { icon: '📢', label: 'Content published' },
+    content_mirrored_ghost: { icon: '👻', label: 'Ghost mirror published' },
     daily_digest_generated: { icon: '📋', label: 'Daily digest' },
     dream_cycle_completed: { icon: '💭', label: 'Dream cycle' },
     rebellion_started: { icon: '🔥', label: 'Rebellion' },

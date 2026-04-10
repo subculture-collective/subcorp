@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { withRequestContext } from '@/middleware';
+import { withRequestContext } from '@/lib/with-request-context';
 
 const log = logger.child({ route: 'rss' });
 

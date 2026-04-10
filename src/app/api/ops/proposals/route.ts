@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { createProposalAndMaybeAutoApprove } from '@/lib/ops/proposal-service';
 import { logger } from '@/lib/logger';
-import { withRequestContext } from '@/middleware';
+import { withRequestContext } from '@/lib/with-request-context';
 
 const log = logger.child({ route: 'proposals' });
 

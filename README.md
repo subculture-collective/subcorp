@@ -146,6 +146,10 @@ LLM_MODEL=anthropic/claude-sonnet-4
 # Brave Search API — used by web_search tool
 BRAVE_API_KEY=your-brave-api-key
 
+# Ghost Admin API key (optional) — enables automatic Ghost mirroring for published blog posts
+# Format: <key_id>:<hex_secret>
+GHOST_ADMIN_API_KEY=your-ghost-admin-key
+
 # PostgreSQL (used by Docker Compose)
 POSTGRES_PASSWORD=your-secure-password
 DATABASE_URL=postgresql://subcult:your-secure-password@postgres:5432/subcult_ops
@@ -314,6 +318,13 @@ A single worker process polls 4 queues with staggered intervals:
 | Initiative proposals     | 60s      | Memory-driven initiative generation       |
 
 All queues use `FOR UPDATE SKIP LOCKED` for atomic claiming. The worker imports directly from `src/lib/` — no code duplication.
+
+### Content Publishing Behavior
+
+- `approved` content drafts are auto-published by the worker with no manual publish gate.
+- Canonical publish target is local markdown in `workspace/output/blog`, which powers `/blog`.
+- If `GHOST_ADMIN_API_KEY` is configured, the worker mirrors published posts to Ghost.
+- If Ghost is unavailable or not configured, local publish still succeeds and Ghost mirroring is retried via background backfill sweeps.
 
 ```bash
 # Built with esbuild, runs as a single Node.js process

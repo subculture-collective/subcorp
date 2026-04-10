@@ -25,7 +25,7 @@ import { fetchAllFeeds, generateNewsDigest } from '@/lib/ops/rss';
 import { generateDailyNewspaper } from '@/lib/ops/newspaper';
 import { AGENT_IDS } from '@/lib/agents';
 import { logger } from '@/lib/logger';
-import { withRequestContext } from '@/middleware';
+import { withRequestContext } from '@/lib/with-request-context';
 
 const log = logger.child({ route: 'heartbeat' });
 

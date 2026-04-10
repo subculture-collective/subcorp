@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requestContext, generateRequestId } from '@/lib/request-context';
+import { generateRequestId } from '@/lib/request-context';
 
 export function middleware(request: NextRequest) {
     const requestId =
@@ -36,26 +36,3 @@ export const config = {
     // Only run on API routes — skip static assets, images, etc.
     matcher: '/api/:path*',
 };
-
-/**
- * Helper for API route handlers to establish request context.
- * Call at the top of your route handler:
- *
- *   export async function GET(req: NextRequest) {
- *       return withRequestContext(req, async () => {
- *           // ... your handler logic
- *       });
- *   }
- *
- * This enables automatic request_id enrichment in all logs.
- */
-export function withRequestContext<T>(
-    req: NextRequest,
-    handler: () => T | Promise<T>,
-): T | Promise<T> {
-    const requestId = req.headers.get('x-request-id') ?? generateRequestId();
-    const method = req.method;
-    const path = new URL(req.url).pathname;
-
-    return requestContext.run({ requestId, method, path }, handler);
-}

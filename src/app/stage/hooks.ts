@@ -817,6 +817,29 @@ export type ContentStatus =
     | 'rejected'
     | 'published';
 
+export type MutableContentStatus = Exclude<ContentStatus, 'published'>;
+
+export interface GhostMirrorState {
+    status: 'pending' | 'failed' | 'published';
+    attempts: number;
+    last_attempt_at: string | null;
+    next_retry_at: string | null;
+    error: string | null;
+    post_id?: string;
+    post_url?: string;
+    published_at?: string;
+}
+
+export interface ContentPublicationState {
+    local?: {
+        status: 'published';
+        slug: string;
+        relative_path: string;
+        published_at: string;
+    };
+    ghost?: GhostMirrorState;
+}
+
 export interface ContentDraft {
     id: string;
     author_agent: string;
@@ -828,7 +851,9 @@ export interface ContentDraft {
     reviewer_notes: { reviewer: string; verdict: 'approve' | 'reject' | 'mixed'; notes: string }[];
     source_session_id: string | null;
     published_at: string | null;
-    metadata: Record<string, unknown>;
+    metadata: Record<string, unknown> & {
+        publication?: ContentPublicationState;
+    };
     created_at: string;
     updated_at: string;
 }
@@ -882,7 +907,7 @@ export function useContent(filters?: ContentFilters) {
 
     const refetch = useCallback(() => setRefreshKey(k => k + 1), []);
 
-    const updateStatus = useCallback(async (id: string, status: ContentStatus) => {
+    const updateStatus = useCallback(async (id: string, status: MutableContentStatus) => {
         const res = await fetch('/api/ops/content', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -896,7 +921,20 @@ export function useContent(filters?: ContentFilters) {
         await fetchDrafts();
     }, [fetchDrafts]);
 
-    return { drafts, loading, error, refetch, updateStatus };
+    const retryGhostMirror = useCallback(async (id: string) => {
+        const res = await fetch('/api/ops/content', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, action: 'retry_ghost_mirror' }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.success !== true) {
+            throw new Error(data.error || data.message || `Failed to retry Ghost mirror (${res.status})`);
+        }
+        await fetchDrafts();
+    }, [fetchDrafts]);
+
+    return { drafts, loading, error, refetch, updateStatus, retryGhostMirror };
 }
 
 // ─── useGovernance — fetch + poll governance proposals ───

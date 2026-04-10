@@ -14,6 +14,11 @@ import { orchestrateConversation } from '../../src/lib/roundtable/orchestrator';
 import { executeAgentSession } from '../../src/lib/tools/agent-session';
 import { createLogger } from '../../src/lib/logger';
 import { FORMATS } from '../../src/lib/roundtable/formats';
+import {
+    mirrorPublishedDraftBackfill,
+    publishApprovedDrafts,
+} from '../../src/lib/ops/content-publication';
+import { backfillGovernanceVotes } from '../../src/lib/ops/governance';
 import type { RoundtableSession } from '../../src/lib/types';
 import type { AgentSession } from '../../src/lib/tools/types';
 import type { ConversationFormat, StepKind } from '../../src/lib/types';
@@ -402,80 +407,7 @@ async function pollRoundtables(): Promise<boolean> {
             }
         }
 
-        // Governance: extract votes from debate sessions tied to a governance proposal
-        const proposalId = (session.metadata as Record<string, unknown>)
-            ?.governance_proposal_id as string | undefined;
-        if (session.format === 'debate' && proposalId) {
-            try {
-                const { castGovernanceVote } =
-                    await import('../../src/lib/ops/governance');
-
-                // Fetch the debate turns
-                const turns = await sql<
-                    Array<{ agent_id: string; dialogue: string }>
-                >`
-                    SELECT speaker AS agent_id, dialogue FROM ops_roundtable_turns
-                    WHERE session_id = ${session.id}
-                    ORDER BY turn_number ASC
-                `;
-
-                if (turns.length > 0) {
-                    // Extract votes by keyword-parsing each agent's last turn
-                    const agentIds = [...new Set(turns.map(t => t.agent_id))];
-                    let voteCount = 0;
-
-                    for (const agentId of agentIds) {
-                        const lastTurn = [...turns]
-                            .reverse()
-                            .find(t => t.agent_id === agentId);
-                        if (!lastTurn) continue;
-
-                        const upper = lastTurn.dialogue.toUpperCase();
-                        const approveIdx = upper.lastIndexOf('APPROVE');
-                        const rejectIdx = upper.lastIndexOf('REJECT');
-                        const hasApprove =
-                            approveIdx !== -1 &&
-                            !upper.includes('NOT APPROVE') &&
-                            !upper.includes("DON'T APPROVE");
-                        const hasReject = rejectIdx !== -1;
-
-                        let vote: 'approve' | 'reject' | null = null;
-                        if (hasApprove && hasReject) {
-                            vote =
-                                approveIdx > rejectIdx ? 'approve' : 'reject';
-                        } else if (hasApprove) {
-                            vote = 'approve';
-                        } else if (hasReject) {
-                            vote = 'reject';
-                        }
-
-                        if (vote) {
-                            const reason = lastTurn.dialogue.slice(0, 200);
-                            await castGovernanceVote(
-                                proposalId,
-                                agentId,
-                                vote,
-                                reason,
-                            );
-                            voteCount++;
-                        }
-                    }
-
-                    log.info('Governance votes extracted from debate', {
-                        sessionId: session.id,
-                        proposalId,
-                        voteCount,
-                    });
-                }
-            } catch (govErr) {
-                // Non-fatal — governance vote extraction should never stall the worker
-                log.error('Governance vote extraction failed (non-fatal)', {
-                    error: govErr,
-                    sessionId: session.id,
-                    proposalId,
-                });
-            }
-        }
+        // Governance vote collection happens in roundtable orchestrator post-cleanup.
 
         // Rebellion: resolve rebellion if cross-exam about a rebelling agent completed
         const rebellionAgentId = (session.metadata as Record<string, unknown>)
@@ -1616,6 +1548,38 @@ async function pollLoop(): Promise<void> {
     // Finalize any orphaned missions stuck in 'approved' with all steps done
     await catchUpOrphanedMissions();
 
+    // Publish any existing approved content drafts on startup
+    const startupPublish = await publishApprovedDrafts();
+    if (startupPublish.published > 0 || startupPublish.failed > 0) {
+        log.info('Startup content publish sweep complete', {
+            published: startupPublish.published,
+            failed: startupPublish.failed,
+        });
+    }
+
+    // Attempt Ghost backfill mirrors on startup
+    const startupGhostBackfill = await mirrorPublishedDraftBackfill();
+    if (!startupGhostBackfill.skipped && startupGhostBackfill.processed > 0) {
+        log.info('Startup Ghost backfill sweep complete', {
+            processed: startupGhostBackfill.processed,
+            mirrored: startupGhostBackfill.mirrored,
+            failed: startupGhostBackfill.failed,
+            skipped: startupGhostBackfill.skipped,
+        });
+    }
+
+    // Backfill governance votes for completed debates still stuck in voting
+    const startupGovernanceBackfill = await backfillGovernanceVotes();
+    if (startupGovernanceBackfill.processed > 0) {
+        log.info('Startup governance vote backfill complete', {
+            processed: startupGovernanceBackfill.processed,
+            resolved: startupGovernanceBackfill.resolved,
+            requeued: startupGovernanceBackfill.requeued,
+            votesAdded: startupGovernanceBackfill.votesAdded,
+            failed: startupGovernanceBackfill.failed,
+        });
+    }
+
     while (running) {
         try {
             // Roundtables first — user questions should not be starved by agent sessions
@@ -1630,6 +1594,38 @@ async function pollLoop(): Promise<void> {
 
             // Finalize mission steps based on agent session completion
             await finalizeMissionSteps();
+
+            // Publish approved content drafts without manual gate
+            const publishResult = await publishApprovedDrafts();
+            if (publishResult.published > 0 || publishResult.failed > 0) {
+                log.info('Content publish sweep complete', {
+                    published: publishResult.published,
+                    failed: publishResult.failed,
+                });
+            }
+
+            // Retry Ghost mirrors for already published drafts
+            const ghostBackfill = await mirrorPublishedDraftBackfill();
+            if (!ghostBackfill.skipped && ghostBackfill.processed > 0) {
+                log.info('Ghost mirror backfill sweep complete', {
+                    processed: ghostBackfill.processed,
+                    mirrored: ghostBackfill.mirrored,
+                    failed: ghostBackfill.failed,
+                    skipped: ghostBackfill.skipped,
+                });
+            }
+
+            // Backfill governance votes if proposals are still stuck in voting
+            const governanceBackfill = await backfillGovernanceVotes();
+            if (governanceBackfill.processed > 0) {
+                log.info('Governance vote backfill sweep complete', {
+                    processed: governanceBackfill.processed,
+                    resolved: governanceBackfill.resolved,
+                    requeued: governanceBackfill.requeued,
+                    votesAdded: governanceBackfill.votesAdded,
+                    failed: governanceBackfill.failed,
+                });
+            }
 
             // Sweep stale agent sessions stuck in 'running' past their timeout
             await sweepStaleAgentSessions();

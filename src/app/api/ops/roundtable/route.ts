@@ -4,7 +4,7 @@ import { sql } from '@/lib/db';
 import { enqueueConversation } from '@/lib/roundtable/orchestrator';
 import type { ConversationFormat } from '@/lib/types';
 import { logger } from '@/lib/logger';
-import { withRequestContext } from '@/middleware';
+import { withRequestContext } from '@/lib/with-request-context';
 
 const log = logger.child({ route: 'roundtable' });
 

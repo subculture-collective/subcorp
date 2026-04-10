@@ -1,7 +1,7 @@
 // /api/ops/rebellion — Query rebellion state for all agents or a specific agent
 import { NextRequest, NextResponse } from 'next/server';
 import { getRebellingAgents } from '@/lib/ops/rebellion';
-import { withRequestContext } from '@/middleware';
+import { withRequestContext } from '@/lib/with-request-context';
 
 export const dynamic = 'force-dynamic';
 

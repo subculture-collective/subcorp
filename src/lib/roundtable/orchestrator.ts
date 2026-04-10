@@ -256,6 +256,7 @@ interface BuildSystemPromptInput {
     scratchpad?: string;
     briefing?: string;
     memories?: string[];
+    governanceVoteInstruction?: string;
 }
 
 /**
@@ -277,6 +278,7 @@ function buildSystemPrompt(input: BuildSystemPromptInput): string {
         scratchpad,
         briefing,
         memories,
+        governanceVoteInstruction,
     } = input;
     const voice = getVoice(speakerId);
     if (!voice) {
@@ -449,6 +451,10 @@ function buildSystemPrompt(input: BuildSystemPromptInput): string {
     const formatRule = FORMAT_RULES[format];
     if (formatRule) {
         prompt += `${formatRule}\n`;
+    }
+
+    if (governanceVoteInstruction) {
+        prompt += `${governanceVoteInstruction}\n`;
     }
 
     return prompt;
@@ -624,6 +630,9 @@ export async function orchestrateConversation(
                 ?.userQuestion as string) ?? session.topic)
         :   null;
 
+    const governanceProposalId = (session.metadata as Record<string, unknown>)
+        ?.governance_proposal_id as string | undefined;
+
     // Load prime directive once per conversation (best-effort)
     let primeDirective = '';
     try {
@@ -738,6 +747,10 @@ export async function orchestrateConversation(
             scratchpad: scratchpadMap.get(speaker),
             briefing: briefingMap.get(speaker),
             memories: memoryMap.get(speaker),
+            governanceVoteInstruction:
+                governanceProposalId ?
+                    'Governance voting rule: in your final turn, include an explicit vote token exactly once as either "APPROVE" or "REJECT".'
+                :   undefined,
         });
         const userPrompt = buildUserPrompt(
             session.topic,

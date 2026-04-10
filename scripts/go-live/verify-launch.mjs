@@ -15,6 +15,7 @@ const log = createLogger({ service: 'verify-launch' });
 const DATABASE_URL = process.env.DATABASE_URL;
 const CRON_SECRET = process.env.CRON_SECRET;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const GHOST_ADMIN_API_KEY = process.env.GHOST_ADMIN_API_KEY;
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 
 let passed = 0;
@@ -52,6 +53,9 @@ async function checkEnvVars() {
 
     if (OPENROUTER_API_KEY) pass('OPENROUTER_API_KEY is set');
     else fail('OPENROUTER_API_KEY is not set (workers need this)');
+
+    if (GHOST_ADMIN_API_KEY) pass('GHOST_ADMIN_API_KEY is set (Ghost mirror enabled)');
+    else warn('GHOST_ADMIN_API_KEY is not set (Ghost mirror backfill will wait)');
 }
 
 async function checkTables(sql) {
