@@ -397,6 +397,15 @@ function buildSystemPrompt(input: BuildSystemPromptInput): string {
                 :   turn.speaker;
             prompt += `${name}: ${turn.dialogue}\n`;
         }
+
+        // For debate format: highlight the last turn and make agents explicitly address it
+        if (format === 'debate' && history.length > 0) {
+            const lastTurn = history[history.length - 1];
+            const lastVoice = getVoice(lastTurn.speaker);
+            const lastName = lastVoice ? lastVoice.displayName : lastTurn.speaker;
+            prompt += `\nPREVIOUS SPEAKER SAID: "${lastName} argued: ${lastTurn.dialogue}"\n`;
+            prompt += `You MUST respond directly to what ${lastName} just said — agree, contest, or extend with a new angle. Do not pivot to a different point.\n`;
+        }
     }
 
     // User question context — when a session was triggered by a user's question
@@ -423,13 +432,14 @@ function buildSystemPrompt(input: BuildSystemPromptInput): string {
     prompt += `- Keep it to 2-4 sentences. Never exceed 6 sentences in a single turn.\n`;
     prompt += `- Finish your thought cleanly. If you start a claim, land it. Never trail off or leave a sentence incomplete.\n`;
     prompt += `- Respond to what was actually said — push it forward, challenge it, or build on it. Don't restate, don't summarize, don't monologue.\n`;
+    prompt += `- Never repeat a point that has already been made in this conversation. Build on it or challenge it instead.\n`;
     prompt += `- One idea per turn. If you have two points, pick the sharper one.\n`;
     prompt += `- Do NOT prefix your response with your name or symbol\n`;
     prompt += `- If this format doesn't need you or you have nothing to add, keep it to one sentence or pass\n`;
 
     // Format-specific behavioral rules
     const FORMAT_RULES: Partial<Record<ConversationFormat, string>> = {
-        debate: '- Take a clear position. Disagreement is expected. Name what you contest and why.',
+        debate: '- Take a clear position. Disagreement is expected. Name what you contest and why.\n- You MUST directly address the last claim made by the previous speaker — quote it or paraphrase it, then explain why you disagree or push it further.\n- Do NOT repeat a claim that has already been made in this conversation. If you agree with something said, build on it with a new angle instead of restating it.\n- Each turn must introduce or challenge at least one specific claim. Vague agreement ("I agree with that") is not a turn.',
         brainstorm:
             '- Go wide, not deep. Quantity over quality. Build on others\' ideas with "yes, and..."',
         retro: '- Be honest about what failed. Attribution is fine — blame is not.',
@@ -530,13 +540,13 @@ function buildUserPrompt(
 
     // Mid-conversation: format-specific prompts
     const midPrompts: Partial<Record<ConversationFormat, string>> = {
-        debate: `Respond to what was just said on "${topic}". Contest or defend — don't agree politely.`,
+        debate: `Take a turn in the debate on "${topic}". The previous speaker just made a claim — engage with it directly: defend it, challenge it, or extend it with a new dimension. Do not restate it or pivot to a different point. One sharp move, then stop.`,
         brainstorm: `Build on what was said about "${topic}" or throw a new idea in. Keep it rapid.`,
         retro: `Reflect on "${topic}". What else happened that hasn't been named yet?`,
         planning: `What's the next concrete step for "${topic}"? Name who owns it.`,
         risk_review: `What risk hasn't been named yet for "${topic}"? Or challenge a risk that was overstated.`,
         writing_room: `Continue drafting on "${topic}". Build on what was written or propose an edit.`,
-        cross_exam: `Press harder on "${topic}". What hasn't been addressed? What's being assumed?`,
+        cross_exam: `Interrogate what was just said on "${topic}". What assumption is hiding in that argument? What would make it fall apart? Be specific — name the weak point, then press on it.`,
         strategy: `Push the strategy forward on "${topic}". What tradeoff hasn't been named?`,
         deep_dive: `Go deeper on "${topic}". What structural cause hasn't been traced yet?`,
         watercooler: `Keep chatting about "${topic}". No pressure — say what comes to mind.`,

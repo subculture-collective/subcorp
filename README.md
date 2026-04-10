@@ -61,7 +61,7 @@ Agents execute tools natively via the unified worker and a sandboxed toolbox con
 | Tool            | Description                                                 |
 | --------------- | ----------------------------------------------------------- |
 | `bash`          | Execute shell commands in the toolbox container             |
-| `web_search`    | Search the web via Brave Search API                         |
+| `web_search`    | Search the web via Brave Search (primary) + DuckDuckGo (fallback, no key required) |
 | `web_fetch`     | Fetch a URL and convert to markdown                         |
 | `file_read`     | Read files from the shared `/workspace` volume              |
 | `file_write`    | Write files to `/workspace` (ACL-enforced per agent)        |
@@ -126,7 +126,7 @@ See [`docs/SANCTUM.md`](docs/SANCTUM.md) for full documentation.
 
 - Docker & Docker Compose
 - An [OpenRouter](https://openrouter.ai) API key
-- A [Brave Search](https://brave.com/search/api/) API key (for `web_search` tool)
+- A [Brave Search](https://brave.com/search/api/) API key for `web_search` (optional — falls back to DuckDuckGo Instant Answer API, no key required)
 
 ### 1. Configure environment
 
@@ -143,7 +143,7 @@ OPENROUTER_API_KEY=sk-or-v1-your-key-here
 # Default model (browse: https://openrouter.ai/models)
 LLM_MODEL=anthropic/claude-sonnet-4
 
-# Brave Search API — used by web_search tool
+# Brave Search API — used by web_search tool (optional, falls back to DuckDuckGo if unset)
 BRAVE_API_KEY=your-brave-api-key
 
 # Ghost Admin API key (optional) — enables automatic Ghost mirroring for published blog posts
@@ -167,9 +167,19 @@ NODE_ENV=production     # enables JSON log output
 ```bash
 make up          # Build and start all 4 containers
 make db-migrate  # Run SQL migrations (001 → 022)
-make seed        # Seed policies, triggers, relationships, registry
+make seed        # Seed baseline ops data
 make verify      # Run launch verification checks
 ```
+
+Policy baselines can be overridden at seed time with:
+
+```bash
+OPS_POLICY_OVERRIDES_FILE=/app/scripts/go-live/policy-overrides.example.json make seed-policy
+OPS_POLICY_OVERRIDES_JSON='{"x_daily_quota":{"limit":10}}' make seed-policy
+OPS_POLICY_X_DAILY_QUOTA_JSON='{"limit":10}' make seed-policy
+```
+
+`scripts/go-live/policy-overrides.example.json` is a checked-in starter template. The file can contain only the policy keys and fields you want to override; unspecified fields keep their seeded baseline values.
 
 ### 3. Trigger the heartbeat
 
@@ -212,7 +222,7 @@ Run `make help` for the full list. Highlights:
 | `make logs-db`    | Tail PostgreSQL logs           |
 | `make db-migrate` | Run all SQL migrations         |
 | `make db-shell`   | Open psql shell                |
-| `make seed`       | Run all seed scripts           |
+| `make seed`       | Seed baseline ops data         |
 | `make verify`     | Launch verification checks     |
 | `make heartbeat`  | Trigger heartbeat via Docker   |
 
@@ -362,7 +372,7 @@ src/
       registry.ts             #   Agent → tool mapping
       types.ts                #   NativeTool type definitions
       tools/                  #   Individual tool implementations (9 tools)
-  middleware.ts               # Request ID injection
+  proxy.ts                    # Request ID injection
 scripts/
   unified-worker/             # Single worker process (4 queues)
   lib/                        # Shared worker utilities
