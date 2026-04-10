@@ -9,7 +9,7 @@ export interface BlogPost {
     description: string; // first paragraph
 }
 
-const BLOG_DIR = path.join(process.cwd(), 'workspace/output/blog');
+const BLOG_DIR = '/workspace/output/blog';
 
 function parseBlogPost(filename: string): BlogPost {
     const slug = filename.replace(/\.md$/, '');
