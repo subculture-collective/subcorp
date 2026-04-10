@@ -38,7 +38,7 @@ export async function checkArtifactFreshness(): Promise<ArtifactHealthResult> {
     }]>`
         SELECT
             COUNT(*)::int as total,
-            COUNT(*) FILTER (WHERE status = 'succeeded')::int as succeeded
+            COUNT(*) FILTER (WHERE status IN ('succeeded', 'blocked'))::int as succeeded
         FROM ops_agent_sessions
         WHERE source = 'conversation'
         AND created_at >= ${todayISO}

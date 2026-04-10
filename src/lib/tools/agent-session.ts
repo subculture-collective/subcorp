@@ -67,6 +67,95 @@ function truncateToFirstSentences(text: string, maxLen: number): string {
     return truncated + '...';
 }
 
+const BLOCKER_SUMMARY_PATTERNS: RegExp[] = [
+    /\bcritical blocker\b/i,
+    /\bdata dependency blocked\b/i,
+    /\bblocked by\b/i,
+    /\bmission is, by definition, stalled\b/i,
+    /\bcannot proceed\b/i,
+    /\bcannot continue\b/i,
+    /\bcannot be completed\b/i,
+    /\bno further (procedural )?steps? (i )?can take\b/i,
+    /\bawait(?:ing)? (?:instruction|input|external|data|provisioning)\b/i,
+    /\bwaiting for\b/i,
+    /\bhands are tied\b/i,
+    /\bstalled by\b/i,
+    /\bpaused pending\b/i,
+];
+
+const TOOL_ERROR_PATTERNS: RegExp[] = [
+    /no such file or directory/i,
+    /permission denied/i,
+    /access denied/i,
+    /file read failed/i,
+    /file write failed/i,
+    /timed out/i,
+    /tool\s+"?.+"?\s+does not exist/i,
+];
+
+function toolErrorText(result: unknown): string {
+    if (typeof result === 'string') return result;
+    if (!result || typeof result !== 'object') return '';
+
+    const rec = result as Record<string, unknown>;
+    const err = typeof rec.error === 'string' ? rec.error : '';
+    const stderr = typeof rec.stderr === 'string' ? rec.stderr : '';
+    return [err, stderr].filter(Boolean).join('\n');
+}
+
+function detectBlockedOutcome(
+    summary: string,
+    toolCalls: ToolCallRecord[],
+): {
+    blocked: boolean;
+    reason: string;
+    evidence: string[];
+} {
+    const evidence: string[] = [];
+
+    const blockerMatch = BLOCKER_SUMMARY_PATTERNS.find(p => p.test(summary));
+    if (blockerMatch) {
+        evidence.push(`summary matched pattern: ${blockerMatch.source}`);
+    }
+
+    const toolErrors = toolCalls
+        .map(tc => ({
+            name: tc.name,
+            text: toolErrorText(tc.result),
+        }))
+        .filter(tc => tc.text.length > 0);
+
+    const fatalToolErrors = toolErrors.filter(tc =>
+        TOOL_ERROR_PATTERNS.some(p => p.test(tc.text)),
+    );
+    for (const err of fatalToolErrors) {
+        evidence.push(`tool ${err.name} error: ${err.text.slice(0, 160)}`);
+    }
+
+    const hasSuccessfulWrite = toolCalls.some(tc => {
+        if (tc.name !== 'file_write') return false;
+        if (!tc.result || typeof tc.result !== 'object') return false;
+        return !('error' in (tc.result as Record<string, unknown>));
+    });
+
+    const blockedBySummary = !!blockerMatch;
+    const blockedByFatalToolError =
+        fatalToolErrors.length > 0 && !hasSuccessfulWrite;
+
+    if (blockedBySummary || blockedByFatalToolError) {
+        const reason = blockedBySummary ?
+                'Session summary reported unresolved blocker'
+            :   'Fatal tool error without successful artifact write';
+        return { blocked: true, reason, evidence };
+    }
+
+    return {
+        blocked: false,
+        reason: '',
+        evidence: [],
+    };
+}
+
 /** Context loaded for an agent session before the LLM loop starts. */
 interface AgentSessionContext {
     voiceName: string;
@@ -345,26 +434,64 @@ export async function executeAgentSession(
         if (loopResult.rounds === -1) return;
 
         const cleanedText = extractFromXml(loopResult.lastText);
+        const summary = sanitizeSummary(cleanedText);
+        const blockedOutcome = detectBlockedOutcome(
+            [summary, cleanedText].filter(Boolean).join('\n'),
+            loopResult.toolCalls,
+        );
+
+        const finalStatus = blockedOutcome.blocked ? 'blocked' : 'succeeded';
         await completeSession(
-            session.id, 'succeeded',
-            { text: cleanedText, summary: sanitizeSummary(cleanedText), rounds: loopResult.rounds },
-            loopResult.toolCalls, loopResult.rounds,
+            session.id,
+            finalStatus,
+            {
+                text: cleanedText,
+                summary,
+                rounds: loopResult.rounds,
+                ...(blockedOutcome.blocked ?
+                    {
+                        blocked_reason: blockedOutcome.reason,
+                        blocked_evidence: blockedOutcome.evidence,
+                    }
+                :   {}),
+            },
+            loopResult.toolCalls,
+            loopResult.rounds,
+            blockedOutcome.blocked ? blockedOutcome.reason : undefined,
         );
 
         const summaryPreview = truncateToFirstSentences(cleanedText, 2000);
-        await emitEvent({
-            agent_id: agentId,
-            kind: 'agent_session_completed',
-            title: `${voiceName} session completed`,
-            summary: summaryPreview || undefined,
-            tags: ['agent_session', 'completed', session.source],
-            metadata: {
-                sessionId: session.id,
-                source: session.source,
-                rounds: loopResult.rounds,
-                toolCalls: loopResult.toolCalls.length,
-            },
-        });
+        if (blockedOutcome.blocked) {
+            await emitEvent({
+                agent_id: agentId,
+                kind: 'agent_session_blocked',
+                title: `${voiceName} session blocked`,
+                summary: summaryPreview || blockedOutcome.reason,
+                tags: ['agent_session', 'blocked', session.source],
+                metadata: {
+                    sessionId: session.id,
+                    source: session.source,
+                    rounds: loopResult.rounds,
+                    toolCalls: loopResult.toolCalls.length,
+                    blockedReason: blockedOutcome.reason,
+                    blockedEvidence: blockedOutcome.evidence,
+                },
+            });
+        } else {
+            await emitEvent({
+                agent_id: agentId,
+                kind: 'agent_session_completed',
+                title: `${voiceName} session completed`,
+                summary: summaryPreview || undefined,
+                tags: ['agent_session', 'completed', session.source],
+                metadata: {
+                    sessionId: session.id,
+                    source: session.source,
+                    rounds: loopResult.rounds,
+                    toolCalls: loopResult.toolCalls.length,
+                },
+            });
+        }
     } catch (err) {
         const errorMsg = (err as Error).message;
         log.error('Agent session failed', { error: err, sessionId: session.id, agentId });

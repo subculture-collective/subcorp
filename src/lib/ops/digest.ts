@@ -104,7 +104,7 @@ async function gatherDayData(date: Date): Promise<DayData> {
                 SELECT status, COUNT(*)::text as count
                 FROM ops_missions
                 WHERE updated_at >= ${start} AND updated_at < ${end}
-                  AND status IN ('succeeded', 'failed')
+                  AND status IN ('succeeded', 'failed', 'blocked')
                 GROUP BY status
             `,
 
@@ -154,7 +154,7 @@ async function gatherDayData(date: Date): Promise<DayData> {
     for (const row of missionRows) {
         if (row.status === 'succeeded')
             missionOutcomes.succeeded = parseInt(row.count, 10);
-        if (row.status === 'failed')
+        if (row.status === 'failed' || row.status === 'blocked')
             missionOutcomes.failed = parseInt(row.count, 10);
     }
 

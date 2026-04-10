@@ -95,6 +95,59 @@ async function checkTables(sql) {
     }
 }
 
+async function checkStatusConstraints(sql) {
+    log.info('Checking status constraints');
+
+    const checks = [
+        {
+            table: 'ops_agent_sessions',
+            constraint: 'ops_agent_sessions_status_check',
+            required: ['pending', 'running', 'succeeded', 'blocked', 'failed', 'timed_out'],
+        },
+        {
+            table: 'ops_mission_steps',
+            constraint: 'ops_mission_steps_status_check',
+            required: ['queued', 'running', 'succeeded', 'blocked', 'failed', 'skipped'],
+        },
+        {
+            table: 'ops_missions',
+            constraint: 'ops_missions_status_check',
+            required: ['approved', 'running', 'succeeded', 'blocked', 'failed', 'cancelled'],
+        },
+    ];
+
+    for (const check of checks) {
+        try {
+            const rows = await sql`
+                SELECT pg_get_constraintdef(c.oid) AS def
+                FROM pg_constraint c
+                JOIN pg_class t ON t.oid = c.conrelid
+                WHERE t.relname = ${check.table}
+                  AND c.conname = ${check.constraint}
+                LIMIT 1
+            `;
+
+            const def = rows?.[0]?.def;
+            if (!def) {
+                fail(`${check.table}: missing ${check.constraint}`);
+                continue;
+            }
+
+            const missing = check.required.filter(v => !def.includes(`'${v}'`));
+            if (missing.length > 0) {
+                fail(
+                    `${check.table}: ${check.constraint} missing status(es): ${missing.join(', ')}`,
+                );
+                continue;
+            }
+
+            pass(`${check.table}: ${check.constraint} includes expected statuses`);
+        } catch (err) {
+            fail(`${check.table}: constraint check failed (${err.message})`);
+        }
+    }
+}
+
 async function checkPolicies(sql) {
     log.info('Checking policies');
 
@@ -370,6 +423,7 @@ async function main() {
     const sql = postgres(DATABASE_URL);
 
     await checkTables(sql);
+    await checkStatusConstraints(sql);
     await checkPolicies(sql);
     await checkTriggers(sql);
     await checkRelationships(sql);
