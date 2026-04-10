@@ -14,6 +14,11 @@ import { orchestrateConversation } from '../../src/lib/roundtable/orchestrator';
 import { executeAgentSession } from '../../src/lib/tools/agent-session';
 import { createLogger } from '../../src/lib/logger';
 import { FORMATS } from '../../src/lib/roundtable/formats';
+import {
+    mirrorPublishedDraftBackfill,
+    publishApprovedDrafts,
+} from '../../src/lib/ops/content-publication';
+import { backfillGovernanceVotes } from '../../src/lib/ops/governance';
 import type { RoundtableSession } from '../../src/lib/types';
 import type { AgentSession } from '../../src/lib/tools/types';
 import type { ConversationFormat, StepKind } from '../../src/lib/types';
@@ -402,80 +407,7 @@ async function pollRoundtables(): Promise<boolean> {
             }
         }
 
-        // Governance: extract votes from debate sessions tied to a governance proposal
-        const proposalId = (session.metadata as Record<string, unknown>)
-            ?.governance_proposal_id as string | undefined;
-        if (session.format === 'debate' && proposalId) {
-            try {
-                const { castGovernanceVote } =
-                    await import('../../src/lib/ops/governance');
-
-                // Fetch the debate turns
-                const turns = await sql<
-                    Array<{ agent_id: string; dialogue: string }>
-                >`
-                    SELECT speaker AS agent_id, dialogue FROM ops_roundtable_turns
-                    WHERE session_id = ${session.id}
-                    ORDER BY turn_number ASC
-                `;
-
-                if (turns.length > 0) {
-                    // Extract votes by keyword-parsing each agent's last turn
-                    const agentIds = [...new Set(turns.map(t => t.agent_id))];
-                    let voteCount = 0;
-
-                    for (const agentId of agentIds) {
-                        const lastTurn = [...turns]
-                            .reverse()
-                            .find(t => t.agent_id === agentId);
-                        if (!lastTurn) continue;
-
-                        const upper = lastTurn.dialogue.toUpperCase();
-                        const approveIdx = upper.lastIndexOf('APPROVE');
-                        const rejectIdx = upper.lastIndexOf('REJECT');
-                        const hasApprove =
-                            approveIdx !== -1 &&
-                            !upper.includes('NOT APPROVE') &&
-                            !upper.includes("DON'T APPROVE");
-                        const hasReject = rejectIdx !== -1;
-
-                        let vote: 'approve' | 'reject' | null = null;
-                        if (hasApprove && hasReject) {
-                            vote =
-                                approveIdx > rejectIdx ? 'approve' : 'reject';
-                        } else if (hasApprove) {
-                            vote = 'approve';
-                        } else if (hasReject) {
-                            vote = 'reject';
-                        }
-
-                        if (vote) {
-                            const reason = lastTurn.dialogue.slice(0, 200);
-                            await castGovernanceVote(
-                                proposalId,
-                                agentId,
-                                vote,
-                                reason,
-                            );
-                            voteCount++;
-                        }
-                    }
-
-                    log.info('Governance votes extracted from debate', {
-                        sessionId: session.id,
-                        proposalId,
-                        voteCount,
-                    });
-                }
-            } catch (govErr) {
-                // Non-fatal — governance vote extraction should never stall the worker
-                log.error('Governance vote extraction failed (non-fatal)', {
-                    error: govErr,
-                    sessionId: session.id,
-                    proposalId,
-                });
-            }
-        }
+        // Governance vote collection happens in roundtable orchestrator post-cleanup.
 
         // Rebellion: resolve rebellion if cross-exam about a rebelling agent completed
         const rebellionAgentId = (session.metadata as Record<string, unknown>)
@@ -895,6 +827,7 @@ async function finalizeMissionSteps(): Promise<boolean> {
             session_agent_id: string | null;
             session_status: string | null;
             session_error: string | null;
+            session_blocked_reason: string | null;
             session_summary: string | null;
         }>
     >`
@@ -906,7 +839,11 @@ async function finalizeMissionSteps(): Promise<boolean> {
             sess.agent_id as session_agent_id,
             sess.status as session_status,
             sess.error as session_error,
-            CASE WHEN sess.status = 'succeeded'
+            CASE WHEN sess.status IN ('succeeded', 'blocked')
+                THEN LEFT(COALESCE(sess.result->>'blocked_reason', sess.error), 1000)
+                ELSE NULL
+            END as session_blocked_reason,
+            CASE WHEN sess.status IN ('succeeded', 'blocked')
                 THEN LEFT(sess.result->>'summary', 2000)
                 ELSE NULL
             END as session_summary
@@ -967,6 +904,17 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 }
             }
 
+            await finalizeMissionIfComplete(step.mission_id);
+        } else if (step.session_status === 'blocked') {
+            await sql`
+                UPDATE ops_mission_steps
+                SET status = 'blocked',
+                    failure_reason = ${step.session_blocked_reason ?? 'Agent session blocked'},
+                    completed_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = ${step.id}
+            `;
+            finalized++;
             await finalizeMissionIfComplete(step.mission_id);
         } else if (
             step.session_status === 'failed' ||
@@ -1440,11 +1388,12 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
 /** Check if all steps in a mission are done, finalize if so */
 async function finalizeMissionIfComplete(missionId: string): Promise<void> {
     const [counts] = await sql<
-        [{ total: number; succeeded: number; failed: number }]
+        [{ total: number; succeeded: number; blocked: number; failed: number }]
     >`
         SELECT
             COUNT(*)::int as total,
             COUNT(*) FILTER (WHERE status = 'succeeded')::int as succeeded,
+            COUNT(*) FILTER (WHERE status = 'blocked')::int as blocked,
             COUNT(*) FILTER (WHERE status = 'failed')::int as failed
         FROM ops_mission_steps
         WHERE mission_id = ${missionId}
@@ -1452,14 +1401,17 @@ async function finalizeMissionIfComplete(missionId: string): Promise<void> {
 
     if (!counts || counts.total === 0) return;
 
-    const allDone = counts.succeeded + counts.failed === counts.total;
+    const allDone = counts.succeeded + counts.blocked + counts.failed === counts.total;
     if (!allDone) return;
 
-    const finalStatus = counts.failed > 0 ? 'failed' : 'succeeded';
+    const finalStatus =
+        counts.failed > 0 ? 'failed'
+        : counts.blocked > 0 ? 'blocked'
+        : 'succeeded';
     const failReason =
-        counts.failed > 0 ?
-            `${counts.failed} of ${counts.total} steps failed`
-        :   null;
+        counts.failed > 0 ? `${counts.failed} of ${counts.total} steps failed`
+        : counts.blocked > 0 ? `${counts.blocked} of ${counts.total} steps blocked`
+        : null;
 
     await sql`
         UPDATE ops_missions
@@ -1533,26 +1485,28 @@ async function catchUpStuckReviews(): Promise<void> {
 
 /** One-time: finalize missions stuck in 'approved' with all steps completed */
 async function catchUpOrphanedMissions(): Promise<void> {
-    // Find missions in 'approved' where all steps are either succeeded or failed (none queued/running)
+    // Find missions in 'approved' where all steps are terminal (none queued/running)
     const orphaned = await sql<
         {
             id: string;
             title: string;
             total: number;
             succeeded: number;
+            blocked: number;
             failed: number;
         }[]
     >`
         SELECT m.id, m.title,
             COUNT(s.id)::int as total,
             COUNT(s.id) FILTER (WHERE s.status = 'succeeded')::int as succeeded,
+            COUNT(s.id) FILTER (WHERE s.status = 'blocked')::int as blocked,
             COUNT(s.id) FILTER (WHERE s.status = 'failed')::int as failed
         FROM ops_missions m
         LEFT JOIN ops_mission_steps s ON s.mission_id = m.id
         WHERE m.status = 'approved'
         GROUP BY m.id
         HAVING COUNT(s.id) > 0
-           AND COUNT(s.id) = COUNT(s.id) FILTER (WHERE s.status IN ('succeeded', 'failed'))
+           AND COUNT(s.id) = COUNT(s.id) FILTER (WHERE s.status IN ('succeeded', 'blocked', 'failed'))
     `;
 
     if (orphaned.length === 0) return;
@@ -1560,11 +1514,14 @@ async function catchUpOrphanedMissions(): Promise<void> {
     log.info('Catching up orphaned missions', { count: orphaned.length });
 
     for (const mission of orphaned) {
-        const finalStatus = mission.failed > 0 ? 'failed' : 'succeeded';
+        const finalStatus =
+            mission.failed > 0 ? 'failed'
+            : mission.blocked > 0 ? 'blocked'
+            : 'succeeded';
         const failReason =
-            mission.failed > 0 ?
-                `${mission.failed} of ${mission.total} step(s) failed`
-            :   null;
+            mission.failed > 0 ? `${mission.failed} of ${mission.total} step(s) failed`
+            : mission.blocked > 0 ? `${mission.blocked} of ${mission.total} step(s) blocked`
+            : null;
         await sql`
             UPDATE ops_missions
             SET status = ${finalStatus},
@@ -1591,6 +1548,38 @@ async function pollLoop(): Promise<void> {
     // Finalize any orphaned missions stuck in 'approved' with all steps done
     await catchUpOrphanedMissions();
 
+    // Publish any existing approved content drafts on startup
+    const startupPublish = await publishApprovedDrafts();
+    if (startupPublish.published > 0 || startupPublish.failed > 0) {
+        log.info('Startup content publish sweep complete', {
+            published: startupPublish.published,
+            failed: startupPublish.failed,
+        });
+    }
+
+    // Attempt Ghost backfill mirrors on startup
+    const startupGhostBackfill = await mirrorPublishedDraftBackfill();
+    if (!startupGhostBackfill.skipped && startupGhostBackfill.processed > 0) {
+        log.info('Startup Ghost backfill sweep complete', {
+            processed: startupGhostBackfill.processed,
+            mirrored: startupGhostBackfill.mirrored,
+            failed: startupGhostBackfill.failed,
+            skipped: startupGhostBackfill.skipped,
+        });
+    }
+
+    // Backfill governance votes for completed debates still stuck in voting
+    const startupGovernanceBackfill = await backfillGovernanceVotes();
+    if (startupGovernanceBackfill.processed > 0) {
+        log.info('Startup governance vote backfill complete', {
+            processed: startupGovernanceBackfill.processed,
+            resolved: startupGovernanceBackfill.resolved,
+            requeued: startupGovernanceBackfill.requeued,
+            votesAdded: startupGovernanceBackfill.votesAdded,
+            failed: startupGovernanceBackfill.failed,
+        });
+    }
+
     while (running) {
         try {
             // Roundtables first — user questions should not be starved by agent sessions
@@ -1605,6 +1594,38 @@ async function pollLoop(): Promise<void> {
 
             // Finalize mission steps based on agent session completion
             await finalizeMissionSteps();
+
+            // Publish approved content drafts without manual gate
+            const publishResult = await publishApprovedDrafts();
+            if (publishResult.published > 0 || publishResult.failed > 0) {
+                log.info('Content publish sweep complete', {
+                    published: publishResult.published,
+                    failed: publishResult.failed,
+                });
+            }
+
+            // Retry Ghost mirrors for already published drafts
+            const ghostBackfill = await mirrorPublishedDraftBackfill();
+            if (!ghostBackfill.skipped && ghostBackfill.processed > 0) {
+                log.info('Ghost mirror backfill sweep complete', {
+                    processed: ghostBackfill.processed,
+                    mirrored: ghostBackfill.mirrored,
+                    failed: ghostBackfill.failed,
+                    skipped: ghostBackfill.skipped,
+                });
+            }
+
+            // Backfill governance votes if proposals are still stuck in voting
+            const governanceBackfill = await backfillGovernanceVotes();
+            if (governanceBackfill.processed > 0) {
+                log.info('Governance vote backfill sweep complete', {
+                    processed: governanceBackfill.processed,
+                    resolved: governanceBackfill.resolved,
+                    requeued: governanceBackfill.requeued,
+                    votesAdded: governanceBackfill.votesAdded,
+                    failed: governanceBackfill.failed,
+                });
+            }
 
             // Sweep stale agent sessions stuck in 'running' past their timeout
             await sweepStaleAgentSessions();

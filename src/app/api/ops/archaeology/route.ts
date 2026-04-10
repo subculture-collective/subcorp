@@ -9,7 +9,7 @@ import {
     performDig,
     type FindingType,
 } from '@/lib/ops/memory-archaeology';
-import { withRequestContext } from '@/middleware';
+import { withRequestContext } from '@/lib/with-request-context';
 import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'api-archaeology' });

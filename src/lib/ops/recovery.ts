@@ -48,6 +48,19 @@ export async function recoverStaleSteps(): Promise<{ recovered: number }> {
                 `;
                 recovered++;
                 affectedMissionIds.add(row.mission_id);
+            } else if (row.session_status === 'blocked') {
+                // Session blocked — propagate blocker to step
+                const reason = row.session_error ?? 'Agent session blocked';
+                await sql`
+                    UPDATE ops_mission_steps
+                    SET status = 'blocked',
+                        failure_reason = ${reason},
+                        completed_at = NOW(),
+                        updated_at = NOW()
+                    WHERE id = ${row.id}
+                `;
+                recovered++;
+                affectedMissionIds.add(row.mission_id);
             } else if (row.session_status === 'failed' || row.session_status === 'timed_out') {
                 // Session failed — propagate failure to step
                 const reason = row.session_error ?? `Agent session ${row.session_status}`;
@@ -123,6 +136,12 @@ export async function maybeFinalializeMission(
         AND status = 'failed'
     `;
 
+    const [{ count: blockedCount }] = await sql<[{ count: number }]>`
+        SELECT COUNT(*)::int as count FROM ops_mission_steps
+        WHERE mission_id = ${missionId}
+        AND status = 'blocked'
+    `;
+
     const [mission] = await sql<[{ created_by: string; title: string }]>`
         SELECT created_by, title FROM ops_missions WHERE id = ${missionId}
     `;
@@ -146,6 +165,24 @@ export async function maybeFinalializeMission(
             title: `Mission failed: ${mission.title}`,
             tags: ['mission', 'failed'],
             metadata: { missionId, failedSteps: failedCount },
+        });
+    } else if (blockedCount > 0) {
+        const blockedReason = `${blockedCount} step(s) blocked`;
+        await sql`
+            UPDATE ops_missions
+            SET status = 'blocked',
+                failure_reason = ${blockedReason},
+                completed_at = NOW(),
+                updated_at = NOW()
+            WHERE id = ${missionId}
+        `;
+
+        await emitEvent({
+            agent_id: mission.created_by,
+            kind: 'mission_blocked',
+            title: `Mission blocked: ${mission.title}`,
+            tags: ['mission', 'blocked'],
+            metadata: { missionId, blockedSteps: blockedCount },
         });
     } else {
         await sql`

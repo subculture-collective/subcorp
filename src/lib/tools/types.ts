@@ -20,6 +20,7 @@ export type AgentSessionStatus =
     | 'pending'
     | 'running'
     | 'succeeded'
+    | 'blocked'
     | 'failed'
     | 'timed_out';
 

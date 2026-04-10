@@ -312,7 +312,7 @@ async function haltTarget(
             await sql`
                 UPDATE ops_missions
                 SET status = 'cancelled', failure_reason = ${vetoReason}, updated_at = NOW()
-                WHERE proposal_id = ${targetId} AND status IN ('approved', 'running')
+                WHERE proposal_id = ${targetId} AND status IN ('approved', 'running', 'blocked')
             `;
             break;
         }
@@ -320,13 +320,13 @@ async function haltTarget(
             await sql`
                 UPDATE ops_missions
                 SET status = 'cancelled', failure_reason = ${vetoReason}, updated_at = NOW()
-                WHERE id = ${targetId} AND status IN ('approved', 'running')
+                WHERE id = ${targetId} AND status IN ('approved', 'running', 'blocked')
             `;
             // Also fail any queued/running steps
             await sql`
                 UPDATE ops_mission_steps
                 SET status = 'failed', failure_reason = ${vetoReason}, completed_at = NOW(), updated_at = NOW()
-                WHERE mission_id = ${targetId} AND status IN ('queued', 'running')
+                WHERE mission_id = ${targetId} AND status IN ('queued', 'running', 'blocked')
             `;
             break;
         }
@@ -342,7 +342,7 @@ async function haltTarget(
             await sql`
                 UPDATE ops_mission_steps
                 SET status = 'failed', failure_reason = ${vetoReason}, completed_at = NOW(), updated_at = NOW()
-                WHERE id = ${targetId} AND status IN ('queued', 'running')
+                WHERE id = ${targetId} AND status IN ('queued', 'running', 'blocked')
             `;
             break;
         }

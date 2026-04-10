@@ -1,8 +1,8 @@
 // /api/ops/content — List and manage content drafts
 import { NextRequest, NextResponse } from 'next/server';
 import { sql, jsonb } from '@/lib/db';
-import { emitEvent } from '@/lib/ops/events';
 import { requireAuthOrCron } from '@/lib/auth/middleware';
+import { retryGhostMirrorForDraft } from '@/lib/ops/content-publication';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,7 +47,29 @@ export async function PATCH(req: NextRequest) {
             id?: string;
             status?: string;
             notes?: string;
+            action?: string;
         };
+
+        if (body.action === 'retry_ghost_mirror') {
+            if (!body.id) {
+                return NextResponse.json(
+                    { error: 'Missing required field: id' },
+                    { status: 400 },
+                );
+            }
+
+            const retry = await retryGhostMirrorForDraft(body.id);
+            return NextResponse.json(
+                {
+                    success: retry.ok,
+                    mirrored: retry.mirrored,
+                    id: body.id,
+                    action: body.action,
+                    message: retry.message,
+                },
+                { status: retry.ok ? 200 : 400 },
+            );
+        }
 
         if (!body.id || !body.status) {
             return NextResponse.json(
@@ -80,7 +102,6 @@ export async function PATCH(req: NextRequest) {
             'review',
             'approved',
             'rejected',
-            'published',
         ];
         if (!validStatuses.includes(body.status)) {
             return NextResponse.json(
@@ -107,7 +128,7 @@ export async function PATCH(req: NextRequest) {
         const validTransitions: Record<string, string[]> = {
             draft: ['review'],
             review: ['approved', 'rejected'],
-            approved: ['published'],
+            approved: ['rejected'],
             rejected: ['draft'], // Allow re-drafting
             published: [],
         };
@@ -122,15 +143,6 @@ export async function PATCH(req: NextRequest) {
             );
         }
 
-        // Build update
-        const updates: Record<string, unknown> = {
-            status: body.status,
-        };
-
-        if (body.status === 'published') {
-            updates.published_at = new Date().toISOString();
-        }
-
         if (body.notes) {
             // Append note to reviewer_notes array
             // Map status to verdict value
@@ -142,45 +154,37 @@ export async function PATCH(req: NextRequest) {
                 UPDATE ops_content_drafts
                 SET status = ${body.status},
                     reviewer_notes = reviewer_notes || ${jsonb([{ reviewer: 'manual', verdict, notes: body.notes }])}::jsonb,
-                    ${body.status === 'published' ? sql`published_at = NOW(),` : sql``}
                     updated_at = NOW()
                 WHERE id = ${body.id}
                 AND status = ${draft.status}
-                RETURNING id, author_agent, title, content_type
+                RETURNING id
             `;
 
-            // Emit event when content is published (only if update succeeded)
-            if (body.status === 'published' && result.length > 0) {
-                const publishedDraft = result[0];
-                await emitEvent({
-                    agent_id: publishedDraft.author_agent,
-                    kind: 'content_published',
-                    title: `Published: ${publishedDraft.title}`,
-                    summary: `${publishedDraft.content_type} published by ${publishedDraft.author_agent}`,
-                    tags: ['content', 'published', publishedDraft.content_type],
-                });
+            if (result.length === 0) {
+                return NextResponse.json(
+                    {
+                        error: `Update failed due to stale status. Expected ${draft.status}`,
+                    },
+                    { status: 409 },
+                );
             }
         } else {
             const result = await sql`
                 UPDATE ops_content_drafts
                 SET status = ${body.status},
-                    ${body.status === 'published' ? sql`published_at = NOW(),` : sql``}
                     updated_at = NOW()
                 WHERE id = ${body.id}
                 AND status = ${draft.status}
-                RETURNING id, author_agent, title, content_type
+                RETURNING id
             `;
 
-            // Emit event when content is published (only if update succeeded)
-            if (body.status === 'published' && result.length > 0) {
-                const publishedDraft = result[0];
-                await emitEvent({
-                    agent_id: publishedDraft.author_agent,
-                    kind: 'content_published',
-                    title: `Published: ${publishedDraft.title}`,
-                    summary: `${publishedDraft.content_type} published by ${publishedDraft.author_agent}`,
-                    tags: ['content', 'published', publishedDraft.content_type],
-                });
+            if (result.length === 0) {
+                return NextResponse.json(
+                    {
+                        error: `Update failed due to stale status. Expected ${draft.status}`,
+                    },
+                    { status: 409 },
+                );
             }
         }
 

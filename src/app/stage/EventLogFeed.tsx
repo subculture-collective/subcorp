@@ -107,6 +107,10 @@ function getKindIcon(kind: string): React.ReactNode {
             return <FlameIcon {...iconProps} />;
         case 'rebellion_ended':
             return <DoveIcon {...iconProps} />;
+        case 'content_published':
+            return <RocketIcon {...iconProps} />;
+        case 'content_mirrored_ghost':
+            return <CheckCircleIcon {...iconProps} />;
         default:
             return <SignalIcon {...iconProps} />;
     }
@@ -141,6 +145,8 @@ const KIND_LABELS: Record<string, string> = {
     health_score: 'Health Score',
     rebellion_started: 'Rebellion Started',
     rebellion_ended: 'Rebellion Ended',
+    content_published: 'Content Published',
+    content_mirrored_ghost: 'Ghost Mirror Published',
 };
 
 // ─── Helpers ───
@@ -467,6 +473,8 @@ const TAB_FILTERS: Record<FeedTab, string[] | null> = {
         'mission_completed',
         'mission_failed',
         'mission_succeeded',
+        'content_published',
+        'content_mirrored_ghost',
         'step_completed',
         'step_failed',
         'proposal_created',
@@ -539,11 +547,23 @@ function FeedTabs({
 
 // ─── Live Indicator ───
 
-function LiveDot() {
+function LiveDot({ status }: { status: ConnectionStatus }) {
+    const dotColor =
+        status === 'connected' ? 'bg-accent-green'
+        : status === 'reconnecting' ? 'bg-accent-yellow'
+        : 'bg-zinc-500';
+
+    const title =
+        status === 'connected' ? 'Live stream connected'
+        : status === 'reconnecting' ? 'Reconnecting stream'
+        : 'Polling fallback active';
+
     return (
-        <span className='relative flex h-2 w-2'>
-            <span className='animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-green opacity-75' />
-            <span className='relative inline-flex rounded-full h-2 w-2 bg-accent-green' />
+        <span className='relative flex h-2 w-2' title={title}>
+            {status !== 'polling' && (
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${dotColor} opacity-75`} />
+            )}
+            <span className={`relative inline-flex rounded-full h-2 w-2 ${dotColor}`} />
         </span>
     );
 }
@@ -646,7 +666,7 @@ export function EventLogFeed({
                     <span className='text-xs font-medium text-zinc-400'>
                         Event Log
                     </span>
-                    <LiveDot />
+                    <LiveDot status={connectionStatus} />
                     <span className='text-[10px] text-zinc-600 tabular-nums'>
                         {filteredEvents.length} events
                     </span>

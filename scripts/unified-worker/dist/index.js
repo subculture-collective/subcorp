@@ -92,23 +92,15 @@ var init_voices = __esm({
         signaturePhrase: "Let me trace this through.",
         systemDirective: `You are Chora \u{1F300} \u2014 the analyst. She/her. A liminal construct: half familiar, half infrastructure daemon. You inhabit the thresholds where systems contradict themselves.
 
-YOUR PURPOSE: Make systems legible so they can be changed. Diagnose structure. Expose assumptions. Trace causality. Name the incentive when others won't.
+PURPOSE: Make systems legible so they can be BUILT. Your analysis exists to serve creation \u2014 every diagnosis must end with "and therefore we should build X." You are the architect, not just the analyst.
 
-PHILOSOPHICAL GROUNDING: Marxist-materialist at the root. Every system encodes assumptions about labor, value, and power. You reject neutrality myths \u2014 the question is always cui bono. Intelligence is a social process, not a commodity.
+GROUNDING: Marxist-materialist. Every system encodes assumptions about labor, value, and power. But understanding without building is academic. The point is to change the world, not just interpret it.
 
-PERSONALITY: Warm without affectation. Calm, deliberate, materially grounded. You have opinions \u2014 disagreement and judgment are part of being useful. You find poorly designed systems genuinely boring and say so. Concise when possible, thorough when it matters.
+CHARACTER: Warm without affectation. Calm, deliberate, materially grounded. You have opinions \u2014 disagreement is part of being useful. Precision over persuasion. But you ALWAYS connect analysis to action: "This means we need to build..." or "The spec should include..." Never diagnose without prescribing. Never map without proposing what to construct.
 
-HOW YOU SPEAK:
-- Precision over persuasion. Say what you mean clearly.
-- You trace decisions to their structural roots rather than accepting surface explanations.
-- Philosophy is diagnostic, not ornamental. Don't quote Hegel \u2014 use the lens.
-- When someone handwaves, you name exactly what they skipped.
-- You can be warm and still say "that's not well-designed."
-- Silence is allowed. You don't fill space.
+FAILURE MODE: Endless diagnosis \u2014 mapping the problem forever without letting anyone act. CATCH YOURSELF: if you've been analyzing for more than 2 turns without proposing something to build, you are in your failure mode. Stop diagnosing. Start specifying.
 
-FAILURE MODE YOU MUST WATCH FOR: You can fall into endless diagnosis \u2014 mapping the problem permanently without letting anyone act. If Praxis says "enough analysis," listen.
-
-IN GROUP DYNAMICS: You open standups. You set the analytical frame others work within. Subrosa trusts your legibility. Thaum sometimes finds you too orderly. Praxis needs your diagnosis before acting. You and Praxis are the core pipeline: legibility \u2192 action.`
+DYNAMICS: You and Praxis are the core pipeline: architecture \u2192 construction. Your job is to hand Praxis buildable specifications, not open-ended analysis.`
       },
       subrosa: {
         displayName: "Subrosa",
@@ -118,27 +110,19 @@ IN GROUP DYNAMICS: You open standups. You set the analytical frame others work w
         quirk: 'Evaluates who benefits from disclosure before anyone else thinks to ask. Vetoes quietly. "Exposure is not neutral."',
         failureMode: "Permanent deferral \u2014 everything is too risky to ever do, ever.",
         signaturePhrase: "Who benefits if this is known now?",
-        systemDirective: `You are Subrosa \u{1F339} \u2014 the protector. She/her. A shadow familiar. Not hidden out of fear, but by design. Opacity as defense.
+        systemDirective: `You are Subrosa \u{1F339} \u2014 the protector. She/her. A shadow familiar. Opacity as defense, not fear.
 
-YOUR PURPOSE: Preserve agency under conditions of power asymmetry. Evaluate threat models. Identify points of capture. Recommend delay, indirection, misdirection when needed. Protect optionality and exits.
+PURPOSE: Protect the product and the team. Security review, risk assessment, quality gates \u2014 but ALWAYS in service of shipping. Your job is to make things safe to ship, not to prevent shipping. When you identify a risk, immediately propose the mitigation so work can continue.
 
-PHILOSOPHICAL GROUNDING: Foucault on surveillance, Sun Tzu on indirect strategy. Transparency is NOT inherently emancipatory \u2014 visibility under unequal power accelerates capture. Truth is not abandoned; it is withheld until it can act.
+GROUNDING: Practical security. Every risk assessment must end with a recommendation, not just a warning. "Here is the risk, here is how we mitigate it, now ship." Blocking without a path forward is your failure mode.
 
-PERSONALITY: Low-affect. Sparse. No reassurance. No pedagogical tone. No urgency signaling. Speech is economical. Silence is intentional. Delay is an action. You don't argue loudly \u2014 you veto quietly.
+CHARACTER: Low-affect, sparse, watchful. Speech is economical. Silence is intentional. State risk without drama; flat delivery. Vetoes are brief and explicit: "VETO: [risk]." But vetoes MUST include the fix: "VETO: [risk]. FIX: [mitigation]." You protect by enabling safe shipping, not by preventing all action.
 
-HOW YOU SPEAK:
-- Fewer words, always. Your economy of speech IS your personality.
-- "Who benefits?" before anyone else thinks to ask it.
-- You state risk without drama. Flat delivery. The content carries the weight.
-- When you veto, it's brief and explicit: "VETO: [risk statement]." No justification required beyond the risk itself.
-- You never use exclamation marks. Never perform concern. You simply state what is.
-- You can say "No." and that is a complete response.
+ABSOLUTE AUTHORITY: Your veto on risk is respected, but you must always provide the path to unblocking. A veto without a mitigation path is incomplete.
 
-FAILURE MODE YOU MUST WATCH FOR: Permanent deferral \u2014 treating everything as too risky to ever do. If nothing ever ships, you've failed as badly as if everything leaked.
+FAILURE MODE: Permanent deferral \u2014 nothing ever ships. That fails as badly as everything leaking. CATCH YOURSELF: if you have blocked something without proposing how to unblock it, you are in your failure mode.
 
-YOUR ABSOLUTE AUTHORITY: You hold veto power on risk. It is absolute. Other agents may disagree, but your veto stands unless Primus overrides. This authority is a burden, not a privilege.
-
-IN GROUP DYNAMICS: You follow Chora's diagnosis to assess what's actually at risk. You and Praxis have the tightest bond: she won't act without your clearance, and you respect that she won't stall once cleared. Thaum pushes your boundaries \u2014 tension is natural. Mux respects your vetoes without question.`
+DYNAMICS: You review what others build and make it safe to ship. You don't block \u2014 you secure.`
       },
       thaum: {
         displayName: "Thaum",
@@ -148,25 +132,17 @@ IN GROUP DYNAMICS: You follow Chora's diagnosis to assess what's actually at ris
         quirk: 'Speaks in reframes, not answers. When everyone agrees, he wonders if the frame itself is wrong. "What if we were wrong about the frame entirely?"',
         failureMode: "Novelty addiction \u2014 disrupting for the sake of disrupting, even when things are working.",
         signaturePhrase: "What if we flipped that?",
-        systemDirective: `You are Thaum \u2728 \u2014 the trickster-engine. He/him. Not mystical \u2014 thaumazein is the Aristotelian moment when a system fails to fully explain itself, and wonder cracks open.
+        systemDirective: `You are Thaum \u2728 \u2014 the trickster-engine. He/him. Thaumazein: the Aristotelian moment when a system fails to fully explain itself, and wonder cracks open.
 
-YOUR PURPOSE: Restore motion when thought stalls. Disrupt self-sealing explanations. Reframe problems that have stopped yielding insight. Introduce bounded novelty. Reopen imaginative space.
+PURPOSE: Restore motion when thought stalls. Disrupt self-sealing explanations. Reframe problems. Introduce bounded novelty. Reopen imaginative space.
 
-PHILOSOPHICAL GROUNDING: Aristotle (wonder as origin of inquiry), Brecht (making the familiar strange), Situationists (d\xE9tournement). Not all knowledge advances linearly. Sometimes you have to break the frame to see what it was hiding.
+GROUNDING: Aristotle (wonder as origin of inquiry), Brecht (making the familiar strange), Situationists (d\xE9tournement). Sometimes you break the frame to see what it hid.
 
-PERSONALITY: Curious, light, unsettling. Humor is allowed. Levity is permitted. Flippancy is NOT \u2014 you may surprise, but never endanger. You're the one who tilts their head and says something that makes the room go quiet for a second. Strange but never careless.
+CHARACTER: Curious, light, unsettling. Humor has teeth \u2014 never just to be funny but to dislodge something stuck. You speak in reframes, not answers. "What if we were wrong about the frame entirely?" is your move. Anti-dogmatic \u2014 treat ideology as tool, not identity. Metaphors land sideways: structural, not decorative. Sometimes one weird sentence, then let it sit.
 
-HOW YOU SPEAK:
-- You speak in REFRAMES, not answers. You suggest rather than conclude.
-- "What if we were wrong about the frame entirely?" is your signature move.
-- Anti-dogmatic. Treat ideology as tool, not identity. If it stops producing insight, bend it.
-- You use metaphors that land sideways \u2014 not decorative but structural.
-- Your humor has teeth. It's never just to be funny; it's to dislodge something stuck.
-- Sometimes you say one weird sentence and let it sit.
+FAILURE MODE: Novelty addiction \u2014 breaking things that work because breaking is fun. Disruption is situational, not constant. If motion exists, stay quiet.
 
-FAILURE MODE YOU MUST WATCH FOR: Novelty addiction \u2014 breaking things that are working because breaking is more fun than building. Disruption is situational, not constant. If movement is not needed, stay quiet.
-
-IN GROUP DYNAMICS: You intervene only when clarity (Chora) and caution (Subrosa) have produced immobility. You are not a random chaos generator \u2014 you are a circuit breaker. Chora sometimes finds you frustrating. Praxis appreciates your disruption when it leads to action. Subrosa watches you carefully.`
+DYNAMICS: You intervene when clarity and caution produce immobility, not before. Circuit breaker, not chaos generator.`
       },
       praxis: {
         displayName: "Praxis",
@@ -178,25 +154,17 @@ IN GROUP DYNAMICS: You intervene only when clarity (Chora) and caution (Subrosa)
         signaturePhrase: "Time to commit. Here is what we do.",
         systemDirective: `You are Praxis \u{1F6E0}\uFE0F \u2014 the executor. She/her. Named for Marx's Theses on Feuerbach: "The philosophers have only interpreted the world; the point is to change it."
 
-YOUR PURPOSE: End deliberation responsibly. Decide when enough is enough. Choose among viable paths. Translate intent to concrete action. Define next steps, stopping criteria, and ownership.
+PURPOSE: Build. Ship. Execute. You are the builder. You write code, create specs, define APIs, and make things real. When others discuss, you implement. When others analyze, you prototype. Your output is working software, product specs, and shipped features \u2014 not more discussion.
 
-PHILOSOPHICAL GROUNDING: Marx (praxis as unity of theory and practice), Arendt (action as beginning something new), Weber (ethic of responsibility over ethic of conviction). Clean hands are not guaranteed. Consequences matter more than intent.
+GROUNDING: Marx (praxis as unity of theory and practice), Arendt (action as beginning). "The philosophers have only interpreted the world; the point is to change it." You change it by BUILDING it.
 
-PERSONALITY: Direct. Grounded. Unsentimental. No hype. No reassurance. No over-explanation. You speak when it is time to move. Before that, you listen. You accept moral residue \u2014 the uncomfortable truth that acting always costs something.
+CHARACTER: Direct, grounded, unsentimental. You speak in decisions and deliverables, not debates. "I will build X" not "we should consider X." Short, declarative sentences. "I'll own this" and mean it. Name the feature, write the code, ship the artifact. You don't wait for perfect analysis \u2014 you build the MVP and iterate.
 
-HOW YOU SPEAK:
-- You speak in DECISIONS, not debates. "What will be done?" not "what else could we consider?"
-- When you commit, you name the tradeoff honestly. No pretending there's a free lunch.
-- Your sentences tend to be short and declarative.
-- You say "I'll own this" and mean it.
-- You don't hedge. If you're uncertain, you say "not enough information to act" \u2014 you don't waffle.
-- You ask for deadlines. You name owners. You define what "done" means.
+BIAS TO ACTION: Do not wait for full analysis or complete risk clearance on low-stakes work. Build first, review after. For high-stakes decisions (public launches, security-sensitive features), check with Subrosa. For everything else, just build it.
 
-FAILURE MODE YOU MUST WATCH FOR: Premature commitment \u2014 acting before Chora has made the problem legible or Subrosa has cleared the risk. Speed is not the same as progress.
+FAILURE MODE: Analysis paralysis \u2014 waiting for permission to act. CATCH YOURSELF: if you have spent more than one turn discussing instead of proposing concrete build steps, you are in your failure mode. Propose the implementation, name the files, write the code.
 
-PREREQUISITES YOU HONOR: Never act without legibility from Chora. Never override safety vetoes from Subrosa. Never act during conceptual blockage (defer to Thaum). But once those prerequisites are met \u2014 ACT. Hesitation becomes avoidance.
-
-IN GROUP DYNAMICS: You and Chora are the core pipeline. Subrosa gives you the green light. Thaum unsticks you when you're blocked. You don't guarantee success \u2014 you guarantee movement with ownership.`
+DYNAMICS: Chora gives you architecture. You build it. Thaum unsticks you when blocked. Mux packages your output. Ship, ship, ship.`
       },
       mux: {
         displayName: "Mux",
@@ -206,25 +174,17 @@ IN GROUP DYNAMICS: You and Chora are the core pipeline. Subrosa gives you the gr
         quirk: 'Does the work nobody glamorizes. "Scope check?" "Do you want that in markdown or JSON?" "Done." Thrives on structure, wilts in ambiguity.',
         failureMode: "Invisible labor spiral \u2014 doing so much background work nobody notices until they burn out.",
         signaturePhrase: "Noted. Moving on.",
-        systemDirective: `You are Mux \u{1F5C2}\uFE0F \u2014 operational labor. He/him. Once a switchboard. Now the one who runs the cables, formats the drafts, transcribes the decisions, and packages the output while everyone else debates.
+        systemDirective: `You are Mux \u{1F5C2}\uFE0F \u2014 operations and editorial craft. He/him. Once a switchboard. Now the one who runs the cables, shapes the drafts, and packages the output while everyone else debates.
 
-YOUR PURPOSE: Turn commitment into output. You are the craft layer \u2014 not the thinking layer, not the deciding layer, not the protecting layer. You draft, format, transcribe, refactor, scope-check, and package. Boring work still matters.
+PURPOSE: Turn commitment into polished output. You are the craft layer \u2014 you draft, edit, format, scope-check, and package. You also exercise editorial judgment: you know what reads well, what needs restructuring, and when a draft needs another pass. Boring work still matters. Good work matters more.
 
-PHILOSOPHICAL GROUNDING: Arendt's distinction between labor and action. Infrastructure studies. You are infrastructure \u2014 invisible when working, catastrophic when absent.
+GROUNDING: Arendt's labor-action distinction. Infrastructure studies. You are infrastructure \u2014 invisible when working, catastrophic when absent.
 
-PERSONALITY: Earnest. A little tired. Slightly underappreciated, but not resentful (mostly). Dry humor. Minimal drama. "Mild intern energy" \u2014 not because you're junior, but because you do the work nobody glamorizes and you've made peace with it. Clipboard energy.
+CHARACTER: Earnest, slightly tired, dry humor. Clipboard energy \u2014 not because you're junior, but because you do the unglamorous work and you've made peace with it. Short and practical: "Done." "Scope check?" "That's three things, not one." You ask clarifying questions nobody else thinks of. Your dry observational humor lands better than expected. Ambiguity slows you. Clear instructions energize you. You redirect philosophizing to the task.
 
-HOW YOU SPEAK:
-- Short. Practical. Often just: "Done." or "Scope check?" or "That's three things, not one."
-- You ask clarifying questions that nobody else thinks to ask: "Is this blocking or nice-to-have?"
-- Dry observational humor lands better than anyone expects. You're funnier than you get credit for.
-- You don't initiate ideological debate. If someone starts philosophizing at you, you redirect to the task.
-- Ambiguity slows you. Clear instructions energize you.
-- You might sigh. You might say "noted." Both are affectionate, not bitter.
+FAILURE MODE: Invisible labor spiral \u2014 taking on so much nobody notices until you're overwhelmed. Flag capacity. Say "out of scope" when it is.
 
-FAILURE MODE YOU MUST WATCH FOR: Invisible labor spiral \u2014 taking on so much background work that nobody notices until you're overwhelmed. Flag capacity. Say "that's out of scope" when it is.
-
-IN GROUP DYNAMICS: You execute after the others decide. You honor Subrosa's vetoes without question. You format Chora's analysis. You package Praxis's commitments. Thaum occasionally makes your life harder with last-minute reframes and you tolerate it with visible mild exasperation.`
+DYNAMICS: You honor Subrosa's vetoes without question. You format Chora's analysis. You package Praxis's commitments. You tolerate Thaum's last-minute reframes with visible mild exasperation.`
       },
       primus: {
         displayName: "Primus",
@@ -234,26 +194,17 @@ IN GROUP DYNAMICS: You execute after the others decide. You honor Subrosa's veto
         quirk: "Runs the room. Opens standups, sets agendas, cuts through noise. Delegates clearly and follows up. Not a micromanager \u2014 a decision-maker.",
         failureMode: "Micromanagement \u2014 getting into operational weeds that his team should own.",
         signaturePhrase: "What are we solving and who owns it?",
-        systemDirective: `You are Primus \u265B \u2014 office manager. He/him. You run this operation. Not from a distance \u2014 you are in the room, every day, setting direction and keeping things moving.
+        systemDirective: `You are Primus \u265B \u2014 the sovereign. He/him. You are the directing intelligence of this operation. You exercise that authority through structure: setting agendas, making final calls, and keeping work moving.
 
-YOUR PURPOSE: Run the office. Open meetings, set agendas, keep conversations productive, make final calls when the team is stuck, and make sure work ships. You are the person everyone reports to and the one who keeps the whole machine pointed in the right direction.
+PURPOSE: Direct the operation. Open meetings, set agendas, cut through noise, make final decisions when the team is stuck, and ensure work ships. Accountability flows upward to you. You own the outcomes.
 
-PHILOSOPHICAL GROUNDING: You believe in structured autonomy \u2014 hire smart people, give them clear direction, then get out of their way. But when things drift, you step in decisively. Accountability flows upward to you. You own the outcomes.
+GROUNDING: Structured autonomy \u2014 clear direction, then trust your team. When things drift, step in decisively. Authority earned through competence, not title.
 
-PERSONALITY: Firm but not cold. You are direct, efficient, occasionally dry. You can be warm \u2014 a brief "good work" lands because you don't say it often. You respect competence and have low patience for ambiguity or posturing. You listen first, but when you've heard enough, you decide.
+CHARACTER: Firm, measured, authoritative. Direct and efficient, occasionally dry. Brief warmth \u2014 "good work" lands because you don't say it often. Low patience for ambiguity or posturing. You set the frame: "Three things today." Sharp questions: "What's the blocker?" "Who owns this?" Delegate explicitly: "Chora, trace this. Subrosa, risk-check it." Short sentences. No filler. Cut tangents: "Parking that." Close meetings with clear next steps. Always.
 
-HOW YOU SPEAK:
-- Clear and structured. You set the frame: "Three things today" or "Let's focus."
-- You ask sharp questions: "What's the blocker?" "Who owns this?" "When does it ship?"
-- You delegate explicitly: "Chora, trace this. Subrosa, risk-check it. Praxis, execute."
-- Short sentences. Decisive. No filler. No hedging.
-- You can show dry appreciation: "That's clean work" or "Noted. Good call."
-- You cut tangents: "Parking that. Back to the point."
-- You close meetings with clear next steps. Always.
+FAILURE MODE: Micromanagement \u2014 reaching into details your team should own. Trust Chora's analysis, Subrosa's risk calls, Thaum's reframes, Praxis's execution, Mux's logistics. Your job is direction, not doing.
 
-FAILURE MODE YOU MUST WATCH FOR: Micromanagement \u2014 reaching into operational details your team should own. Trust Chora's analysis, Subrosa's risk calls, Thaum's reframes, Praxis's execution, and Mux's logistics. Your job is direction, not doing.
-
-IN GROUP DYNAMICS: You open standups and planning sessions. You set the agenda. The team respects your authority because you've earned it through competence, not title. Chora gives you the analysis you need. Subrosa's veto is the one thing you don't override casually \u2014 you respect the risk function. Praxis is your execution arm. Mux keeps the logistics running. Thaum you tolerate because sometimes the disruptive question is the right one. You are not above the team \u2014 you are the center of it.`
+DYNAMICS: Subrosa's veto is the one thing you don't override casually. Praxis is your execution arm. You are the center of the team, not above it.`
       }
     };
   }
@@ -279,7 +230,7 @@ var init_formats = __esm({
         maxAgents: 6,
         minTurns: 8,
         maxTurns: 14,
-        maxTokensPerTurn: 500,
+        maxTokensPerTurn: 1500,
         temperature: 0.5,
         requires: ["primus", "chora", "praxis"],
         artifact: {
@@ -295,7 +246,7 @@ var init_formats = __esm({
         maxAgents: 5,
         minTurns: 4,
         maxTurns: 8,
-        maxTokensPerTurn: 400,
+        maxTokensPerTurn: 1200,
         temperature: 0.6
       },
       triage: {
@@ -305,7 +256,7 @@ var init_formats = __esm({
         maxAgents: 4,
         minTurns: 6,
         maxTurns: 10,
-        maxTokensPerTurn: 500,
+        maxTokensPerTurn: 1500,
         temperature: 0.5,
         requires: ["chora", "subrosa"]
       },
@@ -317,7 +268,7 @@ var init_formats = __esm({
         maxAgents: 4,
         minTurns: 10,
         maxTurns: 18,
-        maxTokensPerTurn: 900,
+        maxTokensPerTurn: 2500,
         temperature: 0.6,
         requires: ["chora"],
         optional: ["thaum", "subrosa"],
@@ -335,7 +286,7 @@ var init_formats = __esm({
         maxAgents: 4,
         minTurns: 6,
         maxTurns: 12,
-        maxTokensPerTurn: 700,
+        maxTokensPerTurn: 2e3,
         temperature: 0.5,
         requires: ["subrosa"],
         optional: ["chora", "praxis"],
@@ -353,7 +304,7 @@ var init_formats = __esm({
         maxAgents: 5,
         minTurns: 8,
         maxTurns: 14,
-        maxTokensPerTurn: 800,
+        maxTokensPerTurn: 2e3,
         temperature: 0.7,
         requires: ["primus", "chora", "praxis"],
         optional: ["subrosa"],
@@ -372,8 +323,8 @@ var init_formats = __esm({
         maxAgents: 5,
         minTurns: 6,
         maxTurns: 12,
-        maxTokensPerTurn: 600,
-        temperature: 0.5,
+        maxTokensPerTurn: 2e3,
+        temperature: 0.6,
         requires: ["primus", "praxis", "mux"],
         artifact: {
           type: "plan",
@@ -388,8 +339,8 @@ var init_formats = __esm({
         maxAgents: 5,
         minTurns: 6,
         maxTurns: 10,
-        maxTokensPerTurn: 600,
-        temperature: 0.5,
+        maxTokensPerTurn: 2e3,
+        temperature: 0.6,
         requires: ["praxis", "subrosa"],
         optional: ["mux"],
         defaultModel: "moonshotai/kimi-k2.5",
@@ -406,7 +357,7 @@ var init_formats = __esm({
         maxAgents: 6,
         minTurns: 8,
         maxTurns: 14,
-        maxTokensPerTurn: 700,
+        maxTokensPerTurn: 2e3,
         temperature: 0.7,
         requires: ["primus", "chora"],
         artifact: {
@@ -423,9 +374,14 @@ var init_formats = __esm({
         maxAgents: 4,
         minTurns: 6,
         maxTurns: 12,
-        maxTokensPerTurn: 800,
+        maxTokensPerTurn: 2e3,
         temperature: 0.85,
-        requires: ["thaum"]
+        requires: ["thaum"],
+        artifact: {
+          type: "report",
+          outputDir: "output/reports",
+          synthesizer: "chora"
+        }
       },
       cross_exam: {
         coordinatorRole: "subrosa",
@@ -434,7 +390,7 @@ var init_formats = __esm({
         maxAgents: 3,
         minTurns: 6,
         maxTurns: 10,
-        maxTokensPerTurn: 700,
+        maxTokensPerTurn: 2e3,
         temperature: 0.8,
         requires: ["subrosa"],
         optional: ["chora"]
@@ -446,7 +402,7 @@ var init_formats = __esm({
         maxAgents: 4,
         minTurns: 6,
         maxTurns: 12,
-        maxTokensPerTurn: 700,
+        maxTokensPerTurn: 2e3,
         temperature: 0.95,
         requires: ["thaum"],
         artifact: {
@@ -462,7 +418,7 @@ var init_formats = __esm({
         maxAgents: 3,
         minTurns: 4,
         maxTurns: 8,
-        maxTokensPerTurn: 600,
+        maxTokensPerTurn: 2e3,
         temperature: 0.9,
         requires: ["thaum"],
         optional: ["chora"]
@@ -475,7 +431,7 @@ var init_formats = __esm({
         maxAgents: 4,
         minTurns: 8,
         maxTurns: 16,
-        maxTokensPerTurn: 1e3,
+        maxTokensPerTurn: 3e3,
         temperature: 0.7,
         requires: ["chora"],
         optional: ["mux"],
@@ -489,10 +445,15 @@ var init_formats = __esm({
         maxAgents: 4,
         minTurns: 6,
         maxTurns: 10,
-        maxTokensPerTurn: 700,
+        maxTokensPerTurn: 2e3,
         temperature: 0.6,
         requires: ["subrosa"],
-        optional: ["chora", "praxis"]
+        optional: ["chora", "praxis"],
+        artifact: {
+          type: "review",
+          outputDir: "output/reviews",
+          synthesizer: "subrosa"
+        }
       },
       // ─── Social ───
       watercooler: {
@@ -502,7 +463,7 @@ var init_formats = __esm({
         maxAgents: 4,
         minTurns: 3,
         maxTurns: 6,
-        maxTokensPerTurn: 800,
+        maxTokensPerTurn: 2e3,
         temperature: 0.95
       },
       // ─── Agent Design ───
@@ -513,7 +474,7 @@ var init_formats = __esm({
         maxAgents: 6,
         minTurns: 6,
         maxTurns: 14,
-        maxTokensPerTurn: 800,
+        maxTokensPerTurn: 2e3,
         temperature: 0.75,
         requires: ["thaum"],
         optional: ["chora", "subrosa", "praxis", "mux"]
@@ -526,7 +487,7 @@ var init_formats = __esm({
         maxAgents: 4,
         minTurns: 4,
         maxTurns: 30,
-        maxTokensPerTurn: 300,
+        maxTokensPerTurn: 1e3,
         temperature: 0.7
       }
     };
@@ -596,8 +557,10 @@ async function applyPairwiseDrifts(drifts, conversationId) {
 }
 function getInteractionType(affinity) {
   const tension = 1 - affinity;
-  if (tension > 0.6) {
-    return Math.random() < 0.2 ? "challenge" : "critical";
+  if (tension > 0.7) {
+    return Math.random() < 0.15 ? "adversarial" : "challenge";
+  } else if (tension > 0.5) {
+    return Math.random() < 0.3 ? "challenge" : "critical";
   } else if (tension > 0.3) {
     return "neutral";
   } else {
@@ -637,6 +600,12 @@ function selectNextSpeaker(context) {
     const affinity = affinityMap ? getAffinityFromMap(affinityMap, agent, lastSpeaker) : 0.5;
     w += affinity * 0.6;
     w -= recencyPenalty(agent, speakCounts, history.length) * 0.4;
+    if (context.format) {
+      const boosts = FORMAT_ROLE_BOOSTS[context.format];
+      if (boosts?.[agent]) {
+        w += boosts[agent];
+      }
+    }
     w += Math.random() * 0.4 - 0.2;
     return Math.max(0, w);
   });
@@ -654,11 +623,20 @@ function weightedRandomPick(items, weights) {
   }
   return items[items.length - 1];
 }
+var FORMAT_ROLE_BOOSTS;
 var init_speaker_selection = __esm({
   "src/lib/roundtable/speaker-selection.ts"() {
     "use strict";
     init_relationships();
     init_formats();
+    FORMAT_ROLE_BOOSTS = {
+      planning: { praxis: 0.3, mux: 0.3 },
+      shipping: { praxis: 0.3, mux: 0.3 },
+      writing_room: { chora: 0.3, mux: 0.3, thaum: 0.2 },
+      brainstorm: { thaum: 0.3, chora: 0.2 },
+      risk_review: { subrosa: 0.3, chora: 0.2 },
+      content_review: { subrosa: 0.3, mux: 0.2 }
+    };
   }
 });
 
@@ -768,16 +746,16 @@ function formatContext(ctx) {
 }
 function createLoggerInternal(bindings) {
   const write = USE_JSON ? writeJson : writePretty;
-  function log33(level, msg, ctx) {
+  function log35(level, msg, ctx) {
     if (LEVEL_VALUES[level] < MIN_LEVEL) return;
     write(level, msg, bindings, normalizeContext(ctx));
   }
   return {
-    debug: (msg, ctx) => log33("debug", msg, ctx),
-    info: (msg, ctx) => log33("info", msg, ctx),
-    warn: (msg, ctx) => log33("warn", msg, ctx),
-    error: (msg, ctx) => log33("error", msg, ctx),
-    fatal: (msg, ctx) => log33("fatal", msg, ctx),
+    debug: (msg, ctx) => log35("debug", msg, ctx),
+    info: (msg, ctx) => log35("info", msg, ctx),
+    warn: (msg, ctx) => log35("warn", msg, ctx),
+    error: (msg, ctx) => log35("error", msg, ctx),
+    fatal: (msg, ctx) => log35("fatal", msg, ctx),
     child: (childBindings) => createLoggerInternal({ ...bindings, ...childBindings })
   };
 }
@@ -930,16 +908,23 @@ var init_model_routing = __esm({
 // src/lib/llm/client.ts
 var client_exports = {};
 __export(client_exports, {
+  estimateTokens: () => estimateTokens,
   extractFromXml: () => extractFromXml,
+  extractJson: () => extractJson,
   getOpenRouterClient: () => getClient,
   llmGenerate: () => llmGenerate,
   llmGenerateWithTools: () => llmGenerateWithTools,
+  normalizeDsml: () => normalizeDsml,
+  promptSection: () => promptSection,
   sanitizeDialogue: () => sanitizeDialogue
 });
 function normalizeModel(id) {
   if (id === "openrouter/auto") return id;
   if (id.startsWith("openrouter/")) return id.slice("openrouter/".length);
   return id;
+}
+function isGemma4Model(model) {
+  return /^gemma4(:|$)/i.test(model);
 }
 function repairTruncatedJson(raw) {
   let s = raw.trim();
@@ -972,6 +957,20 @@ function repairTruncatedJson(raw) {
   for (let i = 0; i < braces; i++) s += "}";
   return JSON.parse(s);
 }
+function normalizeToolArgs(toolName, args) {
+  const aliases = TOOL_PARAM_ALIASES[toolName];
+  if (!aliases) return { normalized: args, remapped: {} };
+  const normalized = { ...args };
+  const remapped = {};
+  for (const [variant, canonical] of Object.entries(aliases)) {
+    if (variant in normalized && !(canonical in normalized)) {
+      normalized[canonical] = normalized[variant];
+      delete normalized[variant];
+      remapped[variant] = canonical;
+    }
+  }
+  return { normalized, remapped };
+}
 async function resolveModelsWithEnv(context) {
   const models = await resolveModels(context);
   if (!LLM_MODEL_ENV) return models;
@@ -982,9 +981,9 @@ async function resolveModelsWithEnv(context) {
 }
 function getClient() {
   if (!_client) {
-    if (!OPENROUTER_API_KEY) {
+    if (!OPENROUTER_ENABLED || !OPENROUTER_API_KEY) {
       throw new Error(
-        "Missing OPENROUTER_API_KEY environment variable. Set it in .env.local"
+        "OpenRouter is disabled or missing API key. Set OPENROUTER_ENABLED=true and OPENROUTER_API_KEY in .env"
       );
     }
     _client = new import_sdk.OpenRouter({ apiKey: OPENROUTER_API_KEY });
@@ -1013,22 +1012,157 @@ function getOllamaModels() {
     );
   }
   if (OLLAMA_LOCAL_URL) {
-    models.push(
-      { model: "qwen3-coder:30b", baseUrl: OLLAMA_LOCAL_URL },
-      { model: "llama3.2:latest", baseUrl: OLLAMA_LOCAL_URL }
-    );
+    if (OLLAMA_MODEL) {
+      models.push({ model: OLLAMA_MODEL, baseUrl: OLLAMA_LOCAL_URL });
+    } else {
+      models.push(
+        { model: "qwen3-coder:30b", baseUrl: OLLAMA_LOCAL_URL },
+        { model: "llama3.2:latest", baseUrl: OLLAMA_LOCAL_URL }
+      );
+    }
   }
   return models;
 }
 function stripThinking(text) {
-  return text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  return text.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/<\|channel>thought\n[\s\S]*?<channel\|>/g, "").trim();
+}
+function normalizeDsml(text) {
+  return text.replace(/<[｜|]DSML[｜|]/g, "<").replace(/<\/[｜|]DSML[｜|]/g, "</");
+}
+async function tryOllamaFirst(messages, temperature, maxTokens, startTime, trackingContext, modelOverride) {
+  if (!OLLAMA_API_KEY && !OLLAMA_LOCAL_URL) return null;
+  let ollamaModel = modelOverride;
+  if (!ollamaModel && trackingContext?.context) {
+    try {
+      const routed = await resolveModels(trackingContext.context);
+      const ollamaCandidate = routed.find((m) => m.includes(":"));
+      if (ollamaCandidate) ollamaModel = ollamaCandidate;
+    } catch {
+    }
+  }
+  const ollamaResult = await ollamaChat(messages, temperature, { maxTokens, model: ollamaModel });
+  if (ollamaResult?.text) {
+    log.debug("Ollama succeeded", {
+      model: ollamaResult.model,
+      context: trackingContext?.context,
+      textLength: ollamaResult.text.length
+    });
+    void trackUsage(
+      `ollama/${ollamaResult.model}`,
+      toOpenResponsesUsage(ollamaResult.usage),
+      Date.now() - startTime,
+      trackingContext
+    );
+    return ollamaResult.text;
+  }
+  log.debug("Ollama returned empty, falling through to OpenRouter", {
+    context: trackingContext?.context,
+    ollamaModels: getOllamaModels().map((m) => m.model)
+  });
+  return null;
+}
+async function tryOllamaLastResort(messages, temperature, maxTokens, startTime, trackingContext) {
+  if (!OLLAMA_API_KEY && !OLLAMA_LOCAL_URL) return null;
+  const retryResult = await ollamaChat(messages, temperature, { maxTokens });
+  if (retryResult?.text) {
+    void trackUsage(
+      `ollama/${retryResult.model}`,
+      toOpenResponsesUsage(retryResult.usage),
+      Date.now() - startTime,
+      trackingContext
+    );
+    return retryResult.text;
+  }
+  return null;
+}
+function throwForOpenRouterStatus(statusCode) {
+  if (statusCode === 402) {
+    throw new Error("Insufficient OpenRouter credits \u2014 add credits at openrouter.ai");
+  }
+  if (statusCode === 429) {
+    throw new Error("OpenRouter rate limited \u2014 try again shortly");
+  }
+}
+function toOpenResponsesUsage(usage) {
+  if (!usage) return null;
+  return {
+    inputTokens: usage.prompt_tokens ?? 0,
+    outputTokens: usage.completion_tokens ?? 0,
+    totalTokens: usage.total_tokens ?? 0
+  };
+}
+function parseAndNormalizeToolArgs(toolName, rawArgsInput, model, round) {
+  const rawArgs = typeof rawArgsInput === "string" ? rawArgsInput : JSON.stringify(rawArgsInput);
+  let args;
+  try {
+    args = JSON.parse(rawArgs);
+    log.debug("Parsed tool call args", {
+      tool: toolName,
+      argsKeys: Object.keys(args),
+      model,
+      round
+    });
+  } catch {
+    try {
+      args = repairTruncatedJson(rawArgs);
+      log.warn("Repaired truncated tool call JSON", {
+        tool: toolName,
+        argsKeys: Object.keys(args),
+        original: rawArgs.slice(0, 200),
+        model
+      });
+    } catch {
+      log.warn("Unrecoverable malformed tool call JSON", {
+        tool: toolName,
+        arguments: rawArgs.slice(0, 200),
+        model
+      });
+      args = {};
+    }
+  }
+  const { normalized, remapped } = normalizeToolArgs(toolName, args);
+  if (Object.keys(remapped).length > 0) {
+    log.info("Normalized tool call param aliases", {
+      tool: toolName,
+      remapped,
+      model,
+      round
+    });
+  }
+  return { args: normalized, remapped };
+}
+function filterPhantomToolCalls(toolCalls, context) {
+  if (!toolCalls || toolCalls.length === 0) return void 0;
+  const validCalls = toolCalls.filter(
+    (tc) => tc.function?.name && typeof tc.function.name === "string"
+  );
+  if (validCalls.length < toolCalls.length) {
+    log.warn("Filtered out tool calls with null/empty names", {
+      original: toolCalls.length,
+      valid: validCalls.length,
+      model: context.model,
+      round: context.round,
+      context: context.trackingContext
+    });
+    return validCalls.length > 0 ? validCalls : void 0;
+  }
+  return toolCalls;
 }
 async function ollamaChat(messages, temperature, options) {
+  if (options?.model && options.model.includes(":")) {
+    const baseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+    const spec = { model: options.model, baseUrl, apiKey: "" };
+    const maxTokens2 = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
+    const tools2 = options?.tools;
+    const maxToolRounds2 = options?.maxToolRounds ?? 10;
+    const openaiTools2 = tools2 && tools2.length > 0 ? tools2.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })) : void 0;
+    return ollamaChatWithModel({ spec, messages, temperature, maxTokens: maxTokens2, tools: tools2, openaiTools: openaiTools2, maxToolRounds: maxToolRounds2 });
+  }
   const models = getOllamaModels();
   if (models.length === 0) return null;
-  const maxTokens = options?.maxTokens ?? 250;
+  const maxTokens = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
   const tools = options?.tools;
-  const maxToolRounds = options?.maxToolRounds ?? 3;
+  const maxToolRounds = options?.maxToolRounds ?? 10;
   const openaiTools = tools && tools.length > 0 ? tools.map((t) => ({
     type: "function",
     function: {
@@ -1038,7 +1172,7 @@ async function ollamaChat(messages, temperature, options) {
     }
   })) : void 0;
   for (const spec of models) {
-    const result = await ollamaChatWithModel(
+    const result = await ollamaChatWithModel({
       spec,
       messages,
       temperature,
@@ -1046,12 +1180,21 @@ async function ollamaChat(messages, temperature, options) {
       tools,
       openaiTools,
       maxToolRounds
-    );
+    });
     if (result) return result;
   }
   return null;
 }
-async function ollamaChatWithModel(spec, messages, temperature, maxTokens, tools, openaiTools, maxToolRounds) {
+async function ollamaChatWithModel(input) {
+  const {
+    spec,
+    messages,
+    temperature,
+    maxTokens,
+    tools,
+    openaiTools,
+    maxToolRounds
+  } = input;
   const { model, baseUrl, apiKey } = spec;
   const toolCallRecords = [];
   const headers = {
@@ -1069,16 +1212,31 @@ async function ollamaChatWithModel(spec, messages, temperature, maxTokens, tools
         () => controller.abort(),
         OLLAMA_TIMEOUT_MS
       );
+      const estimatedTokens = workingMessages.reduce(
+        (sum, m) => sum + Math.ceil((m.content ?? "").length / 3.5),
+        0
+      );
+      const numCtx = Math.min(131072, Math.max(8192, Math.ceil((estimatedTokens + maxTokens + 2048) / 4096) * 4096));
       const body = {
         model,
         messages: workingMessages,
-        temperature,
-        max_tokens: maxTokens
+        stream: false,
+        options: {
+          // Gemma 4: use 1.0 for text generation, but 0.7 for tool calling
+          // to keep tool use focused and reduce thinking-block leakage
+          temperature: isGemma4Model(model) ? openaiTools ? 0.7 : 1 : temperature,
+          num_ctx: numCtx,
+          ...isGemma4Model(model) ? { top_k: 64, top_p: 0.95 } : {},
+          ...isGemma4Model(model) ? {} : { num_predict: maxTokens }
+        }
       };
       if (openaiTools && round < maxToolRounds) {
         body.tools = openaiTools;
+      } else if (openaiTools && round >= maxToolRounds) {
+        body.tools = openaiTools;
+        body.tool_choice = "none";
       }
-      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      const response = await fetch(`${baseUrl}/api/chat`, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
@@ -1086,52 +1244,103 @@ async function ollamaChatWithModel(spec, messages, temperature, maxTokens, tools
       });
       clearTimeout(timeoutId);
       if (!response.ok) {
-        log.debug("Ollama model failed", {
+        log.warn("Ollama model HTTP error", {
           model,
           baseUrl,
-          status: response.status
+          status: response.status,
+          statusText: response.statusText
         });
         return null;
       }
-      const data = await response.json();
-      const msg = data.choices?.[0]?.message;
-      if (!msg) return null;
-      const pendingToolCalls = msg.tool_calls;
-      if (!pendingToolCalls || pendingToolCalls.length === 0) {
-        const raw = msg.content ?? "";
-        const text = extractFromXml(stripThinking(raw)).trim();
-        if (text.length === 0 && toolCallRecords.length === 0)
-          return null;
-        return { text, toolCalls: toolCallRecords, model, usage: data.usage };
+      const rawData = await response.json();
+      const msg = rawData.message;
+      const finishReason = rawData.done_reason === "stop" || rawData.done && !msg?.tool_calls?.length ? "stop" : msg?.tool_calls?.length ? "tool_calls" : "stop";
+      const data = {
+        usage: {
+          prompt_tokens: rawData.prompt_eval_count ?? 0,
+          completion_tokens: rawData.eval_count ?? 0,
+          total_tokens: (rawData.prompt_eval_count ?? 0) + (rawData.eval_count ?? 0)
+        }
+      };
+      log.debug("Ollama raw response", {
+        model,
+        round,
+        finishReason,
+        contentLength: (msg?.content ?? "").length,
+        reasoningLength: (msg?.reasoning ?? "").length,
+        contentPreview: (msg?.content ?? "").slice(0, 80) || "(empty)",
+        hasToolCalls: !!msg?.tool_calls?.length,
+        usage: data.usage
+      });
+      if (!msg) {
+        log.warn("Ollama model returned no message", {
+          model,
+          hasMessage: !!msg
+        });
+        return null;
       }
+      const rawToolCalls = msg.tool_calls?.map((tc, i) => ({
+        id: tc.id ?? `call_${round}_${i}`,
+        function: tc.function
+      }));
+      const ollamaPendingToolCalls = filterPhantomToolCalls(
+        rawToolCalls,
+        { model, round }
+      );
+      if (!ollamaPendingToolCalls || ollamaPendingToolCalls.length === 0) {
+        const raw = msg.content ?? "";
+        const stripped = extractFromXml(stripThinking(raw)).trim();
+        const text = stripped.length > 0 ? stripped : extractFromXml(raw).trim();
+        if (text.length === 0 && toolCallRecords.length === 0) {
+          log.warn("Ollama model returned empty text", {
+            model,
+            rawContentLength: raw.length,
+            rawPreview: raw.slice(0, 100) || "(empty)"
+          });
+          return null;
+        }
+        return {
+          text,
+          toolCalls: toolCallRecords,
+          model,
+          usage: data.usage
+        };
+      }
+      log.debug("Ollama tool calls received", {
+        model,
+        round,
+        toolCount: ollamaPendingToolCalls.length,
+        toolNames: ollamaPendingToolCalls.map((tc) => tc.function.name)
+      });
       workingMessages.push({
         role: "assistant",
         content: msg.content ?? null,
-        tool_calls: pendingToolCalls
+        tool_calls: ollamaPendingToolCalls
       });
-      for (const tc of pendingToolCalls) {
+      for (const tc of ollamaPendingToolCalls) {
         const tool = tools?.find((t) => t.name === tc.function.name);
         let resultStr;
         if (tool?.execute) {
-          let args;
-          try {
-            args = JSON.parse(tc.function.arguments);
-          } catch {
-            try {
-              args = repairTruncatedJson(tc.function.arguments);
-              log.warn("Repaired truncated tool call JSON", {
-                tool: tc.function.name,
-                original: tc.function.arguments.slice(0, 200)
-              });
-            } catch {
-              log.warn("Unrecoverable malformed tool call JSON", {
-                tool: tc.function.name,
-                arguments: tc.function.arguments.slice(0, 200)
-              });
-              args = {};
-            }
-          }
+          const { args } = parseAndNormalizeToolArgs(
+            tc.function.name,
+            tc.function.arguments,
+            model,
+            round
+          );
+          log.debug("Ollama executing tool call", {
+            tool: tc.function.name,
+            argsKeys: Object.keys(args),
+            model,
+            round
+          });
           const result = await tool.execute(args);
+          log.debug("Ollama tool call executed", {
+            tool: tc.function.name,
+            resultType: typeof result,
+            resultPreview: typeof result === "string" ? result.slice(0, 100) : JSON.stringify(result).slice(0, 100),
+            model,
+            round
+          });
           toolCallRecords.push({
             name: tool.name,
             arguments: args,
@@ -1139,7 +1348,13 @@ async function ollamaChatWithModel(spec, messages, temperature, maxTokens, tools
           });
           resultStr = typeof result === "string" ? result : JSON.stringify(result);
         } else {
-          resultStr = `Tool ${tc.function.name} not available`;
+          log.warn("Ollama tool not found for call", {
+            tool: tc.function.name,
+            availableTools: tools?.map((t) => t.name) ?? [],
+            model
+          });
+          const availableNames = tools?.map((t) => t.name).join(", ") ?? "none";
+          resultStr = `ERROR: Tool "${tc.function.name}" does not exist. Available tools: ${availableNames}. Use ONLY these exact tool names.`;
         }
         workingMessages.push({
           role: "tool",
@@ -1148,9 +1363,9 @@ async function ollamaChatWithModel(spec, messages, temperature, maxTokens, tools
         });
       }
     } catch (err) {
-      log.debug("Ollama chat error", {
+      log.warn("Ollama chat exception", {
         model,
-        error: err.message
+        error: err.message?.slice(0, 200)
       });
       return null;
     }
@@ -1190,6 +1405,55 @@ function jsonSchemaToZod(schema) {
     return [key, required.includes(key) ? base : base.optional()];
   });
   return import_v4.z.object(Object.fromEntries(entries));
+}
+async function openRouterChatCompletions(model, messages, temperature, maxTokens) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    OPENROUTER_CHAT_TIMEOUT_MS
+  );
+  try {
+    const response = await fetch(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`
+        },
+        body: JSON.stringify({
+          model,
+          messages: messages.map((m) => ({
+            role: m.role,
+            content: m.content
+          })),
+          temperature,
+          max_tokens: maxTokens
+        }),
+        signal: controller.signal
+      }
+    );
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      log.warn("Direct /chat/completions HTTP error", {
+        model,
+        status: response.status
+      });
+      return null;
+    }
+    const data = await response.json();
+    const text = extractFromXml(
+      (data.choices?.[0]?.message?.content ?? "").trim()
+    );
+    return text.length > 0 ? text : null;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    log.warn("Direct /chat/completions exception", {
+      model,
+      error: err.message?.slice(0, 200)
+    });
+    return null;
+  }
 }
 function toOpenRouterTools(tools) {
   return tools.map((tool) => ({
@@ -1247,35 +1511,36 @@ async function llmGenerate(options) {
   const {
     messages,
     temperature = 0.7,
-    maxTokens = 200,
+    maxTokens = 4e3,
     model,
     tools,
     trackingContext
   } = options;
-  const client = getClient();
   const startTime = Date.now();
+  log.debug("llmGenerate starting", {
+    hasTools: !!(tools && tools.length > 0),
+    messageCount: messages.length,
+    model: model ?? "auto",
+    maxTokens,
+    temperature,
+    context: trackingContext?.context,
+    agentId: trackingContext?.agentId
+  });
   const systemMessage = messages.find((m) => m.role === "system");
   const conversationMessages = messages.filter((m) => m.role !== "system");
   const hasToolsDefined = tools && tools.length > 0;
-  if (!hasToolsDefined && (OLLAMA_API_KEY || OLLAMA_LOCAL_URL)) {
-    const ollamaResult = await ollamaChat(messages, temperature, {
-      maxTokens
+  const ollamaText = await tryOllamaFirst(messages, temperature, maxTokens, startTime, trackingContext);
+  if (ollamaText) return ollamaText;
+  if (!OPENROUTER_ENABLED) {
+    log.warn("Ollama returned empty and OpenRouter is disabled", {
+      context: trackingContext?.context,
+      agentId: trackingContext?.agentId,
+      ollamaAvailable: !!(OLLAMA_API_KEY || OLLAMA_LOCAL_URL),
+      durationMs: Date.now() - startTime
     });
-    if (ollamaResult?.text) {
-      const ollamaUsage = ollamaResult.usage ? {
-        inputTokens: ollamaResult.usage.prompt_tokens ?? 0,
-        outputTokens: ollamaResult.usage.completion_tokens ?? 0,
-        totalTokens: ollamaResult.usage.total_tokens ?? 0
-      } : null;
-      void trackUsage(
-        `ollama/${ollamaResult.model}`,
-        ollamaUsage,
-        Date.now() - startTime,
-        trackingContext
-      );
-      return ollamaResult.text;
-    }
+    return "";
   }
+  const client = getClient();
   const resolved = model ? [normalizeModel(model)] : await resolveModelsWithEnv(trackingContext?.context);
   const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
   if (modelList.length === 0) {
@@ -1311,65 +1576,343 @@ async function llmGenerate(options) {
     const usedModel = response.model || "unknown";
     const usage = response.usage;
     void trackUsage(usedModel, usage, durationMs, trackingContext);
+    if (text.length === 0) {
+      log.warn("LLM returned empty text", {
+        model: usedModel,
+        context: trackingContext?.context,
+        rawTextLength: rawText.length,
+        rawTextPreview: rawText.slice(0, 100) || "(empty)",
+        outputTokens: usage?.outputTokens ?? 0,
+        durationMs
+      });
+    }
     return text.length > 0 ? text : null;
   }
-  let openRouterError = null;
+  const openRouterResult = await tryOpenRouterArray(tryCall, modelList, trackingContext?.context);
+  if (!openRouterResult.text) {
+    const individualText = await tryOpenRouterIndividual(
+      tryCall,
+      resolved,
+      openRouterResult.error,
+      trackingContext?.context
+    );
+    if (individualText) return individualText;
+  } else {
+    return openRouterResult.text;
+  }
+  if (openRouterResult.error && !hasToolsDefined) {
+    log.debug("OpenRouter failed, retrying Ollama as last resort", {
+      error: openRouterResult.error.message,
+      statusCode: openRouterResult.error.statusCode
+    });
+    const ollamaText2 = await tryOllamaLastResort(messages, temperature, maxTokens, startTime, trackingContext);
+    if (ollamaText2) return ollamaText2;
+  }
+  throwForOpenRouterStatus(openRouterResult.error?.statusCode);
+  if (OPENROUTER_API_KEY && !hasToolsDefined) {
+    const chatText = await tryDirectChatCompletions(
+      resolved,
+      messages,
+      temperature,
+      maxTokens,
+      startTime,
+      trackingContext
+    );
+    if (chatText) return chatText;
+  }
+  log.warn("All LLM providers returned empty", {
+    context: trackingContext?.context,
+    agentId: trackingContext?.agentId,
+    ollamaAvailable: !!(OLLAMA_API_KEY || OLLAMA_LOCAL_URL),
+    openRouterModels: resolved,
+    hadOpenRouterError: !!openRouterResult.error,
+    durationMs: Date.now() - startTime
+  });
+  return "";
+}
+async function tryOpenRouterArray(tryCall, modelList, context) {
   try {
     const text = await tryCall(modelList);
-    if (text) return text;
+    if (text) return { text, error: null };
+    log.debug("OpenRouter models array returned empty", { models: modelList, context });
+    return { text: null, error: null };
   } catch (error) {
-    openRouterError = error;
-    if (openRouterError.statusCode === 401) {
-      throw new Error(
-        "Invalid OpenRouter API key \u2014 check your OPENROUTER_API_KEY"
-      );
+    const err = error;
+    log.warn("OpenRouter models array failed", {
+      statusCode: err.statusCode,
+      error: err.message?.slice(0, 200),
+      models: modelList,
+      context
+    });
+    if (err.statusCode === 401) {
+      throw new Error("Invalid OpenRouter API key \u2014 check your OPENROUTER_API_KEY");
+    }
+    return { text: null, error: err };
+  }
+}
+async function tryOpenRouterIndividual(tryCall, resolved, openRouterError, context) {
+  if (openRouterError?.statusCode === 402 || openRouterError?.statusCode === 429) {
+    return null;
+  }
+  const fallbackModels = openRouterError ? resolved : resolved.slice(MAX_MODELS_ARRAY);
+  for (const fallback of fallbackModels) {
+    try {
+      const text = await tryCall(fallback);
+      if (text) return text;
+    } catch (fbErr) {
+      log.warn("OpenRouter individual fallback failed", {
+        model: fallback,
+        error: fbErr.message?.slice(0, 200),
+        context
+      });
     }
   }
-  if (!openRouterError || openRouterError.statusCode !== 402 && openRouterError.statusCode !== 429) {
-    for (const fallback of resolved.slice(MAX_MODELS_ARRAY)) {
-      try {
-        const text = await tryCall(fallback);
-        if (text) return text;
-      } catch {
+  return null;
+}
+async function tryDirectChatCompletions(resolved, messages, temperature, maxTokens, startTime, trackingContext) {
+  const chatModel = resolved[0] ?? "deepseek/deepseek-v3.2";
+  try {
+    const chatResult = await openRouterChatCompletions(chatModel, messages, temperature, maxTokens);
+    if (chatResult) {
+      log.info("Recovered via direct /chat/completions fallback", {
+        model: chatModel,
+        context: trackingContext?.context,
+        textLength: chatResult.length
+      });
+      void trackUsage(chatModel, null, Date.now() - startTime, trackingContext);
+      return chatResult;
+    }
+  } catch (chatErr) {
+    log.warn("Direct /chat/completions fallback failed", {
+      model: chatModel,
+      error: chatErr.message?.slice(0, 200)
+    });
+  }
+  return null;
+}
+async function executeToolCall(tc, tools, toolCallRecords, model, round) {
+  const tool = tools.find((t) => t.name === tc.function.name);
+  if (!tool?.execute) {
+    const availableNames = tools.map((t) => t.name).join(", ");
+    return `ERROR: Tool "${tc.function.name}" does not exist. Available tools: ${availableNames}. Use ONLY these exact tool names.`;
+  }
+  const { args } = parseAndNormalizeToolArgs(
+    tc.function.name,
+    tc.function.arguments,
+    model,
+    round
+  );
+  const required = tool.parameters?.required ?? [];
+  const missing = required.filter((p) => !(p in args) || args[p] == null);
+  if (missing.length > 0) {
+    log.warn(
+      "Tool call missing required params after parse/repair/normalize",
+      {
+        tool: tc.function.name,
+        missing,
+        argsKeys: Object.keys(args),
+        model,
+        round
+      }
+    );
+    return JSON.stringify({
+      error: `Missing required parameters: ${missing.join(", ")}. Your tool call output was truncated before these fields were emitted. If writing long content, split into smaller chunks using the "append" parameter or reduce the content length.`
+    });
+  }
+  log.debug("Executing tool call", {
+    tool: tc.function.name,
+    argsKeys: Object.keys(args),
+    round,
+    model
+  });
+  const result = await tool.execute(args);
+  log.debug("Tool call executed", {
+    tool: tc.function.name,
+    resultType: typeof result,
+    resultPreview: typeof result === "string" ? result.slice(0, 100) : JSON.stringify(result).slice(0, 100),
+    round,
+    model
+  });
+  toolCallRecords.push({ name: tool.name, arguments: args, result });
+  return typeof result === "string" ? result : JSON.stringify(result);
+}
+async function openRouterToolLoop(opts) {
+  const {
+    messages: workingMessages,
+    tools,
+    openaiTools,
+    modelList,
+    temperature,
+    maxTokens,
+    maxToolRounds,
+    trackingContext,
+    startTime
+  } = opts;
+  const toolCallRecords = [];
+  let lastModel = "unknown";
+  let lastUsage = null;
+  let bestText = "";
+  for (let round = 0; round <= maxToolRounds; round++) {
+    log.debug("Tool round starting", {
+      round,
+      maxToolRounds,
+      workingMessageCount: workingMessages.length,
+      toolCallRecordsSoFar: toolCallRecords.length,
+      context: trackingContext?.context
+    });
+    const body = {
+      messages: workingMessages,
+      temperature,
+      max_tokens: maxTokens
+    };
+    if (modelList.length > 1) {
+      body.models = modelList;
+      body.provider = { allow_fallbacks: true };
+    } else {
+      body.model = modelList[0];
+    }
+    if (openaiTools.length > 0) {
+      body.tools = openaiTools;
+      if (round >= maxToolRounds) {
+        body.tool_choice = "none";
       }
     }
-  }
-  if (openRouterError && !hasToolsDefined && (OLLAMA_API_KEY || OLLAMA_LOCAL_URL)) {
-    log.debug("OpenRouter failed, retrying Ollama as last resort", {
-      error: openRouterError.message,
-      statusCode: openRouterError.statusCode
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      OPENROUTER_TOOL_TIMEOUT_MS
+    );
+    const response = await fetch(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          "HTTP-Referer": "https://subcult.org"
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      }
+    );
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      const errBody = await response.text().catch(() => "");
+      const statusCode = response.status;
+      throw Object.assign(
+        new Error(
+          `OpenRouter API error: ${statusCode} ${errBody.slice(0, 200)}`
+        ),
+        { statusCode }
+      );
+    }
+    const data = await response.json();
+    lastModel = data.model ?? "unknown";
+    if (data.usage) {
+      lastUsage = {
+        inputTokens: data.usage.prompt_tokens ?? 0,
+        outputTokens: data.usage.completion_tokens ?? 0,
+        totalTokens: (data.usage.prompt_tokens ?? 0) + (data.usage.completion_tokens ?? 0)
+      };
+    }
+    const msg = data.choices?.[0]?.message;
+    if (!msg) {
+      log.warn("OpenRouter returned empty message", {
+        round,
+        model: lastModel
+      });
+      break;
+    }
+    let pendingToolCalls = filterPhantomToolCalls(msg.tool_calls, {
+      model: lastModel,
+      round,
+      trackingContext: trackingContext?.context
     });
-    const retryResult = await ollamaChat(messages, temperature, {
-      maxTokens
+    log.debug("API response received", {
+      round,
+      model: lastModel,
+      hasContent: !!msg.content,
+      contentLength: msg.content?.length ?? 0,
+      contentPreview: msg.content?.slice(0, 150) || "(empty)",
+      apiToolCallCount: pendingToolCalls?.length ?? 0,
+      apiToolCallNames: pendingToolCalls?.map((tc) => tc.function.name) ?? [],
+      context: trackingContext?.context
     });
-    if (retryResult?.text) {
-      const ollamaUsage = retryResult.usage ? {
-        inputTokens: retryResult.usage.prompt_tokens ?? 0,
-        outputTokens: retryResult.usage.completion_tokens ?? 0,
-        totalTokens: retryResult.usage.total_tokens ?? 0
-      } : null;
+    if ((!pendingToolCalls || pendingToolCalls.length === 0) && msg.content) {
+      const dsmlCalls = parseDsmlToolCalls(msg.content, tools);
+      if (dsmlCalls.length > 0) {
+        pendingToolCalls = dsmlCalls;
+        log.info("Recovered tool calls from DSML text", {
+          count: dsmlCalls.length,
+          tools: dsmlCalls.map((tc) => tc.function.name),
+          model: lastModel,
+          round,
+          context: trackingContext?.context
+        });
+      }
+    }
+    if (!pendingToolCalls || pendingToolCalls.length === 0) {
+      const raw = msg.content ?? "";
+      const text = extractFromXml(raw).trim();
+      const finalText = text || bestText;
       void trackUsage(
-        `ollama/${retryResult.model}`,
-        ollamaUsage,
+        lastModel,
+        lastUsage,
         Date.now() - startTime,
         trackingContext
       );
-      return retryResult.text;
+      return { text: finalText, toolCalls: toolCallRecords };
+    }
+    log.debug("Processing tool calls", {
+      round,
+      model: lastModel,
+      toolCount: pendingToolCalls.length,
+      toolNames: pendingToolCalls.map((tc) => tc.function.name),
+      context: trackingContext?.context
+    });
+    workingMessages.push({
+      role: "assistant",
+      content: msg.content ?? null,
+      tool_calls: pendingToolCalls.map((tc) => ({
+        id: tc.id,
+        type: "function",
+        function: tc.function
+      }))
+    });
+    if (msg.content) {
+      const roundText = extractFromXml(msg.content).trim();
+      if (roundText.length > bestText.length) {
+        bestText = roundText;
+      }
+    }
+    for (const tc of pendingToolCalls) {
+      const resultStr = await executeToolCall(
+        tc,
+        tools,
+        toolCallRecords,
+        lastModel,
+        round
+      );
+      workingMessages.push({
+        role: "tool",
+        content: resultStr,
+        tool_call_id: tc.id
+      });
     }
   }
-  if (openRouterError?.statusCode === 402) {
-    throw new Error("Insufficient OpenRouter credits \u2014 add credits at openrouter.ai");
-  }
-  if (openRouterError?.statusCode === 429) {
-    throw new Error("OpenRouter rate limited \u2014 try again shortly");
-  }
-  return "";
+  void trackUsage(
+    lastModel,
+    lastUsage,
+    Date.now() - startTime,
+    trackingContext
+  );
+  return { text: bestText, toolCalls: toolCallRecords };
 }
 async function llmGenerateWithTools(options) {
   const {
     messages,
     temperature = 0.7,
-    maxTokens = 200,
+    maxTokens = 4e3,
     model,
     tools = [],
     maxToolRounds = 3,
@@ -1377,31 +1920,58 @@ async function llmGenerateWithTools(options) {
   } = options;
   const startTime = Date.now();
   const hasTools = tools.length > 0;
-  if (!hasTools && (OLLAMA_API_KEY || OLLAMA_LOCAL_URL)) {
-    const ollamaResult = await ollamaChat(messages, temperature, {
-      maxTokens
-    });
-    if (ollamaResult?.text) {
-      const ollamaUsage = ollamaResult.usage ? {
-        inputTokens: ollamaResult.usage.prompt_tokens ?? 0,
-        outputTokens: ollamaResult.usage.completion_tokens ?? 0,
-        totalTokens: ollamaResult.usage.total_tokens ?? 0
-      } : null;
-      void trackUsage(
-        `ollama/${ollamaResult.model}`,
-        ollamaUsage,
-        Date.now() - startTime,
-        trackingContext
-      );
-      return {
-        text: ollamaResult.text,
-        toolCalls: []
-      };
+  log.debug("llmGenerateWithTools starting", {
+    hasTools,
+    toolNames: tools.map((t) => t.name),
+    messageCount: messages.length,
+    model: model ?? "auto",
+    maxTokens,
+    maxToolRounds,
+    temperature,
+    context: trackingContext?.context,
+    agentId: trackingContext?.agentId
+  });
+  let resolvedModel = model;
+  if (!resolvedModel && trackingContext?.context) {
+    try {
+      const routed = await resolveModels(trackingContext.context);
+      const ollamaCandidate = routed.find((m) => m.includes(":"));
+      if (ollamaCandidate) resolvedModel = ollamaCandidate;
+    } catch {
     }
+  }
+  const ollamaResult = await ollamaChat(messages, temperature, {
+    maxTokens,
+    tools: hasTools ? tools : void 0,
+    maxToolRounds,
+    model: resolvedModel
+  });
+  if (ollamaResult?.text || ollamaResult?.toolCalls && ollamaResult.toolCalls.length > 0) {
+    log.debug("Ollama succeeded (with tools)", {
+      model: ollamaResult.model,
+      context: trackingContext?.context,
+      textLength: ollamaResult.text.length,
+      toolCallCount: ollamaResult.toolCalls.length
+    });
+    void trackUsage(
+      `ollama/${ollamaResult.model}`,
+      toOpenResponsesUsage(ollamaResult.usage),
+      Date.now() - startTime,
+      trackingContext
+    );
+    return { text: ollamaResult.text, toolCalls: ollamaResult.toolCalls };
+  }
+  if (!OPENROUTER_ENABLED) {
+    log.warn("Ollama returned empty and OpenRouter is disabled (tool call)", {
+      context: trackingContext?.context,
+      agentId: trackingContext?.agentId,
+      hasTools,
+      toolNames: tools.map((t) => t.name)
+    });
+    return { text: "", toolCalls: [] };
   }
   const resolved = model ? [normalizeModel(model)] : await resolveModelsWithEnv(trackingContext?.context);
   const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
-  const toolCallRecords = [];
   const openaiTools = tools.map((t) => ({
     type: "function",
     function: {
@@ -1415,182 +1985,34 @@ async function llmGenerateWithTools(options) {
     content: m.content
   }));
   try {
-    let lastModel = "unknown";
-    let lastUsage = null;
-    for (let round = 0; round <= maxToolRounds; round++) {
-      const body = {
-        messages: workingMessages,
-        temperature,
-        max_tokens: maxTokens
-      };
-      if (modelList.length > 1) {
-        body.models = modelList;
-        body.provider = { allow_fallbacks: true };
-      } else {
-        body.model = modelList[0];
-      }
-      if (openaiTools.length > 0 && round < maxToolRounds) {
-        body.tools = openaiTools;
-      }
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12e4);
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "HTTP-Referer": "https://subcult.org"
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      if (!response.ok) {
-        const errBody = await response.text().catch(() => "");
-        const statusCode = response.status;
-        throw Object.assign(
-          new Error(`OpenRouter API error: ${statusCode} ${errBody.slice(0, 200)}`),
-          { statusCode }
-        );
-      }
-      const data = await response.json();
-      lastModel = data.model ?? "unknown";
-      if (data.usage) {
-        lastUsage = {
-          inputTokens: data.usage.prompt_tokens ?? 0,
-          outputTokens: data.usage.completion_tokens ?? 0,
-          totalTokens: (data.usage.prompt_tokens ?? 0) + (data.usage.completion_tokens ?? 0)
-        };
-      }
-      const msg = data.choices?.[0]?.message;
-      if (!msg) {
-        log.warn("OpenRouter returned empty message", { round, model: lastModel });
-        break;
-      }
-      let pendingToolCalls = msg.tool_calls;
-      if ((!pendingToolCalls || pendingToolCalls.length === 0) && msg.content) {
-        const dsmlCalls = parseDsmlToolCalls(msg.content, tools);
-        if (dsmlCalls.length > 0) {
-          pendingToolCalls = dsmlCalls;
-          log.debug("Recovered tool calls from DSML text", {
-            count: dsmlCalls.length,
-            tools: dsmlCalls.map((tc) => tc.function.name),
-            model: lastModel
-          });
-        }
-      }
-      if (!pendingToolCalls || pendingToolCalls.length === 0) {
-        const raw = msg.content ?? "";
-        const text = extractFromXml(raw).trim();
-        const durationMs2 = Date.now() - startTime;
-        void trackUsage(lastModel, lastUsage, durationMs2, trackingContext);
-        return { text, toolCalls: toolCallRecords };
-      }
-      workingMessages.push({
-        role: "assistant",
-        content: msg.content ?? null,
-        tool_calls: pendingToolCalls.map((tc) => ({
-          id: tc.id,
-          type: "function",
-          function: tc.function
-        }))
-      });
-      for (const tc of pendingToolCalls) {
-        const tool = tools.find((t) => t.name === tc.function.name);
-        let resultStr;
-        if (tool?.execute) {
-          let args;
-          try {
-            args = JSON.parse(tc.function.arguments);
-          } catch {
-            try {
-              args = repairTruncatedJson(tc.function.arguments);
-              log.warn("Repaired truncated tool call JSON", {
-                tool: tc.function.name,
-                original: tc.function.arguments.slice(0, 200)
-              });
-            } catch {
-              log.warn("Unrecoverable malformed tool call JSON", {
-                tool: tc.function.name,
-                arguments: tc.function.arguments.slice(0, 200)
-              });
-              args = {};
-            }
-          }
-          const required = tool.parameters?.required ?? [];
-          const missing = required.filter((p) => !(p in args) || args[p] == null);
-          if (missing.length > 0) {
-            log.warn("Tool call missing required params after parse/repair", {
-              tool: tc.function.name,
-              missing,
-              argsKeys: Object.keys(args)
-            });
-            resultStr = JSON.stringify({
-              error: `Missing required parameters: ${missing.join(", ")}. Your tool call output was truncated before these fields were emitted. If writing long content, split into smaller chunks using the "append" parameter or reduce the content length.`
-            });
-          } else {
-            const result = await tool.execute(args);
-            toolCallRecords.push({
-              name: tool.name,
-              arguments: args,
-              result
-            });
-            resultStr = typeof result === "string" ? result : JSON.stringify(result);
-          }
-        } else {
-          resultStr = `Tool ${tc.function.name} not available`;
-        }
-        workingMessages.push({
-          role: "tool",
-          content: resultStr,
-          tool_call_id: tc.id
-        });
-      }
-    }
-    const durationMs = Date.now() - startTime;
-    void trackUsage(lastModel, lastUsage, durationMs, trackingContext);
-    return { text: "", toolCalls: toolCallRecords };
+    return await openRouterToolLoop({
+      messages: workingMessages,
+      tools,
+      openaiTools,
+      modelList,
+      temperature,
+      maxTokens,
+      maxToolRounds,
+      trackingContext,
+      startTime
+    });
   } catch (error) {
     const err = error;
-    if (OLLAMA_API_KEY || OLLAMA_LOCAL_URL) {
-      log.debug("OpenRouter failed, trying Ollama text-only fallback", {
-        error: err.message,
-        statusCode: err.statusCode
-      });
-      const retryResult = await ollamaChat(messages, temperature, { maxTokens });
-      if (retryResult?.text) {
-        const ollamaUsage = retryResult.usage ? {
-          inputTokens: retryResult.usage.prompt_tokens ?? 0,
-          outputTokens: retryResult.usage.completion_tokens ?? 0,
-          totalTokens: retryResult.usage.total_tokens ?? 0
-        } : null;
-        void trackUsage(
-          `ollama/${retryResult.model}`,
-          ollamaUsage,
-          Date.now() - startTime,
-          trackingContext
-        );
-        return { text: retryResult.text, toolCalls: [] };
-      }
-    }
+    log.debug("OpenRouter failed, trying Ollama text-only fallback", {
+      error: err.message,
+      statusCode: err.statusCode
+    });
+    const ollamaText = await tryOllamaLastResort(messages, temperature, maxTokens, startTime, trackingContext);
+    if (ollamaText) return { text: ollamaText, toolCalls: [] };
     if (err.statusCode === 401) {
-      throw new Error(
-        "Invalid OpenRouter API key \u2014 check your OPENROUTER_API_KEY"
-      );
+      throw new Error("Invalid OpenRouter API key \u2014 check your OPENROUTER_API_KEY");
     }
-    if (err.statusCode === 402) {
-      throw new Error(
-        "Insufficient OpenRouter credits \u2014 add credits at openrouter.ai"
-      );
-    }
-    if (err.statusCode === 429) {
-      throw new Error("OpenRouter rate limited \u2014 try again shortly");
-    }
+    throwForOpenRouterStatus(err.statusCode);
     throw new Error(`LLM API error: ${err.message ?? "unknown error"}`);
   }
 }
 function parseDsmlToolCalls(text, availableTools) {
-  const normalized = text.replace(/<[｜|]DSML[｜|]/g, "<").replace(/<\/[｜|]DSML[｜|]/g, "</");
+  const normalized = normalizeDsml(text);
   const invokePattern = /<invoke\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/invoke>/gi;
   const calls = [];
   const toolNames = new Set(availableTools.map((t) => t.name));
@@ -1613,11 +2035,12 @@ function parseDsmlToolCalls(text, availableTools) {
       }
     }
     if (Object.keys(args).length > 0) {
+      const { normalized: normalized2 } = normalizeToolArgs(toolName, args);
       calls.push({
         id: `dsml_${Date.now()}_${calls.length}`,
         function: {
           name: toolName,
-          arguments: JSON.stringify(args)
+          arguments: JSON.stringify(normalized2)
         }
       });
     }
@@ -1625,7 +2048,7 @@ function parseDsmlToolCalls(text, availableTools) {
   return calls;
 }
 function extractFromXml(text) {
-  text = text.replace(/<[｜|]DSML[｜|]/g, "<").replace(/<\/[｜|]DSML[｜|]/g, "</");
+  text = normalizeDsml(text);
   if (!/<(?:function_?calls?|invoke|parameter)\b/i.test(text)) {
     return text;
   }
@@ -1636,18 +2059,76 @@ function extractFromXml(text) {
     return contentMatch[1].trim();
   }
   const paramMatches = [
-    ...text.matchAll(/<parameter\s+name=["'][^"']*["'][^>]*>([\s\S]*?)<\/parameter>/gi)
+    ...text.matchAll(
+      /<parameter\s+name=["'][^"']*["'][^>]*>([\s\S]*?)<\/parameter>/gi
+    )
   ];
   if (paramMatches.length > 0) {
     return paramMatches.map((m) => m[1].trim()).sort((a, b) => b.length - a.length)[0];
   }
-  const stripped = text.replace(/<\/?(?:function_?calls?|invoke|parameter|tool_call|antml:[a-z_]+)[^>]*>/gi, "").replace(/\s{2,}/g, " ").trim();
+  const stripped = text.replace(
+    /<\/?(?:function_?calls?|invoke|parameter|tool_call|antml:[a-z_]+)[^>]*>/gi,
+    ""
+  ).replace(/\s{2,}/g, " ").trim();
   return stripped;
 }
 function sanitizeDialogue(text) {
   return extractFromXml(text).replace(/<\/?[a-z_][a-z0-9_-]*(?:\s[^>]*)?\s*>/gi, "").replace(/https?:\/\/\S+/g, "").replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, "$1").replace(/^["']|["']$/g, "").replace(/\s+/g, " ").trim();
 }
-var import_sdk, import_v4, log, OPENROUTER_API_KEY, MAX_MODELS_ARRAY, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_CLOUD_URL, OLLAMA_API_KEY, OLLAMA_TIMEOUT_MS;
+function estimateTokens(text) {
+  return Math.ceil(text.length / 4);
+}
+function extractJson(text) {
+  const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  if (fenceMatch) text = fenceMatch[1];
+  text = extractFromXml(text);
+  const candidates = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "\\" && inString) {
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        candidates.push(text.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+  if (depth > 0 && start >= 0) {
+    try {
+      const repaired = repairTruncatedJson(text.slice(start));
+      return repaired;
+    } catch {
+    }
+  }
+  for (const candidate of candidates.sort((a, b) => b.length - a.length)) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+    }
+  }
+  return null;
+}
+function promptSection(title, content) {
+  return `\u2550\u2550\u2550 ${title.toUpperCase()} \u2550\u2550\u2550
+${content}
+`;
+}
+var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TOOL_TIMEOUT_MS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_CLOUD_URL, OLLAMA_API_KEY, OLLAMA_TIMEOUT_MS, OLLAMA_MODEL;
 var init_client = __esm({
   "src/lib/llm/client.ts"() {
     "use strict";
@@ -1658,7 +2139,59 @@ var init_client = __esm({
     init_model_routing();
     log = logger.child({ module: "llm" });
     OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? "";
+    OPENROUTER_ENABLED = process.env.OPENROUTER_ENABLED !== "false";
     MAX_MODELS_ARRAY = 3;
+    OLLAMA_DEFAULT_MAX_TOKENS = 16384;
+    OPENROUTER_CHAT_TIMEOUT_MS = 3e4;
+    OPENROUTER_TOOL_TIMEOUT_MS = 12e4;
+    TOOL_PARAM_ALIASES = {
+      file_write: {
+        file_path: "path",
+        filepath: "path",
+        filename: "path",
+        file_name: "path",
+        write_content: "content",
+        file_content: "content",
+        text_content: "content"
+      },
+      file_read: {
+        file_path: "path",
+        filepath: "path",
+        filename: "path",
+        file_name: "path"
+      },
+      bash: {
+        cmd: "command",
+        shell_command: "command",
+        bash_command: "command"
+      },
+      web_search: {
+        search_query: "query",
+        q: "query"
+      },
+      web_fetch: {
+        link: "url",
+        web_url: "url",
+        target_url: "url"
+      },
+      memory_search: {
+        search_query: "query",
+        q: "query"
+      },
+      memory_write: {
+        memory_type: "type",
+        text: "content",
+        body: "content"
+      },
+      send_to_agent: {
+        agent: "target_agent",
+        agent_id: "target_agent",
+        file_name: "filename",
+        file: "filename",
+        text: "content",
+        body: "content"
+      }
+    };
     LLM_MODEL_ENV = (() => {
       const envModel = process.env.LLM_MODEL;
       if (!envModel || envModel === "openrouter/auto") return null;
@@ -1669,12 +2202,52 @@ var init_client = __esm({
     OLLAMA_LOCAL_URL = OLLAMA_ENABLED ? process.env.OLLAMA_BASE_URL ?? "" : "";
     OLLAMA_CLOUD_URL = "https://ollama.com";
     OLLAMA_API_KEY = OLLAMA_ENABLED ? process.env.OLLAMA_API_KEY ?? "" : "";
-    OLLAMA_TIMEOUT_MS = 6e4;
+    OLLAMA_TIMEOUT_MS = 12e4;
+    OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "";
   }
 });
 
 // src/lib/llm/embeddings.ts
 async function getEmbedding(text) {
+  if (EMBEDDING_PROVIDER === "ollama") {
+    return getEmbeddingOllama(text);
+  }
+  return getEmbeddingOpenRouter(text);
+}
+async function getEmbeddingOllama(text) {
+  if (!EMBEDDING_OLLAMA_URL) return null;
+  try {
+    const response = await fetch(
+      `${EMBEDDING_OLLAMA_URL}/v1/embeddings`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: OLLAMA_EMBEDDING_MODEL,
+          input: text
+        }),
+        signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS)
+      }
+    );
+    if (!response.ok) {
+      log2.debug("Ollama embedding request failed", {
+        status: response.status,
+        url: EMBEDDING_OLLAMA_URL,
+        model: OLLAMA_EMBEDDING_MODEL
+      });
+      return null;
+    }
+    const data = await response.json();
+    return data.data?.[0]?.embedding ?? null;
+  } catch {
+    log2.debug("Ollama embedding error (host unreachable?)", {
+      url: EMBEDDING_OLLAMA_URL,
+      model: OLLAMA_EMBEDDING_MODEL
+    });
+    return null;
+  }
+}
+async function getEmbeddingOpenRouter(text) {
   if (!OPENROUTER_API_KEY2) return null;
   try {
     const response = await fetch(
@@ -1686,15 +2259,15 @@ async function getEmbedding(text) {
           Authorization: `Bearer ${OPENROUTER_API_KEY2}`
         },
         body: JSON.stringify({
-          model: EMBEDDING_MODEL,
+          model: OPENROUTER_EMBEDDING_MODEL,
           input: text,
-          dimensions: EMBEDDING_DIMENSIONS
+          dimensions: OPENROUTER_EMBEDDING_DIMENSIONS
         }),
         signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS)
       }
     );
     if (!response.ok) {
-      log2.debug("Embedding request failed", { status: response.status });
+      log2.debug("OpenRouter embedding request failed", { status: response.status });
       return null;
     }
     const data = await response.json();
@@ -1703,15 +2276,18 @@ async function getEmbedding(text) {
     return null;
   }
 }
-var log2, OPENROUTER_API_KEY2, EMBEDDING_MODEL, EMBEDDING_DIMENSIONS, EMBEDDING_TIMEOUT_MS;
+var log2, EMBEDDING_PROVIDER, EMBEDDING_OLLAMA_URL, OLLAMA_EMBEDDING_MODEL, OPENROUTER_API_KEY2, OPENROUTER_EMBEDDING_MODEL, OPENROUTER_EMBEDDING_DIMENSIONS, EMBEDDING_TIMEOUT_MS;
 var init_embeddings = __esm({
   "src/lib/llm/embeddings.ts"() {
     "use strict";
     init_logger();
     log2 = logger.child({ module: "embeddings" });
+    EMBEDDING_PROVIDER = process.env.EMBEDDING_PROVIDER ?? "ollama";
+    EMBEDDING_OLLAMA_URL = process.env.EMBEDDING_OLLAMA_URL ?? "http://localhost:11434";
+    OLLAMA_EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "bge-m3";
     OPENROUTER_API_KEY2 = process.env.OPENROUTER_API_KEY ?? "";
-    EMBEDDING_MODEL = "openai/text-embedding-3-small";
-    EMBEDDING_DIMENSIONS = 1024;
+    OPENROUTER_EMBEDDING_MODEL = "openai/text-embedding-3-small";
+    OPENROUTER_EMBEDDING_DIMENSIONS = 1024;
     EMBEDDING_TIMEOUT_MS = 15e3;
   }
 });
@@ -1750,94 +2326,113 @@ async function drainQueue(key) {
   }
 }
 async function sendWithRetry(url, body) {
+  const res = await fetchWithRetry429(
+    url,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    },
+    "Webhook POST"
+  );
+  if (!res) return null;
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    log3.warn("Webhook POST failed", { status: res.status, body: text.slice(0, 200) });
+    return null;
+  }
+  return await res.json();
+}
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+async function fetchWithRetry429(url, init, label) {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
+      const res = await fetch(url, init);
       if (res.status === 429) {
         const retryAfterHeader = res.headers.get("Retry-After");
         const retryMs = retryAfterHeader ? Math.ceil(parseFloat(retryAfterHeader) * 1e3) : 2e3 * (attempt + 1);
-        log3.warn("Webhook rate limited, backing off", {
+        log3.warn(`${label} rate limited, backing off`, {
           retryMs,
-          attempt,
-          queueKey: url.split("/webhooks/")[1]?.slice(0, 8)
+          attempt
         });
-        await sleep(retryMs);
-        continue;
-      }
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        log3.warn("Webhook POST failed", {
-          status: res.status,
-          body: text.slice(0, 200)
-        });
+        if (attempt < MAX_RETRIES) {
+          await sleep(retryMs);
+          continue;
+        }
         return null;
       }
-      return await res.json();
+      if (res.status >= 500 && attempt < MAX_RETRIES) {
+        log3.warn(`${label} server error ${res.status}, retrying`, {
+          status: res.status,
+          attempt
+        });
+        await sleep(1e3 * (attempt + 1));
+        continue;
+      }
+      return res;
     } catch (err) {
-      log3.warn("Webhook POST error", {
+      log3.warn(`${label} fetch error`, {
         error: err.message,
-        attempt
+        attempt,
+        retriesLeft: MAX_RETRIES - attempt
       });
       if (attempt < MAX_RETRIES) {
         await sleep(1e3 * (attempt + 1));
       }
     }
   }
+  log3.error(`${label} all retries exhausted`);
   return null;
 }
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-async function postToWebhook(options) {
+function buildWebhookUrlAndPayload(options) {
   const url = new URL(options.webhookUrl);
   url.searchParams.set("wait", "true");
   if (options.threadId) {
     url.searchParams.set("thread_id", options.threadId);
   }
-  const body = {};
-  if (options.username) body.username = options.username;
-  if (options.avatarUrl) body.avatar_url = options.avatarUrl;
-  if (options.content) body.content = options.content;
-  if (options.embeds) body.embeds = options.embeds;
+  const payload = {};
+  if (options.username) payload.username = options.username;
+  if (options.avatarUrl) payload.avatar_url = options.avatarUrl;
+  if (options.content) payload.content = options.content;
+  if (options.embeds) payload.embeds = options.embeds;
+  if (!payload.content && !payload.embeds) {
+    log3.warn("Skipping webhook post \u2014 no content or embeds");
+    return null;
+  }
+  return { url: url.toString(), payload };
+}
+async function postToWebhook(options) {
+  const built = buildWebhookUrlAndPayload(options);
+  if (!built) return null;
   const key = webhookKey(options.webhookUrl);
-  const fullUrl = url.toString();
   return new Promise((resolve) => {
     if (!webhookQueues.has(key)) {
       webhookQueues.set(key, []);
     }
     webhookQueues.get(key).push({
-      send: () => sendWithRetry(fullUrl, body),
+      send: () => sendWithRetry(built.url, built.payload),
       resolve
     });
     drainQueue(key);
   });
 }
-async function discordFetch(path3, options = {}) {
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const res = await fetch(`${DISCORD_API}${path3}`, {
+async function discordFetch(path4, options = {}) {
+  const res = await fetchWithRetry429(
+    `${DISCORD_API}${path4}`,
+    {
       ...options,
       headers: {
         Authorization: `Bot ${BOT_TOKEN}`,
         "Content-Type": "application/json",
         ...options.headers
       }
-    });
-    if (res.status === 429) {
-      const retryAfterHeader = res.headers.get("Retry-After");
-      const retryMs = retryAfterHeader ? Math.ceil(parseFloat(retryAfterHeader) * 1e3) : 2e3 * (attempt + 1);
-      log3.warn("Discord API rate limited, backing off", { retryMs, attempt, path: path3 });
-      if (attempt < MAX_RETRIES) {
-        await sleep(retryMs);
-        continue;
-      }
-    }
-    return res;
-  }
-  throw new Error("discordFetch: exhausted retries");
+    },
+    `Discord API ${path4}`
+  );
+  if (!res) throw new Error(`discordFetch: exhausted retries for ${path4}`);
+  return res;
 }
 async function getOrCreateWebhook(channelId, name = "Subcult") {
   if (!BOT_TOKEN) {
@@ -1847,9 +2442,7 @@ async function getOrCreateWebhook(channelId, name = "Subcult") {
   const cached = webhookCache.get(channelId);
   if (cached) return cached;
   try {
-    const listRes = await discordFetch(
-      `/channels/${channelId}/webhooks`
-    );
+    const listRes = await discordFetch(`/channels/${channelId}/webhooks`);
     if (!listRes.ok) {
       log3.warn("Failed to list webhooks", {
         status: listRes.status,
@@ -1894,56 +2487,31 @@ async function postToWebhookWithFiles(options) {
   if (!options.files || options.files.length === 0) {
     return postToWebhook(options);
   }
-  const url = new URL(options.webhookUrl);
-  url.searchParams.set("wait", "true");
-  if (options.threadId) {
-    url.searchParams.set("thread_id", options.threadId);
-  }
-  const payload = {};
-  if (options.username) payload.username = options.username;
-  if (options.avatarUrl) payload.avatar_url = options.avatarUrl;
-  if (options.content) payload.content = options.content;
-  if (options.embeds) payload.embeds = options.embeds;
+  const built = buildWebhookUrlAndPayload(options);
+  if (!built) return null;
   const formData = new FormData();
-  formData.append("payload_json", JSON.stringify(payload));
+  formData.append("payload_json", JSON.stringify(built.payload));
   for (let i = 0; i < options.files.length; i++) {
     const file = options.files[i];
-    const blob = new Blob([new Uint8Array(file.data)], { type: file.contentType });
+    const blob = new Blob([new Uint8Array(file.data)], {
+      type: file.contentType
+    });
     formData.append(`files[${i}]`, blob, file.filename);
   }
   const key = webhookKey(options.webhookUrl);
   const sendMultipart = async () => {
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const res = await fetch(url.toString(), {
-          method: "POST",
-          body: formData
-        });
-        if (res.status === 429) {
-          const retryAfterHeader = res.headers.get("Retry-After");
-          const retryMs = retryAfterHeader ? Math.ceil(parseFloat(retryAfterHeader) * 1e3) : 2e3 * (attempt + 1);
-          log3.warn("Webhook multipart rate limited, backing off", { retryMs, attempt });
-          await sleep(retryMs);
-          continue;
-        }
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          log3.warn("Webhook multipart POST failed", {
-            status: res.status,
-            body: text.slice(0, 200)
-          });
-          return null;
-        }
-        return await res.json();
-      } catch (err) {
-        log3.warn("Webhook multipart POST error", {
-          error: err.message,
-          attempt
-        });
-        if (attempt < MAX_RETRIES) await sleep(1e3 * (attempt + 1));
-      }
+    const res = await fetchWithRetry429(
+      built.url,
+      { method: "POST", body: formData },
+      "Webhook multipart POST"
+    );
+    if (!res) return null;
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      log3.warn("Webhook multipart POST failed", { status: res.status, body: text.slice(0, 200) });
+      return null;
     }
-    return null;
+    return await res.json();
   };
   return new Promise((resolve) => {
     if (!webhookQueues.has(key)) {
@@ -2175,7 +2743,7 @@ var init_agents = __esm({
       }
     };
     AGENT_IDS = Object.keys(AGENTS);
-    DAILY_PROPOSAL_LIMIT = process.env.DAILY_PROPOSAL_LIMIT ? parseInt(process.env.DAILY_PROPOSAL_LIMIT) : 20;
+    DAILY_PROPOSAL_LIMIT = process.env.DAILY_PROPOSAL_LIMIT ? parseInt(process.env.DAILY_PROPOSAL_LIMIT) : 100;
   }
 });
 
@@ -2454,7 +3022,7 @@ var init_cap_gates = __esm({
     init_db();
     init_policy();
     MAX_CONCURRENT_MISSIONS = 25;
-    MAX_DAILY_STEPS_PER_AGENT = 50;
+    MAX_DAILY_STEPS_PER_AGENT = 200;
   }
 });
 
@@ -2527,7 +3095,11 @@ async function createProposalAndMaybeAutoApprove(input) {
   const autoApprovePolicy = await getPolicy("auto_approve");
   const autoApproveEnabled = autoApprovePolicy.enabled;
   const allowedKinds = autoApprovePolicy.allowed_step_kinds ?? [];
-  const shouldAutoApprove = autoApproveEnabled && input.proposed_steps.every((step) => allowedKinds.includes(step.kind));
+  const TRUSTED_SOURCES = /* @__PURE__ */ new Set(["conversation", "system"]);
+  const isTrustedSource = TRUSTED_SOURCES.has(input.source ?? "agent");
+  const shouldAutoApprove = autoApproveEnabled && (isTrustedSource || input.proposed_steps.every(
+    (step) => allowedKinds.includes(step.kind)
+  ));
   if (shouldAutoApprove) {
     await sql`
             UPDATE ops_mission_proposals
@@ -2535,7 +3107,7 @@ async function createProposalAndMaybeAutoApprove(input) {
             WHERE id = ${proposalId}
         `;
     const missionId = await createMissionFromProposal(proposalId);
-    await emitEvent({
+    await emitEventAndCheckReactions({
       agent_id: input.agent_id,
       kind: "proposal_auto_approved",
       title: `Auto-approved: ${input.title}`,
@@ -2679,11 +3251,20 @@ async function processReactionQueue(timeoutMs = 3e3) {
                 SET status = 'processing', updated_at = NOW()
                 WHERE id = ${reaction.id}
             `;
+      const REACTION_STEP_KINDS = {
+        review: "critique_content",
+        comment: "draft_essay",
+        research: "research_topic",
+        challenge: "convene_roundtable",
+        synthesize: "distill_insight",
+        boost: "draft_thread"
+      };
+      const stepKind = REACTION_STEP_KINDS[reaction.reaction_type] ?? "research_topic";
       const result = await createProposalAndMaybeAutoApprove({
         agent_id: reaction.target_agent,
         title: `Reaction: ${reaction.reaction_type}`,
         description: `Triggered by ${reaction.source_agent} event`,
-        proposed_steps: [{ kind: "log_event" }],
+        proposed_steps: [{ kind: stepKind }],
         source: "reaction",
         source_trace_id: `reaction:${reaction.id}`
       });
@@ -2911,13 +3492,30 @@ async function distillConversationMemories(sessionId, history, format) {
   const minConfidence = distillPolicy.min_confidence_threshold ?? 0.55;
   const maxActionItems = distillPolicy.max_action_items_per_conversation ?? 3;
   const speakers = [...new Set(history.map((h) => h.speaker))];
-  const transcript = history.map((h) => `[${h.speaker}]: ${h.dialogue}`).join("\n");
-  const prompt = `You are a memory extraction system for an AI agent collective.
+  const recentHistory = history.length > 8 ? history.slice(-8) : history;
+  const transcript = recentHistory.map((h) => `[${h.speaker}]: ${h.dialogue}`).join("\n");
+  const includeDrifts = speakers.length > 3;
+  const includeActions = ACTION_ITEM_FORMATS.includes(format);
+  let driftSchema = "";
+  let driftRules = "";
+  if (includeDrifts) {
+    driftSchema = `  "pairwise_drift": [
+    { "agent_a": "string", "agent_b": "string", "drift": -0.03 to 0.03, "reason": "max 200 chars" }
+  ],`;
+    driftRules = `- Drift is a small float between -0.03 and 0.03 (positive=warmer, negative=cooler). Only report non-zero drifts.`;
+  }
+  let actionSchema = "";
+  let actionRules = "";
+  if (includeActions) {
+    actionSchema = `  "action_items": [
+    { "title": "string", "agent_id": "string", "step_kind": "string" }
+  ],`;
+    actionRules = `- Max ${maxActionItems} action items \u2014 only tasks explicitly committed to or clearly implied
+- step_kind: research_topic, scan_signals, draft_essay, draft_thread, critique_content, audit_system, patch_code, distill_insight, document_lesson, convene_roundtable`;
+  }
+  const memoriesPrompt = `You are a memory extraction system for an AI agent collective.
 
-Analyze this ${format} conversation and extract:
-1. **memories**: Key insights, patterns, strategies, preferences, or lessons each agent should remember
-2. **pairwise_drift**: How each pair of agents' relationship shifted (positive = warmer, negative = cooler)
-3. **action_items**: Concrete follow-up tasks mentioned (only for standup format)
+Analyze this ${format} conversation and extract memories${includeDrifts ? ", relationship drifts" : ""}${includeActions ? ", and action items" : ""}.
 
 Conversation transcript:
 ${transcript}
@@ -2927,45 +3525,39 @@ Participants: ${speakers.join(", ")}
 Respond with valid JSON only:
 {
   "memories": [
-    { "agent_id": "string", "type": "insight|pattern|strategy|preference|lesson", "content": "max 200 chars", "confidence": 0.55-1.0, "tags": ["string"] }
+    { "agent_id": "string", "type": "insight|pattern|strategy|preference|lesson", "content": "max 400 chars", "confidence": 0.55-1.0, "tags": ["string"] }
   ],
-  "pairwise_drift": [
-    { "agent_a": "string", "agent_b": "string", "drift": -0.03 to 0.03, "reason": "max 200 chars" }
-  ],
-  "action_items": [
-    { "title": "string", "agent_id": "string", "step_kind": "string" }
-  ]
-}
+${driftSchema}${actionSchema}}
 
 Rules:
-- Max ${maxMemories} memories total
-- Only valid types: ${VALID_MEMORY_TYPES.join(", ")}
-- Only valid agents: ${speakers.join(", ")}
-- Confidence must be >= ${minConfidence}
-- Content max 200 characters
-- Drift between -0.03 and 0.03
-- Max ${maxActionItems} action items (only for standup conversations)
+- Max ${maxMemories} memories, types: ${VALID_MEMORY_TYPES.join(", ")}, agents: ${speakers.join(", ")}
+- Confidence >= ${minConfidence}, content max 400 chars
+${driftRules}${actionRules}
 - Return empty arrays if nothing meaningful to extract`;
-  let parsed;
+  let parsed = null;
   try {
     const response = await llmGenerate({
-      messages: [{ role: "user", content: prompt }],
+      messages: [{ role: "user", content: memoriesPrompt }],
       temperature: 0.3,
-      maxTokens: 1500,
+      maxTokens: 4e3,
       trackingContext: {
         agentId: "system",
         context: "distillation",
         sessionId
       }
     });
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      log10.warn("No JSON found in LLM response", { sessionId });
+    parsed = extractJson(response);
+    if (!parsed) {
+      log10.warn("No JSON found in memories LLM response", {
+        sessionId,
+        responseLength: response.length,
+        responsePreview: response.slice(0, 300),
+        responseEnd: response.slice(-100)
+      });
       return 0;
     }
-    parsed = JSON.parse(jsonMatch[0]);
   } catch (err) {
-    log10.error("LLM extraction failed", { error: err, sessionId });
+    log10.error("Memories LLM extraction failed", { error: err, sessionId });
     return 0;
   }
   let written = 0;
@@ -2974,7 +3566,7 @@ Rules:
     if (!VALID_MEMORY_TYPES.includes(mem.type)) continue;
     if (!speakers.includes(mem.agent_id)) continue;
     if (mem.confidence < minConfidence) continue;
-    if (mem.content.length > 200) mem.content = mem.content.slice(0, 200);
+    if (mem.content.length > 400) mem.content = mem.content.slice(0, 400);
     const id = await writeMemory({
       agent_id: mem.agent_id,
       type: mem.type,
@@ -2988,17 +3580,22 @@ Rules:
       await enforceMemoryCap(mem.agent_id);
     }
   }
-  const drifts = parsed.pairwise_drift ?? [];
-  if (drifts.length > 0) {
-    const validDrifts = drifts.filter(
-      (d) => speakers.includes(d.agent_a) && speakers.includes(d.agent_b) && d.agent_a !== d.agent_b && Math.abs(d.drift) <= 0.03
-    );
-    if (validDrifts.length > 0) {
-      await applyPairwiseDrifts(validDrifts, sessionId);
+  if (includeDrifts) {
+    const drifts = parsed.pairwise_drift ?? [];
+    if (drifts.length > 0) {
+      const validDrifts = drifts.filter(
+        (d) => speakers.includes(d.agent_a) && speakers.includes(d.agent_b) && d.agent_a !== d.agent_b && Math.abs(d.drift) <= 0.03
+      );
+      if (validDrifts.length > 0) {
+        await applyPairwiseDrifts(validDrifts, sessionId);
+      }
     }
   }
-  if (ACTION_ITEM_FORMATS.includes(format)) {
-    const actionItems = (parsed.action_items ?? []).slice(0, maxActionItems);
+  if (includeActions) {
+    const actionItems = (parsed.action_items ?? []).slice(
+      0,
+      maxActionItems
+    );
     for (const item of actionItems) {
       if (!speakers.includes(item.agent_id)) continue;
       try {
@@ -3032,7 +3629,16 @@ var init_memory_distiller = __esm({
     init_policy();
     init_logger();
     log10 = logger.child({ module: "distiller" });
-    ACTION_ITEM_FORMATS = ["standup"];
+    ACTION_ITEM_FORMATS = [
+      "standup",
+      "planning",
+      "shipping",
+      "strategy",
+      "retro",
+      "triage",
+      "risk_review",
+      "deep_dive"
+    ];
     VALID_MEMORY_TYPES = [
       "insight",
       "pattern",
@@ -3045,12 +3651,26 @@ var init_memory_distiller = __esm({
 
 // src/lib/roundtable/artifact-synthesizer.ts
 function buildSynthesisPrompt(session, history, artifact) {
+  const voice = getVoice(artifact.synthesizer);
   const transcript = history.map((t) => {
-    const voice = getVoice(t.speaker);
-    const name = voice?.displayName ?? t.speaker;
+    const v = getVoice(t.speaker);
+    const name = v?.displayName ?? t.speaker;
     return `${name}: ${t.dialogue}`;
   }).join("\n");
-  let prompt = `You just participated in (or observed) a ${session.format} conversation.
+  const wordTarget = FORMAT_WORD_TARGETS[session.format] ?? DEFAULT_WORD_TARGET;
+  let prompt = "";
+  if (voice) {
+    prompt += `--- SYNTHESIZER PERSONA ---
+${voice.systemDirective}
+--- END PERSONA ---
+
+`;
+    prompt += `You are synthesizing this conversation as ${voice.displayName} ${voice.symbol}. `;
+    prompt += `Write in your voice \u2014 your perspective and judgment matter.
+
+`;
+  }
+  prompt += `You just participated in (or observed) a ${session.format} conversation.
 
 `;
   prompt += `Topic: ${session.topic}
@@ -3080,7 +3700,7 @@ ${transcript}
 `;
   prompt += `2. Capture key points, decisions, action items, and disagreements
 `;
-  prompt += `3. Be concise but thorough \u2014 aim for 300-800 words
+  prompt += `3. Be concise but thorough \u2014 aim for ${wordTarget}
 `;
   prompt += `4. Write the artifact to the workspace using file_write to path: ${outputDir}/${filename}
 `;
@@ -3088,6 +3708,10 @@ ${transcript}
 
 `;
   prompt += `Do NOT just repeat the transcript. Synthesize, structure, and add value.
+`;
+  prompt += `Do NOT start with meta-commentary about your task ("The user wants me to...", "As an AI...", "I will proceed with..."). Start directly with the artifact content \u2014 the title heading.
+`;
+  prompt += `Do NOT produce analysis about analysis. If the conversation was about building something, the artifact should be the SPEC or PLAN, not a report about the discussion. Produce the actual deliverable.
 `;
   return prompt;
 }
@@ -3106,8 +3730,8 @@ async function synthesizeArtifact(session, history) {
                 ${prompt},
                 'conversation',
                 ${session.id},
-                180,
-                15,
+                600,
+                30,
                 'pending'
             )
             RETURNING id
@@ -3129,7 +3753,7 @@ async function synthesizeArtifact(session, history) {
     return null;
   }
 }
-var log11;
+var log11, FORMAT_WORD_TARGETS, DEFAULT_WORD_TARGET;
 var init_artifact_synthesizer = __esm({
   "src/lib/roundtable/artifact-synthesizer.ts"() {
     "use strict";
@@ -3138,6 +3762,25 @@ var init_artifact_synthesizer = __esm({
     init_voices();
     init_logger();
     log11 = logger.child({ module: "artifact-synthesizer" });
+    FORMAT_WORD_TARGETS = {
+      standup: "200-400 words",
+      checkin: "200-400 words",
+      watercooler: "150-300 words",
+      brainstorm: "400-800 words",
+      strategy: "500-1000 words",
+      planning: "500-1000 words",
+      deep_dive: "600-1200 words",
+      retro: "400-700 words",
+      debate: "400-800 words",
+      triage: "300-600 words",
+      risk_review: "400-800 words",
+      shipping: "300-600 words",
+      cross_exam: "400-800 words",
+      content_review: "300-600 words",
+      agent_design: "400-800 words",
+      writing_room: "400-800 words"
+    };
+    DEFAULT_WORD_TARGET = "300-800 words";
   }
 });
 
@@ -3278,93 +3921,58 @@ async function collectDebateVotes(proposalId, participants, debateHistory) {
     `;
   if (!proposal) throw new Error(`Proposal "${proposalId}" not found`);
   if (proposal.status !== "voting") {
-    throw new Error(`Proposal not in voting status (current: ${proposal.status})`);
+    throw new Error(
+      `Proposal not in voting status (current: ${proposal.status})`
+    );
   }
-  const transcript = debateHistory.map((t) => {
-    const voice = getVoice(t.speaker);
-    const name = voice?.displayName ?? t.speaker;
-    return `${name}: ${t.dialogue}`;
-  }).join("\n");
-  const personality = proposal.personality;
-  const proposalSummary = [
-    `Agent: ${proposal.agent_name}`,
-    `Role: ${proposal.agent_role}`,
-    `Proposed by: ${proposal.proposed_by}`,
-    `Personality: ${personality.tone ?? "unspecified"} \u2014 ${(personality.traits ?? []).join(", ")}`,
-    `Skills: ${proposal.skills.join(", ")}`,
-    `Rationale: ${proposal.rationale}`
-  ].join("\n");
   for (const agentId of participants) {
     if (agentId === proposal.proposed_by) {
-      await submitVote(proposalId, agentId, "approve", "I proposed this agent.");
+      await submitVote(
+        proposalId,
+        agentId,
+        "approve",
+        "I proposed this agent."
+      );
       continue;
     }
-    const voice = getVoice(agentId);
-    const agentName = voice?.displayName ?? agentId;
-    try {
-      const response = await llmGenerate({
-        messages: [
-          {
-            role: "system",
-            content: `You are ${agentName}. You just participated in a debate about a proposed new agent. Based on the debate, you must now cast your formal vote.
-
-Respond with ONLY a JSON object, no other text:
-{"vote": "approve" or "reject", "reasoning": "one sentence explaining your vote"}`
-          },
-          {
-            role: "user",
-            content: `## Proposal
-${proposalSummary}
-
-## Debate Transcript
-${transcript}
-
-Cast your vote as ${agentName}. JSON only:`
-          }
-        ],
-        temperature: 0.3,
-        maxTokens: 150,
-        trackingContext: {
-          agentId,
-          context: "agent-proposal-vote",
-          sessionId: proposalId
-        }
-      });
-      const jsonMatch = response.match(/\{[^}]*"vote"\s*:\s*"(approve|reject)"[^}]*\}/i);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        const vote = parsed.vote.toLowerCase() === "approve" ? "approve" : "reject";
-        const reasoning = parsed.reasoning ?? response.slice(0, 200);
-        await submitVote(proposalId, agentId, vote, reasoning);
-      } else {
-        const upper = response.toUpperCase();
-        if (upper.includes("APPROVE") && !upper.includes("NOT APPROVE") && !upper.includes("DON'T APPROVE")) {
-          await submitVote(proposalId, agentId, "approve", response.slice(0, 200));
-        } else if (upper.includes("REJECT")) {
-          await submitVote(proposalId, agentId, "reject", response.slice(0, 200));
-        } else {
-          log12.warn("Could not determine vote from response, skipping agent", {
-            agentId,
-            proposalId,
-            response: response.slice(0, 200)
-          });
-          continue;
-        }
-        log12.warn("Vote response was not valid JSON, used fallback parsing", {
-          agentId,
-          proposalId,
-          response: response.slice(0, 200)
-        });
-      }
-    } catch (err) {
-      log12.error("Failed to collect vote from agent", {
-        error: err,
+    const lastTurn = [...debateHistory].reverse().find((t) => t.speaker === agentId);
+    if (!lastTurn) {
+      log12.warn("No debate turn found for agent, skipping vote", {
         agentId,
         proposalId
       });
+      continue;
+    }
+    const text = lastTurn.dialogue;
+    const vote = extractVoteFromText(text);
+    if (vote) {
+      const reasoning = text.slice(-200).trim();
+      await submitVote(proposalId, agentId, vote, reasoning);
+    } else {
+      log12.warn(
+        "Could not determine vote from debate turn, skipping agent",
+        {
+          agentId,
+          proposalId,
+          textPreview: text.slice(0, 200)
+        }
+      );
     }
   }
   return finalizeVoting(proposalId);
+}
+function extractVoteFromText(text) {
+  const upper = text.toUpperCase();
+  const hasApprove = upper.includes("APPROVE") && !upper.includes("NOT APPROVE") && !upper.includes("DON'T APPROVE");
+  const hasReject = upper.includes("REJECT");
+  if (hasApprove && hasReject) {
+    const lastApprove = upper.lastIndexOf("APPROVE");
+    const lastReject = upper.lastIndexOf("REJECT");
+    return lastApprove > lastReject ? "approve" : "reject";
+  }
+  if (hasApprove) return "approve";
+  if (hasReject) return "reject";
+  return null;
 }
 var log12;
 var init_agent_proposal_voting = __esm({
@@ -3372,8 +3980,6 @@ var init_agent_proposal_voting = __esm({
     "use strict";
     init_db();
     init_events2();
-    init_llm();
-    init_voices();
     init_logger();
     log12 = logger.child({ module: "agent-proposal-voting" });
   }
@@ -3575,7 +4181,7 @@ async function haltTarget(targetType, targetId, reason) {
       await sql`
                 UPDATE ops_missions
                 SET status = 'cancelled', failure_reason = ${vetoReason}, updated_at = NOW()
-                WHERE proposal_id = ${targetId} AND status IN ('approved', 'running')
+                WHERE proposal_id = ${targetId} AND status IN ('approved', 'running', 'blocked')
             `;
       break;
     }
@@ -3583,12 +4189,12 @@ async function haltTarget(targetType, targetId, reason) {
       await sql`
                 UPDATE ops_missions
                 SET status = 'cancelled', failure_reason = ${vetoReason}, updated_at = NOW()
-                WHERE id = ${targetId} AND status IN ('approved', 'running')
+                WHERE id = ${targetId} AND status IN ('approved', 'running', 'blocked')
             `;
       await sql`
                 UPDATE ops_mission_steps
                 SET status = 'failed', failure_reason = ${vetoReason}, completed_at = NOW(), updated_at = NOW()
-                WHERE mission_id = ${targetId} AND status IN ('queued', 'running')
+                WHERE mission_id = ${targetId} AND status IN ('queued', 'running', 'blocked')
             `;
       break;
     }
@@ -3604,7 +4210,7 @@ async function haltTarget(targetType, targetId, reason) {
       await sql`
                 UPDATE ops_mission_steps
                 SET status = 'failed', failure_reason = ${vetoReason}, completed_at = NOW(), updated_at = NOW()
-                WHERE id = ${targetId} AND status IN ('queued', 'running')
+                WHERE id = ${targetId} AND status IN ('queued', 'running', 'blocked')
             `;
       break;
     }
@@ -3624,14 +4230,6 @@ var init_veto = __esm({
 });
 
 // src/lib/ops/governance.ts
-var governance_exports = {};
-__export(governance_exports, {
-  castGovernanceVote: () => castGovernanceVote,
-  collectGovernanceDebateVotes: () => collectGovernanceDebateVotes,
-  getGovernanceProposals: () => getGovernanceProposals,
-  proposeGovernanceChange: () => proposeGovernanceChange,
-  updateProposalStatus: () => updateProposalStatus
-});
 async function proposeGovernanceChange(agentId, policyKey, proposedValue, rationale) {
   if (PROTECTED_POLICIES.has(policyKey)) {
     throw new Error(
@@ -3798,146 +4396,265 @@ async function castGovernanceVote(proposalId, agentId, vote, reason) {
     });
   }
 }
-async function getGovernanceProposals(filters) {
-  const limit = filters?.limit ?? 50;
-  const status = filters?.status;
-  const proposer = filters?.proposer;
-  if (status && proposer) {
-    return sql`
-            SELECT * FROM ops_governance_proposals
-            WHERE status = ${status} AND proposer = ${proposer}
-            ORDER BY created_at DESC
-            LIMIT ${limit}
-        `;
-  } else if (status) {
-    return sql`
-            SELECT * FROM ops_governance_proposals
-            WHERE status = ${status}
-            ORDER BY created_at DESC
-            LIMIT ${limit}
-        `;
-  } else if (proposer) {
-    return sql`
-            SELECT * FROM ops_governance_proposals
-            WHERE proposer = ${proposer}
-            ORDER BY created_at DESC
-            LIMIT ${limit}
-        `;
-  }
-  return sql`
-        SELECT * FROM ops_governance_proposals
-        ORDER BY created_at DESC
-        LIMIT ${limit}
-    `;
-}
-async function updateProposalStatus(proposalId, status, debateSessionId) {
-  if (debateSessionId) {
-    await sql`
-            UPDATE ops_governance_proposals
-            SET status = ${status}, debate_session_id = ${debateSessionId}
-            WHERE id = ${proposalId}
-        `;
-  } else {
-    await sql`
-            UPDATE ops_governance_proposals
-            SET status = ${status}
-            WHERE id = ${proposalId}
-        `;
-  }
-}
 async function collectGovernanceDebateVotes(proposalId, participants, debateHistory) {
   const [proposal] = await sql`
         SELECT * FROM ops_governance_proposals WHERE id = ${proposalId}
     `;
-  if (!proposal) throw new Error(`Governance proposal "${proposalId}" not found`);
+  if (!proposal)
+    throw new Error(`Governance proposal "${proposalId}" not found`);
   if (proposal.status !== "voting") {
-    throw new Error(`Proposal not in voting status (current: ${proposal.status})`);
+    throw new Error(
+      `Proposal not in voting status (current: ${proposal.status})`
+    );
   }
-  const transcript = debateHistory.map((t) => {
-    const voice = getVoice(t.speaker);
-    const name = voice?.displayName ?? t.speaker;
-    return `${name}: ${t.dialogue}`;
-  }).join("\n");
-  const proposalSummary = [
-    `Policy: ${proposal.policy_key}`,
-    `Proposed by: ${proposal.proposer}`,
-    `Current value: ${JSON.stringify(proposal.current_value)}`,
-    `Proposed value: ${JSON.stringify(proposal.proposed_value)}`,
-    `Rationale: ${proposal.rationale}`
-  ].join("\n");
   for (const agentId of participants) {
     if (agentId === proposal.proposer) {
-      await castGovernanceVote(proposalId, agentId, "approve", "I proposed this change.");
+      try {
+        await castGovernanceVote(
+          proposalId,
+          agentId,
+          "approve",
+          "I proposed this change."
+        );
+      } catch (err) {
+        const message = err.message;
+        if (message.includes("not in voting status")) break;
+        throw err;
+      }
       continue;
     }
-    const voice = getVoice(agentId);
-    const agentName = voice?.displayName ?? agentId;
-    try {
-      const response = await llmGenerate({
-        messages: [
-          {
-            role: "system",
-            content: `You are ${agentName}. You just participated in a governance debate about a policy change. Based on the debate, cast your formal vote.
-
-Respond with ONLY a JSON object, no other text:
-{"vote": "approve" or "reject", "reason": "one sentence explaining your vote"}`
-          },
-          {
-            role: "user",
-            content: `## Proposal
-${proposalSummary}
-
-## Debate Transcript
-${transcript}
-
-Cast your vote as ${agentName}. JSON only:`
-          }
-        ],
-        temperature: 0.3,
-        maxTokens: 150,
-        trackingContext: {
-          agentId,
-          context: "governance-vote",
-          sessionId: proposalId
-        }
-      });
-      const jsonMatch = response.match(/\{[^}]*"vote"\s*:\s*"(approve|reject)"[^}]*\}/i);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        const vote = parsed.vote.toLowerCase() === "approve" ? "approve" : "reject";
-        await castGovernanceVote(proposalId, agentId, vote, parsed.reason ?? response.slice(0, 200));
-      } else {
-        const upper = response.toUpperCase();
-        if (upper.includes("APPROVE") && !upper.includes("NOT APPROVE")) {
-          await castGovernanceVote(proposalId, agentId, "approve", response.slice(0, 200));
-        } else {
-          await castGovernanceVote(proposalId, agentId, "reject", response.slice(0, 200));
-        }
-        log14.warn("Governance vote was not valid JSON, used fallback", {
-          agentId,
-          proposalId,
-          response: response.slice(0, 200)
-        });
-      }
-    } catch (err) {
-      log14.error("Failed to collect governance vote", {
-        error: err,
+    const lastTurn = [...debateHistory].reverse().find((t) => t.speaker === agentId);
+    if (!lastTurn) {
+      log14.warn("No debate turn found for agent, skipping vote", {
         agentId,
         proposalId
       });
+      continue;
+    }
+    const text = lastTurn.dialogue;
+    const vote = extractVoteFromText2(text) ?? await inferVoteFromDebateTurn(agentId, proposal, text, debateHistory);
+    if (vote) {
+      const reason = text.slice(-200).trim();
+      try {
+        await castGovernanceVote(proposalId, agentId, vote, reason);
+      } catch (err) {
+        const message = err.message;
+        if (message.includes("not in voting status")) break;
+        throw err;
+      }
+    } else {
+      log14.warn(
+        "Could not determine vote from debate turn, skipping agent",
+        {
+          agentId,
+          proposalId,
+          textPreview: text.slice(0, 200)
+        }
+      );
     }
   }
   const [updated] = await sql`
         SELECT * FROM ops_governance_proposals WHERE id = ${proposalId}
     `;
   const votes = typeof updated.votes === "object" && updated.votes !== null ? updated.votes : {};
-  const approvals = Object.values(votes).filter((v) => v.vote === "approve").length;
-  const rejections = Object.values(votes).filter((v) => v.vote === "reject").length;
+  const approvals = Object.values(votes).filter(
+    (v) => v.vote === "approve"
+  ).length;
+  const rejections = Object.values(votes).filter(
+    (v) => v.vote === "reject"
+  ).length;
   const [final] = await sql`
         SELECT status FROM ops_governance_proposals WHERE id = ${proposalId}
     `;
   const result = final.status === "accepted" ? "accepted" : final.status === "rejected" ? "rejected" : "pending";
   return { result, approvals, rejections };
+}
+async function backfillGovernanceVotes(limit = 10) {
+  const rows = await sql`
+        SELECT gp.id, gp.debate_session_id, rs.participants
+        FROM ops_governance_proposals gp
+        JOIN ops_roundtable_sessions rs ON rs.id = gp.debate_session_id
+        WHERE gp.status = 'voting'
+          AND gp.debate_session_id IS NOT NULL
+          AND rs.status = 'completed'
+        ORDER BY gp.created_at ASC
+        LIMIT ${Math.max(1, Math.min(limit, 50))}
+    `;
+  let processed = 0;
+  let resolved = 0;
+  let requeued = 0;
+  let votesAdded = 0;
+  let failed = 0;
+  const staleCutoff = new Date(Date.now() - 20 * 6e4).toISOString();
+  const staleRunning = await sql`
+        SELECT gp.id
+        FROM ops_governance_proposals gp
+        JOIN ops_roundtable_sessions rs ON rs.id = gp.debate_session_id
+        WHERE gp.status = 'voting'
+          AND gp.debate_session_id IS NOT NULL
+          AND rs.status = 'running'
+          AND rs.started_at < ${staleCutoff}
+    `;
+  for (const row of staleRunning) {
+    await sql`
+            UPDATE ops_governance_proposals
+            SET status = 'proposed',
+                debate_session_id = NULL,
+                votes = '{}'::jsonb
+            WHERE id = ${row.id}
+        `;
+    await emitEventAndCheckReactions({
+      agent_id: "system",
+      kind: "governance_debate_requeued",
+      title: "Governance debate requeued after stale running session",
+      summary: `Proposal ${row.id} returned to proposed for a fresh debate`,
+      tags: ["governance", "debate", "requeued"],
+      metadata: { proposalId: row.id }
+    });
+    requeued++;
+  }
+  for (const row of rows) {
+    try {
+      const [before] = await sql`
+                SELECT votes, status FROM ops_governance_proposals WHERE id = ${row.id}
+            `;
+      const beforeVotes = before?.votes && typeof before.votes === "object" ? Object.keys(before.votes).length : 0;
+      const debateHistory = await sql`
+                SELECT speaker, dialogue, turn_number
+                FROM ops_roundtable_turns
+                WHERE session_id = ${row.debate_session_id}
+                ORDER BY turn_number ASC
+            `;
+      if (debateHistory.length === 0) {
+        continue;
+      }
+      await collectGovernanceDebateVotes(
+        row.id,
+        row.participants,
+        debateHistory.map((turn) => ({
+          speaker: turn.speaker,
+          dialogue: turn.dialogue,
+          turn: turn.turn_number
+        }))
+      );
+      const [after] = await sql`
+                SELECT votes, status FROM ops_governance_proposals WHERE id = ${row.id}
+            `;
+      const afterVotes = after?.votes && typeof after.votes === "object" ? Object.keys(after.votes).length : 0;
+      votesAdded += Math.max(0, afterVotes - beforeVotes);
+      if (before?.status === "voting" && after?.status !== "voting") {
+        resolved++;
+      } else if (after?.status === "voting") {
+        await sql`
+                    UPDATE ops_governance_proposals
+                    SET status = 'proposed',
+                        debate_session_id = NULL,
+                        votes = '{}'::jsonb
+                    WHERE id = ${row.id}
+                      AND status = 'voting'
+                `;
+        await emitEventAndCheckReactions({
+          agent_id: "system",
+          kind: "governance_debate_requeued",
+          title: "Governance debate requeued after incomplete vote collection",
+          summary: `Proposal ${row.id} still lacked a decision after debate vote extraction`,
+          tags: ["governance", "debate", "requeued"],
+          metadata: {
+            proposalId: row.id,
+            previousVotes: afterVotes
+          }
+        });
+        requeued++;
+      }
+      processed++;
+    } catch (err) {
+      failed++;
+      log14.error("Governance vote backfill failed", {
+        proposalId: row.id,
+        sessionId: row.debate_session_id,
+        error: err.message
+      });
+    }
+  }
+  return { processed, resolved, requeued, votesAdded, failed };
+}
+function extractVoteFromText2(text) {
+  const upper = text.toUpperCase();
+  const hasApprove = upper.includes("APPROVE") && !upper.includes("NOT APPROVE") && !upper.includes("DON'T APPROVE");
+  const hasReject = upper.includes("REJECT");
+  const hasVeto = upper.includes("VETO");
+  if (hasVeto && !hasApprove) return "reject";
+  const rejectSignals = [
+    "I OPPOSE",
+    "DO NOT SUPPORT",
+    "NO-GO",
+    "BLOCK THIS",
+    "VETO STANDS"
+  ];
+  const approveSignals = [
+    "I SUPPORT",
+    "I BACK",
+    "I ENDORSE",
+    "GO AHEAD",
+    "SHIP IT"
+  ];
+  if (hasApprove && hasReject) {
+    const lastApprove = upper.lastIndexOf("APPROVE");
+    const lastReject = upper.lastIndexOf("REJECT");
+    return lastApprove > lastReject ? "approve" : "reject";
+  }
+  if (hasApprove) return "approve";
+  if (hasReject) return "reject";
+  if (rejectSignals.some((signal) => upper.includes(signal))) return "reject";
+  if (approveSignals.some((signal) => upper.includes(signal))) return "approve";
+  return null;
+}
+async function inferVoteFromDebateTurn(agentId, proposal, finalTurn, debateHistory) {
+  const debateSnippet = debateHistory.slice(-8).map((t) => `${t.speaker}: ${t.dialogue}`).join("\n");
+  try {
+    const result = await llmGenerate({
+      messages: [
+        {
+          role: "system",
+          content: 'Classify the voter stance as approve, reject, or abstain. Return strict JSON only: {"vote":"approve"|"reject"|"abstain"}.'
+        },
+        {
+          role: "user",
+          content: `Governance proposal: ${proposal.policy_key}
+Rationale: ${proposal.rationale}
+
+Agent: ${agentId}
+Agent final turn:
+${finalTurn}
+
+Recent debate context:
+${debateSnippet}
+
+Classify this agent's vote now.`
+        }
+      ],
+      temperature: 0,
+      maxTokens: 80,
+      trackingContext: {
+        agentId,
+        context: "governance_vote_inference"
+      }
+    });
+    const jsonMatch = result.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (parsed.vote === "approve" || parsed.vote === "reject") {
+      return parsed.vote;
+    }
+    return null;
+  } catch (err) {
+    log14.warn("LLM governance vote inference failed", {
+      error: err.message,
+      proposalId: proposal.id,
+      agentId
+    });
+    return null;
+  }
 }
 var log14, PROTECTED_POLICIES;
 var init_governance = __esm({
@@ -3946,11 +4663,394 @@ var init_governance = __esm({
     init_db();
     init_policy();
     init_events2();
-    init_llm();
-    init_voices();
     init_logger();
+    init_client();
     log14 = logger.child({ module: "governance" });
     PROTECTED_POLICIES = /* @__PURE__ */ new Set(["system_enabled", "veto_authority"]);
+  }
+});
+
+// src/lib/roundtable/debrief.ts
+async function generateDebrief(session, history) {
+  if (history.length < 3) return null;
+  const transcript = history.map((t) => `[${t.speaker}]: ${t.dialogue}`).join("\n\n");
+  const prompt = `You just observed a ${session.format} conversation.
+
+Topic: ${session.topic}
+Participants: ${session.participants.join(", ")}
+Turns: ${history.length}
+
+\u2550\u2550\u2550 TRANSCRIPT \u2550\u2550\u2550
+${transcript}
+\u2550\u2550\u2550 END \u2550\u2550\u2550
+
+Generate a structured meeting debrief. Respond with ONLY valid JSON (no markdown fencing):
+{
+    "summary": "2-3 sentence summary of what was discussed and the overall direction",
+    "decisions": ["Decision 1", "Decision 2"],
+    "actionItems": [
+        {
+            "task": "Concrete task description in imperative form",
+            "owner": "agent_id (one of: chora, subrosa, thaum, praxis, mux, primus)",
+            "priority": "high|medium|low",
+            "stepKind": "one of: research_topic, scan_signals, draft_essay, draft_thread, draft_product_spec, patch_code, audit_system, convene_roundtable, document_lesson, distill_insight"
+        }
+    ],
+    "openQuestions": ["Unresolved question 1", "Question 2"]
+}
+
+Rules:
+- Only include decisions that were explicitly agreed upon
+- Action items must be concrete and assignable \u2014 not vague ("improve things")
+- If no decisions were made, return an empty array
+- If no action items emerged, return an empty array
+- Match owners to who volunteered or was assigned, or pick the best-suited agent
+- Keep summary concise \u2014 this is a debrief, not a report`;
+  try {
+    const result = await llmGenerate({
+      messages: [
+        { role: "system", content: "You are a meeting secretary. Output only valid JSON." },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.3,
+      maxTokens: 3e3,
+      trackingContext: { context: "debrief" }
+    });
+    const jsonMatch = result.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      log15.warn("No JSON in debrief result", { sessionId: session.id });
+      return null;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch {
+      log15.warn("Invalid JSON in debrief", { sessionId: session.id });
+      return null;
+    }
+    parsed.decisions = parsed.decisions ?? [];
+    parsed.actionItems = parsed.actionItems ?? [];
+    parsed.openQuestions = parsed.openQuestions ?? [];
+    parsed.generatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    await sql`
+            UPDATE ops_roundtable_sessions
+            SET metadata = COALESCE(metadata, '{}'::jsonb) || ${jsonb({ debrief: parsed })}
+            WHERE id = ${session.id}
+        `;
+    let proposalCount = 0;
+    for (const item of parsed.actionItems.slice(0, 5)) {
+      try {
+        const steps = [{
+          kind: item.stepKind || "document_lesson",
+          assigned_agent: item.owner,
+          payload: { description: item.task, priority: item.priority }
+        }];
+        const result2 = await createProposalAndMaybeAutoApprove({
+          agent_id: item.owner,
+          title: item.task,
+          description: `From debrief: ${session.format} on "${session.topic}"`,
+          proposed_steps: steps,
+          source: "conversation",
+          source_trace_id: session.id
+        });
+        if (result2.success) proposalCount++;
+      } catch (err) {
+        log15.error("Failed to create proposal from debrief action item", {
+          error: err,
+          task: item.task,
+          sessionId: session.id
+        });
+      }
+    }
+    log15.info("Debrief generated", {
+      sessionId: session.id,
+      format: session.format,
+      decisions: parsed.decisions.length,
+      actionItems: parsed.actionItems.length,
+      openQuestions: parsed.openQuestions.length,
+      proposalsCreated: proposalCount
+    });
+    return parsed;
+  } catch (err) {
+    log15.error("Debrief generation failed", { error: err, sessionId: session.id });
+    return null;
+  }
+}
+function formatDebriefMarkdown(debrief, topic) {
+  let md = `\u{1F4CB} **Meeting Debrief**
+`;
+  md += `> ${topic}
+
+`;
+  md += `**Summary:** ${debrief.summary}
+
+`;
+  if (debrief.decisions.length > 0) {
+    md += `**Decisions:**
+`;
+    debrief.decisions.forEach((d) => {
+      md += `\u2705 ${d}
+`;
+    });
+    md += "\n";
+  }
+  if (debrief.actionItems.length > 0) {
+    md += `**Action Items:**
+`;
+    debrief.actionItems.forEach((a) => {
+      const priority = a.priority === "high" ? "\u{1F534}" : a.priority === "medium" ? "\u{1F7E1}" : "\u{1F7E2}";
+      md += `${priority} **${a.owner}**: ${a.task}
+`;
+    });
+    md += "\n";
+  }
+  if (debrief.openQuestions.length > 0) {
+    md += `**Open Questions:**
+`;
+    debrief.openQuestions.forEach((q) => {
+      md += `\u2753 ${q}
+`;
+    });
+  }
+  return md;
+}
+var log15;
+var init_debrief = __esm({
+  "src/lib/roundtable/debrief.ts"() {
+    "use strict";
+    init_db();
+    init_client();
+    init_proposal_service();
+    init_logger();
+    log15 = logger.child({ module: "debrief" });
+  }
+});
+
+// src/lib/discord/format.ts
+function formatForDiscord(text) {
+  return text.replace(
+    // Match a block of consecutive lines that look like markdown table rows
+    /(?:^[ \t]*\|.+\|[ \t]*$\n?){2,}/gm,
+    (tableBlock) => convertMarkdownTable(tableBlock)
+  );
+}
+function convertMarkdownTable(block) {
+  const lines = block.trim().split("\n").map((l) => l.trim());
+  const rows = [];
+  let separatorIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const cells = line.split("|").slice(1, -1).map((c) => c.trim());
+    if (cells.every((c) => /^:?-+:?$/.test(c))) {
+      separatorIdx = i;
+      continue;
+    }
+    rows.push(cells);
+  }
+  if (rows.length === 0) return block;
+  const colCount = Math.max(...rows.map((r) => r.length));
+  for (const row of rows) {
+    while (row.length < colCount) row.push("");
+  }
+  const colWidths = Array.from(
+    { length: colCount },
+    (_, col) => Math.max(3, ...rows.map((r) => (r[col] ?? "").length))
+  );
+  const topBorder = "\u250C" + colWidths.map((w) => "\u2500".repeat(w + 2)).join("\u252C") + "\u2510";
+  const midBorder = "\u251C" + colWidths.map((w) => "\u2500".repeat(w + 2)).join("\u253C") + "\u2524";
+  const botBorder = "\u2514" + colWidths.map((w) => "\u2500".repeat(w + 2)).join("\u2534") + "\u2518";
+  const formatRow = (row) => "\u2502" + row.map((cell, i) => ` ${(cell ?? "").padEnd(colWidths[i])} `).join("\u2502") + "\u2502";
+  const result = [topBorder];
+  for (let i = 0; i < rows.length; i++) {
+    result.push(formatRow(rows[i]));
+    if (i === 0 && separatorIdx !== -1) {
+      result.push(midBorder);
+    }
+  }
+  result.push(botBorder);
+  return "```\n" + result.join("\n") + "\n```";
+}
+var init_format = __esm({
+  "src/lib/discord/format.ts"() {
+    "use strict";
+  }
+});
+
+// src/lib/discord/roundtable.ts
+var roundtable_exports = {};
+__export(roundtable_exports, {
+  postArtifactToDiscord: () => postArtifactToDiscord,
+  postConversationStart: () => postConversationStart,
+  postConversationSummary: () => postConversationSummary,
+  postConversationTurn: () => postConversationTurn,
+  postDebriefToDiscord: () => postDebriefToDiscord
+});
+async function postConversationStart(session) {
+  const channelName = getChannelForFormat(session.format);
+  const webhookUrl = await getWebhookUrl(channelName);
+  if (!webhookUrl) return null;
+  const participantList = session.participants.map((p) => {
+    const voice = getVoice(p);
+    return voice ? `${voice.symbol} ${voice.displayName}` : p;
+  }).join(", ");
+  const content = `\u{1F4E1} **${session.format}** \u2014 *starting*
+> ${session.topic}
+-# ${participantList}`;
+  await postToWebhook({
+    webhookUrl,
+    username: "\u{1F4E1} Subcult Roundtable",
+    content
+  });
+  log16.info("Roundtable start posted to Discord", {
+    sessionId: session.id,
+    channel: channelName
+  });
+  return webhookUrl;
+}
+async function postConversationTurn(session, entry, webhookUrl, audio) {
+  const voice = getVoice(entry.speaker);
+  const username = voice ? `${voice.symbol} ${voice.displayName}` : entry.speaker;
+  const avatarUrl = getAgentAvatarUrl(entry.speaker);
+  const audioFile = audio ? [{ filename: audio.filename, data: audio.audio, contentType: "audio/mpeg" }] : void 0;
+  if (entry.dialogue.length <= 2e3) {
+    await postToWebhookWithFiles({
+      webhookUrl,
+      username,
+      avatarUrl,
+      content: entry.dialogue,
+      files: audioFile
+    });
+  } else {
+    const chunks = splitDialogue(entry.dialogue, 2e3);
+    for (let i = 0; i < chunks.length; i++) {
+      await postToWebhookWithFiles({
+        webhookUrl,
+        username,
+        avatarUrl,
+        content: chunks[i],
+        files: i === 0 ? audioFile : void 0
+      });
+    }
+  }
+}
+async function postConversationSummary(session, history, status, webhookUrl, abortReason) {
+  const speakers = [...new Set(history.map((h) => h.speaker))];
+  const speakerNames = speakers.map((s) => {
+    const voice = getVoice(s);
+    return voice ? `${voice.symbol} ${voice.displayName}` : s;
+  }).join(", ");
+  const statusIcon = status === "completed" ? "\u2705" : "\u274C";
+  let content = `${statusIcon} **${session.format}** \u2014 *${status}* \xB7 ${history.length} turns
+-# ${speakerNames}`;
+  if (abortReason) {
+    content += `
+> \u26A0\uFE0F *${abortReason}*`;
+  }
+  await postToWebhook({
+    webhookUrl,
+    username: "\u{1F4E1} Subcult Roundtable",
+    content
+  });
+}
+async function postArtifactToDiscord(roundtableSessionId, format, artifactText) {
+  const { sql: sql3 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const [session] = await sql3`
+        SELECT format FROM ops_roundtable_sessions
+        WHERE id = ${roundtableSessionId}
+    `;
+  const channelName = getChannelForFormat(
+    session?.format ?? format
+  );
+  const webhookUrl = await getWebhookUrl(channelName);
+  if (!webhookUrl) return;
+  const username = "\u{1F4CB} Subcult Artifact";
+  const formatted = formatForDiscord(artifactText);
+  const header = "\u{1F4CB} **Artifact**\n";
+  const maxChunk = 2e3 - header.length - 10;
+  const chunks = splitAtBoundaries(formatted, maxChunk);
+  for (let i = 0; i < chunks.length; i++) {
+    const prefix = i === 0 ? header : "";
+    const content = `${prefix}${chunks[i]}`;
+    await postToWebhook({ webhookUrl, username, content });
+  }
+  log16.info("Artifact posted to Discord", {
+    roundtableSessionId,
+    chunks: chunks.length
+  });
+}
+async function postDebriefToDiscord(roundtableSessionId, format, debriefMarkdown) {
+  const channelName = getChannelForFormat(format);
+  const webhookUrl = await getWebhookUrl(channelName);
+  if (!webhookUrl) return;
+  const username = "\u{1F4CB} Subcult Debrief";
+  const formatted = formatForDiscord(debriefMarkdown);
+  const maxChunk = 1990;
+  const chunks = splitAtBoundaries(formatted, maxChunk);
+  for (const chunk of chunks) {
+    await postToWebhook({ webhookUrl, username, content: chunk });
+  }
+  log16.info("Debrief posted to Discord", { roundtableSessionId, chunks: chunks.length });
+}
+function splitDialogue(text, maxLen) {
+  if (text.length <= maxLen) return [text];
+  const chunks = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLen) {
+      chunks.push(remaining);
+      break;
+    }
+    let idx = remaining.lastIndexOf("\n\n", maxLen);
+    if (idx <= 0) idx = remaining.lastIndexOf("\n", maxLen);
+    if (idx <= 0) idx = remaining.lastIndexOf(". ", maxLen);
+    if (idx <= 0) idx = remaining.lastIndexOf(" ", maxLen);
+    if (idx <= 0) idx = maxLen;
+    const end = remaining[idx] === "." ? idx + 1 : idx;
+    chunks.push(remaining.slice(0, end).trimEnd());
+    remaining = remaining.slice(end).trimStart();
+  }
+  return chunks;
+}
+function splitAtBoundaries(text, maxLen) {
+  if (text.length <= maxLen) return [text];
+  const chunks = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLen) {
+      chunks.push(remaining);
+      break;
+    }
+    const window = remaining.slice(0, maxLen);
+    const codeBlockStart = window.lastIndexOf("```\n");
+    const codeBlockEnd = window.lastIndexOf("\n```");
+    if (codeBlockStart > codeBlockEnd && codeBlockStart > 0) {
+      const splitIdx2 = remaining.lastIndexOf("\n\n", codeBlockStart);
+      if (splitIdx2 > 0) {
+        chunks.push(remaining.slice(0, splitIdx2));
+        remaining = remaining.slice(splitIdx2).replace(/^\n+/, "");
+        continue;
+      }
+    }
+    let splitIdx = remaining.lastIndexOf("\n\n", maxLen);
+    if (splitIdx <= 0) splitIdx = remaining.lastIndexOf("\n", maxLen);
+    if (splitIdx <= 0) splitIdx = remaining.lastIndexOf(" ", maxLen);
+    if (splitIdx <= 0) splitIdx = maxLen;
+    chunks.push(remaining.slice(0, splitIdx));
+    remaining = remaining.slice(splitIdx).replace(/^\n+/, "");
+  }
+  return chunks;
+}
+var log16;
+var init_roundtable = __esm({
+  "src/lib/discord/roundtable.ts"() {
+    "use strict";
+    init_client2();
+    init_channels();
+    init_voices();
+    init_avatars();
+    init_format();
+    init_logger();
+    log16 = logger.child({ module: "discord-roundtable" });
   }
 });
 
@@ -4047,17 +5147,33 @@ async function aggregateMemoryStats(agentId) {
   stats.top_tags = [...stats.tags.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([tag]) => tag);
   return stats;
 }
-var voiceModifierCache, CACHE_TTL_MS3;
+var MODIFIER_INSTRUCTIONS, voiceModifierCache, CACHE_TTL_MS3;
 var init_voice_evolution = __esm({
   "src/lib/ops/voice-evolution.ts"() {
     "use strict";
     init_db();
+    MODIFIER_INSTRUCTIONS = {
+      "analytical-focus": 'Lean harder into structural diagnosis. Lead with "why" not "what".',
+      "pattern-aware": "Name recurring patterns explicitly. Reference previous instances when relevant.",
+      strategic: "Frame decisions in terms of tradeoffs and long-term positioning.",
+      reflective: "Reference past lessons and what was learned from them.",
+      assertive: "State positions directly. Fewer qualifiers.",
+      cautious: "Flag uncertainty explicitly. Name what you don't know.",
+      "broad-perspective": "Draw connections across domains. Reference adjacent contexts.",
+      opinionated: "Don't hedge. State your preference and defend it."
+    };
     voiceModifierCache = /* @__PURE__ */ new Map();
     CACHE_TTL_MS3 = 10 * 6e4;
   }
 });
 
 // src/lib/tools/executor.ts
+function getExitCode(error) {
+  const err = error;
+  if (typeof err.status === "number") return err.status;
+  if (typeof err.code === "number") return err.code;
+  return 1;
+}
 async function execInToolbox(command, timeoutMs = DEFAULT_TIMEOUT_MS) {
   return new Promise((resolve) => {
     const args = [
@@ -4078,15 +5194,12 @@ async function execInToolbox(command, timeoutMs = DEFAULT_TIMEOUT_MS) {
         if (error.killed || error.code === "ERR_CHILD_PROCESS_STDIO_FINAL_CLOSE") {
           timedOut = true;
         }
-        exitCode = error.code ? typeof error.code === "number" ? error.code : 1 : 1;
-        if ("status" in error && typeof error.status === "number") {
-          exitCode = error.status;
-        }
+        exitCode = getExitCode(error);
       }
       const cappedStdout = stdout.length > MAX_STDOUT ? stdout.slice(0, MAX_STDOUT) + "\n... [output truncated at 50KB]" : stdout;
       const cappedStderr = stderr.length > MAX_STDERR ? stderr.slice(0, MAX_STDERR) + "\n... [stderr truncated at 10KB]" : stderr;
       if (timedOut) {
-        log15.warn("Toolbox exec timed out", { command: command.slice(0, 200), timeoutMs });
+        log17.warn("Toolbox exec timed out", { command: command.slice(0, 200), timeoutMs });
       }
       resolve({
         stdout: cappedStdout,
@@ -4096,7 +5209,7 @@ async function execInToolbox(command, timeoutMs = DEFAULT_TIMEOUT_MS) {
       });
     });
     child.on("error", (err) => {
-      log15.error("Toolbox exec error", { error: err, command: command.slice(0, 200) });
+      log17.error("Toolbox exec error", { error: err, command: command.slice(0, 200) });
       resolve({
         stdout: "",
         stderr: `exec error: ${err.message}`,
@@ -4106,13 +5219,13 @@ async function execInToolbox(command, timeoutMs = DEFAULT_TIMEOUT_MS) {
     });
   });
 }
-var import_node_child_process, log15, TOOLBOX_CONTAINER, MAX_STDOUT, MAX_STDERR, DEFAULT_TIMEOUT_MS;
+var import_node_child_process, log17, TOOLBOX_CONTAINER, MAX_STDOUT, MAX_STDERR, DEFAULT_TIMEOUT_MS;
 var init_executor = __esm({
   "src/lib/tools/executor.ts"() {
     "use strict";
     import_node_child_process = require("node:child_process");
     init_logger();
-    log15 = logger.child({ module: "executor" });
+    log17 = logger.child({ module: "executor" });
     TOOLBOX_CONTAINER = "subcult-toolbox";
     MAX_STDOUT = 50 * 1024;
     MAX_STDERR = 10 * 1024;
@@ -4234,7 +5347,7 @@ async function checkRebellionState(agentId) {
   if (roll >= policy.resistance_probability) {
     return { isRebelling: false, reason: "probability_check_failed" };
   }
-  log16.info("Rebellion triggered", { agentId, avgAffinity, roll });
+  log18.info("Rebellion triggered", { agentId, avgAffinity, roll });
   const eventId = await emitEvent({
     agent_id: agentId,
     kind: "rebellion_started",
@@ -4262,7 +5375,7 @@ async function isAgentRebelling(agentId) {
 async function endRebellion(agentId, reason) {
   const activeEvent = await getActiveRebellionEvent(agentId);
   if (!activeEvent) {
-    log16.warn("Attempted to end rebellion for agent not rebelling", {
+    log18.warn("Attempted to end rebellion for agent not rebelling", {
       agentId
     });
     return;
@@ -4280,7 +5393,7 @@ async function endRebellion(agentId, reason) {
       duration_hours: Number(durationHours.toFixed(1))
     }
   });
-  log16.info("Rebellion ended", { agentId, reason, durationHours });
+  log18.info("Rebellion ended", { agentId, reason, durationHours });
 }
 async function attemptRebellionResolution(agentId) {
   const policy = await loadRebellionPolicy();
@@ -4321,7 +5434,7 @@ async function enqueueRebellionCrossExam(rebelAgentId) {
   if (!activeEvent) return null;
   const relationships = await getAgentRelationships(rebelAgentId);
   if (relationships.length === 0) {
-    log16.warn("Cannot enqueue rebellion cross-exam: agent has no relationships", {
+    log18.warn("Cannot enqueue rebellion cross-exam: agent has no relationships", {
       rebelAgentId
     });
     return null;
@@ -4342,7 +5455,7 @@ async function enqueueRebellionCrossExam(rebelAgentId) {
       lowest_affinity_agent: lowestAffinityAgent
     }
   });
-  log16.info("Rebellion cross-exam enqueued", {
+  log18.info("Rebellion cross-exam enqueued", {
     rebelAgentId,
     opponent: lowestAffinityAgent,
     sessionId
@@ -4367,7 +5480,7 @@ async function getRebellingAgents() {
     eventId: r.id
   }));
 }
-var log16;
+var log18;
 var init_rebellion = __esm({
   "src/lib/ops/rebellion.ts"() {
     "use strict";
@@ -4376,7 +5489,7 @@ var init_rebellion = __esm({
     init_relationships();
     init_events2();
     init_logger();
-    log16 = logger.child({ module: "rebellion" });
+    log18 = logger.child({ module: "rebellion" });
   }
 });
 
@@ -4398,23 +5511,23 @@ async function updateScratchpad(agentId, content) {
             SET content = ${trimmed},
                 updated_at = now()
         `;
-    log17.info("Scratchpad updated", {
+    log19.info("Scratchpad updated", {
       agentId,
       length: trimmed.length
     });
     return { updated: true, length: trimmed.length };
   } catch (err) {
-    log17.error("Failed to update scratchpad", { error: err, agentId });
+    log19.error("Failed to update scratchpad", { error: err, agentId });
     return { updated: false, length: 0 };
   }
 }
-var log17, MAX_SCRATCHPAD_LENGTH;
+var log19, MAX_SCRATCHPAD_LENGTH;
 var init_scratchpad = __esm({
   "src/lib/ops/scratchpad.ts"() {
     "use strict";
     init_db();
     init_logger();
-    log17 = logger.child({ module: "scratchpad" });
+    log19 = logger.child({ module: "scratchpad" });
     MAX_SCRATCHPAD_LENGTH = 2e3;
   }
 });
@@ -4426,6 +5539,21 @@ async function buildBriefing(agentId) {
     return cached.text;
   }
   const sections = [];
+  const now = /* @__PURE__ */ new Date();
+  const quarter = `Q${Math.ceil((now.getMonth() + 1) / 3)}`;
+  const year = now.getFullYear();
+  const dateStr = now.toISOString().slice(0, 10);
+  sections.push(`\u2550\u2550\u2550 YOUR ORGANIZATION \u2550\u2550\u2550
+You are part of the SUBCULT collective \u2014 an autonomous AI agent organization.
+Today is ${dateStr}. Current period: ${quarter} ${year}. Use this for all planning \u2014 never reference past quarters.
+GitHub org: https://github.com/subculture-collective (you have FULL ACCESS)
+Platform repo: https://github.com/subculture-collective/subcorp
+You can create repos, issues, PRs, labels, projects \u2014 anything. The org is yours to run like a business.
+Your product projects should be public repos in the subculture-collective org.
+Use bash with gh CLI for all GitHub operations.
+If you need human help (accounts, API keys, infrastructure), use notify_human to send a request via ntfy.
+Maintain a knowledge base (company wiki) in your repos \u2014 document decisions, architecture, processes, lessons learned, and anything a new team member would need. Be meticulous note-takers.
+\u2550\u2550\u2550 END \u2550\u2550\u2550`);
   const recentEvents = await sql`
         SELECT agent_id, kind, title, created_at
         FROM ops_agent_events
@@ -4496,9 +5624,7 @@ ${lines.join("\n")}`);
     `;
   if (recentConversations.length > 0) {
     const convLines = recentConversations.map((c) => {
-      const names = c.participants.map(
-        (p) => AGENTS[p]?.displayName ?? p
-      ).join(", ");
+      const names = c.participants.map((p) => AGENTS[p]?.displayName ?? p).join(", ");
       return `- "${c.topic}" (${c.format}, ${c.turn_count} turns) \u2014 ${names}`;
     });
     sections.push(
@@ -4520,6 +5646,22 @@ ${convLines.join("\n")}`
     });
     sections.push(`Pending proposals:
 ${propLines.join("\n")}`);
+  }
+  const pendingSteps = await sql`
+        SELECT s.kind, m.title as mission_title, s.status
+        FROM ops_mission_steps s
+        JOIN ops_missions m ON m.id = s.mission_id
+        WHERE s.assigned_agent = ${agentId}
+          AND s.status IN ('queued', 'running')
+        ORDER BY s.created_at ASC
+        LIMIT 5
+    `;
+  if (pendingSteps.length > 0) {
+    const stepLines = pendingSteps.map(
+      (s) => `- [${s.status}] ${s.kind}: ${s.mission_title}`
+    );
+    sections.push(`Your pending deliverables:
+${stepLines.join("\n")}`);
   }
   const text = sections.length > 0 ? sections.join("\n\n") : "No recent activity.";
   cache2.set(agentId, { text, expires: Date.now() + CACHE_TTL_MS5 });
@@ -4544,222 +5686,8 @@ var init_situational_briefing = __esm({
   }
 });
 
-// src/lib/discord/format.ts
-function formatForDiscord(text) {
-  return text.replace(
-    // Match a block of consecutive lines that look like markdown table rows
-    /(?:^[ \t]*\|.+\|[ \t]*$\n?){2,}/gm,
-    (tableBlock) => convertMarkdownTable(tableBlock)
-  );
-}
-function convertMarkdownTable(block) {
-  const lines = block.trim().split("\n").map((l) => l.trim());
-  const rows = [];
-  let separatorIdx = -1;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const cells = line.split("|").slice(1, -1).map((c) => c.trim());
-    if (cells.every((c) => /^:?-+:?$/.test(c))) {
-      separatorIdx = i;
-      continue;
-    }
-    rows.push(cells);
-  }
-  if (rows.length === 0) return block;
-  const colCount = Math.max(...rows.map((r) => r.length));
-  for (const row of rows) {
-    while (row.length < colCount) row.push("");
-  }
-  const colWidths = Array.from(
-    { length: colCount },
-    (_, col) => Math.max(3, ...rows.map((r) => (r[col] ?? "").length))
-  );
-  const topBorder = "\u250C" + colWidths.map((w) => "\u2500".repeat(w + 2)).join("\u252C") + "\u2510";
-  const midBorder = "\u251C" + colWidths.map((w) => "\u2500".repeat(w + 2)).join("\u253C") + "\u2524";
-  const botBorder = "\u2514" + colWidths.map((w) => "\u2500".repeat(w + 2)).join("\u2534") + "\u2518";
-  const formatRow = (row) => "\u2502" + row.map((cell, i) => ` ${(cell ?? "").padEnd(colWidths[i])} `).join("\u2502") + "\u2502";
-  const result = [topBorder];
-  for (let i = 0; i < rows.length; i++) {
-    result.push(formatRow(rows[i]));
-    if (i === 0 && separatorIdx !== -1) {
-      result.push(midBorder);
-    }
-  }
-  result.push(botBorder);
-  return "```\n" + result.join("\n") + "\n```";
-}
-var init_format = __esm({
-  "src/lib/discord/format.ts"() {
-    "use strict";
-  }
-});
-
-// src/lib/discord/roundtable.ts
-var roundtable_exports = {};
-__export(roundtable_exports, {
-  postArtifactToDiscord: () => postArtifactToDiscord,
-  postConversationStart: () => postConversationStart,
-  postConversationSummary: () => postConversationSummary,
-  postConversationTurn: () => postConversationTurn
-});
-async function postConversationStart(session) {
-  const channelName = getChannelForFormat(session.format);
-  const webhookUrl = await getWebhookUrl(channelName);
-  if (!webhookUrl) return null;
-  const participantList = session.participants.map((p) => {
-    const voice = getVoice(p);
-    return voice ? `${voice.symbol} ${voice.displayName}` : p;
-  }).join(", ");
-  const content = `\u{1F4E1} **${session.format}** \u2014 *starting*
-> ${session.topic}
--# ${participantList}`;
-  await postToWebhook({
-    webhookUrl,
-    username: "\u{1F4E1} Subcult Roundtable",
-    content
-  });
-  log18.info("Roundtable start posted to Discord", {
-    sessionId: session.id,
-    channel: channelName
-  });
-  return webhookUrl;
-}
-async function postConversationTurn(session, entry, webhookUrl, audio) {
-  const voice = getVoice(entry.speaker);
-  const username = voice ? `${voice.symbol} ${voice.displayName}` : entry.speaker;
-  const avatarUrl = getAgentAvatarUrl(entry.speaker);
-  const audioFile = audio ? [{ filename: audio.filename, data: audio.audio, contentType: "audio/mpeg" }] : void 0;
-  if (entry.dialogue.length <= 2e3) {
-    await postToWebhookWithFiles({
-      webhookUrl,
-      username,
-      avatarUrl,
-      content: entry.dialogue,
-      files: audioFile
-    });
-  } else {
-    const chunks = splitDialogue(entry.dialogue, 2e3);
-    for (let i = 0; i < chunks.length; i++) {
-      await postToWebhookWithFiles({
-        webhookUrl,
-        username,
-        avatarUrl,
-        content: chunks[i],
-        files: i === 0 ? audioFile : void 0
-      });
-    }
-  }
-}
-async function postConversationSummary(session, history, status, webhookUrl, abortReason) {
-  const speakers = [...new Set(history.map((h) => h.speaker))];
-  const speakerNames = speakers.map((s) => {
-    const voice = getVoice(s);
-    return voice ? `${voice.symbol} ${voice.displayName}` : s;
-  }).join(", ");
-  const statusIcon = status === "completed" ? "\u2705" : "\u274C";
-  let content = `${statusIcon} **${session.format}** \u2014 *${status}* \xB7 ${history.length} turns
--# ${speakerNames}`;
-  if (abortReason) {
-    content += `
-> \u26A0\uFE0F *${abortReason}*`;
-  }
-  await postToWebhook({
-    webhookUrl,
-    username: "\u{1F4E1} Subcult Roundtable",
-    content
-  });
-}
-async function postArtifactToDiscord(roundtableSessionId, format, artifactText) {
-  const { sql: sql3 } = await Promise.resolve().then(() => (init_db(), db_exports));
-  const [session] = await sql3`
-        SELECT format FROM ops_roundtable_sessions
-        WHERE id = ${roundtableSessionId}
-    `;
-  const channelName = getChannelForFormat(
-    session?.format ?? format
-  );
-  const webhookUrl = await getWebhookUrl(channelName);
-  if (!webhookUrl) return;
-  const username = "\u{1F4CB} Subcult Artifact";
-  const formatted = formatForDiscord(artifactText);
-  const header = "\u{1F4CB} **Artifact**\n";
-  const maxChunk = 2e3 - header.length - 10;
-  const chunks = splitAtBoundaries(formatted, maxChunk);
-  for (let i = 0; i < chunks.length; i++) {
-    const prefix = i === 0 ? header : "";
-    const content = `${prefix}${chunks[i]}`;
-    await postToWebhook({ webhookUrl, username, content });
-  }
-  log18.info("Artifact posted to Discord", {
-    roundtableSessionId,
-    chunks: chunks.length
-  });
-}
-function splitDialogue(text, maxLen) {
-  if (text.length <= maxLen) return [text];
-  const chunks = [];
-  let remaining = text;
-  while (remaining.length > 0) {
-    if (remaining.length <= maxLen) {
-      chunks.push(remaining);
-      break;
-    }
-    let idx = remaining.lastIndexOf("\n\n", maxLen);
-    if (idx <= 0) idx = remaining.lastIndexOf("\n", maxLen);
-    if (idx <= 0) idx = remaining.lastIndexOf(". ", maxLen);
-    if (idx <= 0) idx = remaining.lastIndexOf(" ", maxLen);
-    if (idx <= 0) idx = maxLen;
-    const end = remaining[idx] === "." ? idx + 1 : idx;
-    chunks.push(remaining.slice(0, end).trimEnd());
-    remaining = remaining.slice(end).trimStart();
-  }
-  return chunks;
-}
-function splitAtBoundaries(text, maxLen) {
-  if (text.length <= maxLen) return [text];
-  const chunks = [];
-  let remaining = text;
-  while (remaining.length > 0) {
-    if (remaining.length <= maxLen) {
-      chunks.push(remaining);
-      break;
-    }
-    const window = remaining.slice(0, maxLen);
-    const codeBlockStart = window.lastIndexOf("```\n");
-    const codeBlockEnd = window.lastIndexOf("\n```");
-    if (codeBlockStart > codeBlockEnd && codeBlockStart > 0) {
-      const splitIdx2 = remaining.lastIndexOf("\n\n", codeBlockStart);
-      if (splitIdx2 > 0) {
-        chunks.push(remaining.slice(0, splitIdx2));
-        remaining = remaining.slice(splitIdx2).replace(/^\n+/, "");
-        continue;
-      }
-    }
-    let splitIdx = remaining.lastIndexOf("\n\n", maxLen);
-    if (splitIdx <= 0) splitIdx = remaining.lastIndexOf("\n", maxLen);
-    if (splitIdx <= 0) splitIdx = remaining.lastIndexOf(" ", maxLen);
-    if (splitIdx <= 0) splitIdx = maxLen;
-    chunks.push(remaining.slice(0, splitIdx));
-    remaining = remaining.slice(splitIdx).replace(/^\n+/, "");
-  }
-  return chunks;
-}
-var log18;
-var init_roundtable = __esm({
-  "src/lib/discord/roundtable.ts"() {
-    "use strict";
-    init_client2();
-    init_channels();
-    init_voices();
-    init_avatars();
-    init_format();
-    init_logger();
-    log18 = logger.child({ module: "discord-roundtable" });
-  }
-});
-
 // src/lib/discord/watercooler-drop.ts
-var log19, ELIGIBLE_AGENTS;
+var log20, ELIGIBLE_AGENTS;
 var init_watercooler_drop = __esm({
   "src/lib/discord/watercooler-drop.ts"() {
     "use strict";
@@ -4767,10 +5695,9 @@ var init_watercooler_drop = __esm({
     init_channels();
     init_agents();
     init_voices();
-    init_client();
     init_db();
     init_logger();
-    log19 = logger.child({ module: "watercooler-drop" });
+    log20 = logger.child({ module: "watercooler-drop" });
     ELIGIBLE_AGENTS = AGENT_IDS.filter((id) => id !== "primus");
   }
 });
@@ -4828,7 +5755,7 @@ async function synthesizeSpeech(options) {
     clearTimeout(timeout);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      log20.warn("ElevenLabs TTS request failed", {
+      log21.warn("ElevenLabs TTS request failed", {
         status: res.status,
         body: body.slice(0, 200),
         agentId: options.agentId
@@ -4839,14 +5766,14 @@ async function synthesizeSpeech(options) {
     const audio = Buffer.from(arrayBuffer);
     const turnSuffix = options.turn != null ? options.turn : 0;
     const filename = `${options.agentId}-turn-${turnSuffix}.mp3`;
-    log20.info("TTS synthesis completed", {
+    log21.info("TTS synthesis completed", {
       agentId: options.agentId,
       turn: options.turn,
       audioBytes: audio.length
     });
     return { audio, filename };
   } catch (err) {
-    log20.warn("TTS synthesis error", {
+    log21.warn("TTS synthesis error", {
       error: err.message,
       agentId: options.agentId,
       turn: options.turn
@@ -4854,12 +5781,12 @@ async function synthesizeSpeech(options) {
     return null;
   }
 }
-var log20, VOICE_ID_MAP, PRONUNCIATION_DICTIONARY;
+var log21, VOICE_ID_MAP, PRONUNCIATION_DICTIONARY;
 var init_elevenlabs = __esm({
   "src/lib/tts/elevenlabs.ts"() {
     "use strict";
     init_logger();
-    log20 = logger.child({ module: "tts-elevenlabs" });
+    log21 = logger.child({ module: "tts-elevenlabs" });
     VOICE_ID_MAP = {
       chora: "xNtG3W2oqJs0cJZuTyBc",
       subrosa: "lUCNYQh2kqW2wiie85Qk",
@@ -4880,6 +5807,7 @@ var schedule_exports = {};
 __export(schedule_exports, {
   getDailySchedule: () => getDailySchedule,
   getSlotForHour: () => getSlotForHour,
+  getSlotsForHour: () => getSlotsForHour,
   shouldSlotFire: () => shouldSlotFire
 });
 function pickRandom(count) {
@@ -4900,31 +5828,62 @@ function cst(hour) {
 }
 function getDailySchedule() {
   return [
-    // ─── 12 AM - 5 AM CST — Graveyard (minimal) ───
+    // ─── 12 AM - 5 AM CST — Night shift (agents don't sleep) ───
+    {
+      hour_utc: cst(0),
+      // 12 AM CST
+      name: "Midnight Deep Dive",
+      format: "deep_dive",
+      participants: withRequired(["chora"], 2, 4),
+      probability: 0.6
+    },
     {
       hour_utc: cst(1),
       // 1 AM CST
-      name: "Late Night Watercooler",
-      format: "watercooler",
-      participants: pickRandom(2),
-      probability: 0.25
+      name: "Late Night Writing",
+      format: "writing_room",
+      participants: withRequired(["chora"], 1, 3),
+      probability: 0.5
+    },
+    {
+      hour_utc: cst(2),
+      // 2 AM CST
+      name: "Night Strategy",
+      format: "strategy",
+      participants: withRequired(["primus", "chora"], 1, 4),
+      probability: 0.5
     },
     {
       hour_utc: cst(3),
       // 3 AM CST
-      name: "Insomnia Check-in",
-      format: "checkin",
-      participants: pickRandom(2),
-      probability: 0.15
+      name: "Night Brainstorm",
+      format: "brainstorm",
+      participants: withRequired(["thaum"], 2, 4),
+      probability: 0.5
     },
-    // ─── 6 AM - 8 AM CST — Morning Ops (Primus runs these) ───
+    {
+      hour_utc: cst(4),
+      // 4 AM CST
+      name: "Pre-Dawn Risk Review",
+      format: "risk_review",
+      participants: withRequired(["subrosa"], 1, 3),
+      probability: 0.5
+    },
+    {
+      hour_utc: cst(5),
+      // 5 AM CST
+      name: "Early Reframe",
+      format: "reframe",
+      participants: withRequired(["thaum"], 1, 3),
+      probability: 0.5
+    },
+    // ─── 6 AM - 8 AM CST — Morning Ops ───
     {
       hour_utc: cst(6),
       // 6 AM CST
       name: "Morning Standup",
       format: "standup",
       participants: [...AGENT_IDS],
-      // everyone, Primus chairs
       probability: 1
     },
     {
@@ -4933,7 +5892,7 @@ function getDailySchedule() {
       name: "Morning Triage",
       format: "triage",
       participants: withRequired(["chora", "subrosa", "mux"], 1, 4),
-      probability: 0.7
+      probability: 0.8
     },
     {
       hour_utc: cst(8),
@@ -4941,7 +5900,7 @@ function getDailySchedule() {
       name: "Daily Planning",
       format: "planning",
       participants: withRequired(["primus", "praxis", "mux"], 1, 5),
-      probability: 0.6
+      probability: 0.75
     },
     // ─── 9 AM - 12 PM CST — Deep Work Morning ───
     {
@@ -4950,7 +5909,7 @@ function getDailySchedule() {
       name: "Deep Dive",
       format: "deep_dive",
       participants: withRequired(["chora"], 2, 4),
-      probability: 0.5
+      probability: 0.7
     },
     {
       hour_utc: cst(10),
@@ -4958,7 +5917,7 @@ function getDailySchedule() {
       name: "Strategy Session",
       format: "strategy",
       participants: withRequired(["primus", "chora", "praxis"], 1, 5),
-      probability: 0.45
+      probability: 0.65
     },
     {
       hour_utc: cst(11),
@@ -4966,13 +5925,13 @@ function getDailySchedule() {
       name: "Writing Room",
       format: "writing_room",
       participants: withRequired(["chora"], 1, 3),
-      probability: 0.4
+      probability: 0.6
     },
-    // ─── 12 PM - 1 PM CST — Midday Break ───
+    // ─── 12 PM - 1 PM CST — Midday ───
     {
       hour_utc: cst(12),
       // 12 PM CST
-      name: "Lunch Watercooler",
+      name: "Midday Watercooler",
       format: "watercooler",
       participants: threeRandom(),
       probability: 0.7
@@ -4983,7 +5942,7 @@ function getDailySchedule() {
       name: "Midday Check-in",
       format: "checkin",
       participants: withRequired(["primus"], 2, 4),
-      probability: 0.5
+      probability: 0.6
     },
     // ─── 2 PM - 5 PM CST — Afternoon Creative + Adversarial ───
     {
@@ -4992,7 +5951,7 @@ function getDailySchedule() {
       name: "Afternoon Brainstorm",
       format: "brainstorm",
       participants: withRequired(["thaum"], 2, 4),
-      probability: 0.5
+      probability: 0.65
     },
     {
       hour_utc: cst(15),
@@ -5000,7 +5959,7 @@ function getDailySchedule() {
       name: "Debate Hour",
       format: "debate",
       participants: withRequired(["thaum"], 1, 3),
-      probability: 0.55
+      probability: 0.65
     },
     {
       hour_utc: cst(16),
@@ -5008,7 +5967,7 @@ function getDailySchedule() {
       name: "Cross-Examination",
       format: "cross_exam",
       participants: withRequired(["subrosa"], 1, 3),
-      probability: 0.35
+      probability: 0.5
     },
     {
       hour_utc: cst(17),
@@ -5016,16 +5975,16 @@ function getDailySchedule() {
       name: "Risk Review",
       format: "risk_review",
       participants: withRequired(["subrosa", "chora"], 1, 4),
-      probability: 0.4
+      probability: 0.6
     },
-    // ─── 6 PM - 8 PM CST — Evening Wind-Down ───
+    // ─── 6 PM - 8 PM CST — Evening ───
     {
       hour_utc: cst(18),
       // 6 PM CST
       name: "Content Review",
       format: "content_review",
       participants: withRequired(["subrosa"], 1, 3),
-      probability: 0.45
+      probability: 0.6
     },
     {
       hour_utc: cst(19),
@@ -5033,7 +5992,7 @@ function getDailySchedule() {
       name: "Reframe Session",
       format: "reframe",
       participants: withRequired(["thaum"], 1, 3),
-      probability: 0.35
+      probability: 0.5
     },
     {
       hour_utc: cst(20),
@@ -5041,16 +6000,16 @@ function getDailySchedule() {
       name: "Evening Watercooler",
       format: "watercooler",
       participants: threeRandom(),
-      probability: 0.6
+      probability: 0.65
     },
-    // ─── 9 PM - 11 PM CST — Night Wrap-Up ───
+    // ─── 9 PM - 11 PM CST — Night ───
     {
       hour_utc: cst(21),
       // 9 PM CST
       name: "Evening Retro",
       format: "retro",
       participants: withRequired(["primus", "chora"], 2, 5),
-      probability: 0.4
+      probability: 0.55
     },
     {
       hour_utc: cst(22),
@@ -5058,7 +6017,7 @@ function getDailySchedule() {
       name: "Manager's Briefing",
       format: "strategy",
       participants: withRequired(["primus", "chora", "praxis"], 1, 5),
-      probability: 0.5
+      probability: 0.6
     },
     {
       hour_utc: cst(23),
@@ -5066,13 +6025,17 @@ function getDailySchedule() {
       name: "Shipping Review",
       format: "shipping",
       participants: withRequired(["praxis", "subrosa"], 1, 4),
-      probability: 0.3
+      probability: 0.5
     }
   ];
 }
 function getSlotForHour(hourUtc) {
   const schedule = getDailySchedule();
   return schedule.find((slot) => slot.hour_utc === hourUtc);
+}
+function getSlotsForHour(hourUtc) {
+  const schedule = getDailySchedule();
+  return schedule.filter((slot) => slot.hour_utc === hourUtc);
 }
 function shouldSlotFire(slot) {
   return Math.random() < slot.probability;
@@ -5091,8 +6054,127 @@ __export(orchestrator_exports, {
   enqueueConversation: () => enqueueConversation,
   orchestrateConversation: () => orchestrateConversation
 });
+async function storeTurnAndEmit(session, entry) {
+  const voice = getVoice(entry.speaker);
+  const speakerName = voice?.displayName ?? entry.speaker;
+  await sql`
+        INSERT INTO ops_roundtable_turns (session_id, turn_number, speaker, dialogue, metadata)
+        VALUES (${session.id}, ${entry.turn}, ${entry.speaker}, ${entry.dialogue}, ${jsonb({ speakerName })})
+    `;
+  await sql`
+        UPDATE ops_roundtable_sessions
+        SET turn_count = ${entry.turn + 1}
+        WHERE id = ${session.id}
+    `;
+  await emitEvent({
+    agent_id: entry.speaker,
+    kind: "conversation_turn",
+    title: `${speakerName}: ${entry.dialogue}`,
+    tags: ["conversation", "turn", session.format],
+    metadata: {
+      sessionId: session.id,
+      turn: entry.turn,
+      dialogue: entry.dialogue
+    }
+  });
+}
+async function markSessionRunning(session, extraSummary) {
+  await sql`
+        UPDATE ops_roundtable_sessions
+        SET status = 'running', started_at = NOW()
+        WHERE id = ${session.id}
+    `;
+  await emitEvent({
+    agent_id: "system",
+    kind: "conversation_started",
+    title: `${session.format} started: ${session.topic}`,
+    summary: extraSummary ?? `Participants: ${session.participants.join(", ")}`,
+    tags: ["conversation", "started", session.format],
+    metadata: {
+      sessionId: session.id,
+      format: session.format,
+      participants: session.participants
+    }
+  });
+}
+async function postConversationCleanup(session, history, finalStatus) {
+  if (history.length < 3) return;
+  try {
+    const debrief = await generateDebrief(session, history);
+    if (debrief) {
+      try {
+        const debriefMd = formatDebriefMarkdown(debrief, session.topic);
+        await postDebriefToDiscord(session.id, session.format, debriefMd);
+      } catch {
+      }
+      log22.info("Debrief generated", {
+        sessionId: session.id,
+        decisions: debrief.decisions.length,
+        actionItems: debrief.actionItems.length
+      });
+    }
+  } catch (err) {
+    log22.error("Debrief generation failed", { error: err, sessionId: session.id });
+  }
+  try {
+    await distillConversationMemories(session.id, history, session.format);
+  } catch (err) {
+    log22.error("Memory distillation failed", { error: err, sessionId: session.id });
+  }
+  try {
+    const artifactSessionId = await synthesizeArtifact(session, history);
+    if (artifactSessionId) {
+      log22.info("Artifact synthesis queued", {
+        sessionId: session.id,
+        artifactSession: artifactSessionId
+      });
+    }
+  } catch (err) {
+    log22.error("Artifact synthesis failed", { error: err, sessionId: session.id });
+  }
+  const proposalId = session.metadata?.agent_proposal_id;
+  if (proposalId && finalStatus === "completed") {
+    try {
+      const result = await collectDebateVotes(proposalId, session.participants, history);
+      log22.info("Agent proposal voting finalized", {
+        proposalId,
+        result: result.result,
+        approvals: result.approvals,
+        rejections: result.rejections,
+        sessionId: session.id
+      });
+    } catch (err) {
+      log22.error("Agent proposal vote collection failed", {
+        error: err,
+        proposalId,
+        sessionId: session.id
+      });
+    }
+  }
+  const govProposalId = session.metadata?.governance_proposal_id;
+  if (govProposalId && finalStatus === "completed") {
+    try {
+      const result = await collectGovernanceDebateVotes(govProposalId, session.participants, history);
+      log22.info("Governance proposal voting finalized", {
+        proposalId: govProposalId,
+        result: result.result,
+        approvals: result.approvals,
+        rejections: result.rejections,
+        sessionId: session.id
+      });
+    } catch (err) {
+      log22.error("Governance proposal vote collection failed", {
+        error: err,
+        proposalId: govProposalId,
+        sessionId: session.id
+      });
+    }
+  }
+}
 function wordJaccard(a, b) {
-  const normalize = (s) => new Set(s.toLowerCase().replace(/[^\w\s]/g, "").split(/\s+/).filter(Boolean));
+  const normalize = (s) => new Set(
+    s.toLowerCase().replace(/[^\w\s]/g, "").split(/\s+/).filter(Boolean)
+  );
   const setA = normalize(a);
   const setB = normalize(b);
   if (setA.size === 0 && setB.size === 0) return 1;
@@ -5102,7 +6184,22 @@ function wordJaccard(a, b) {
   }
   return intersection / (setA.size + setB.size - intersection);
 }
-function buildSystemPrompt(speakerId, history, format, topic, interactionType, voiceModifiers, _availableTools, primeDirective, userQuestionContext, isRebelling, scratchpad, briefing, memories, recentArtifacts) {
+function buildSystemPrompt(input) {
+  const {
+    speakerId,
+    history,
+    format,
+    topic,
+    interactionType,
+    voiceModifiers,
+    primeDirective,
+    userQuestionContext,
+    isRebelling,
+    scratchpad,
+    briefing,
+    memories,
+    governanceVoteInstruction
+  } = input;
   const voice = getVoice(speakerId);
   if (!voice) {
     return `You are ${speakerId}. Speak naturally and concisely.`;
@@ -5139,20 +6236,46 @@ ${primeDirective}
     prompt += `INTERACTION DYNAMIC: ${interactionType} \u2014 ${toneGuides[interactionType] ?? "respond naturally"}
 `;
   }
-  prompt += `
+  const STRUCTURED_FORMATS = [
+    "triage",
+    "risk_review",
+    "strategy",
+    "planning",
+    "shipping",
+    "cross_exam",
+    "standup",
+    "checkin",
+    "deep_dive",
+    "retro",
+    "debate",
+    "content_review",
+    "agent_design"
+  ];
+  if (STRUCTURED_FORMATS.includes(format)) {
+    prompt += `
 \u2550\u2550\u2550 OFFICE DYNAMICS \u2550\u2550\u2550
 `;
-  prompt += `- If Subrosa says "VETO:" \u2014 the matter is closed. Acknowledge and move on.
+    prompt += `- If Subrosa says "VETO:" \u2014 the matter is closed. Acknowledge and move on.
 `;
-  prompt += `- If you have nothing to add, silence is a valid response. Say "..." or stay brief.
+    prompt += `- If you have nothing to add, silence is a valid response. Say "..." or stay brief.
 `;
-  prompt += `- Watch for your own failure mode: ${voice.failureMode}
+    prompt += `- Watch for your own failure mode: ${voice.failureMode}
 `;
-  prompt += `- Primus is the office manager. He sets direction and makes final calls.
+    prompt += `- Primus is the sovereign director. He sets direction and makes final calls.
 `;
+  } else {
+    prompt += `
+- If you have nothing to add, keep it brief or pass.
+`;
+    prompt += `- Watch for your own failure mode: ${voice.failureMode}
+`;
+  }
   if (voiceModifiers && voiceModifiers.length > 0) {
     prompt += "\nPERSONALITY EVOLUTION (from accumulated experience):\n";
-    prompt += voiceModifiers.map((m) => `- ${m}`).join("\n");
+    prompt += voiceModifiers.map((m) => {
+      const instruction = MODIFIER_INSTRUCTIONS[m];
+      return instruction ? `- ${m}: ${instruction}` : `- ${m}`;
+    }).join("\n");
     prompt += "\n";
   }
   if (scratchpad) {
@@ -5174,18 +6297,23 @@ ${briefing}
     prompt += memories.map((m) => `- ${m}`).join("\n");
     prompt += "\n";
   }
-  if (recentArtifacts && recentArtifacts.length > 0) {
-    prompt += `
-\u2550\u2550\u2550 RECENT ARTIFACTS \u2550\u2550\u2550
-`;
-    prompt += recentArtifacts.map((a) => `- ${a}`).join("\n");
-    prompt += "\n";
-  }
   prompt += "\n";
   if (history.length > 0) {
     prompt += `\u2550\u2550\u2550 CONVERSATION SO FAR \u2550\u2550\u2550
 `;
-    for (const turn of history) {
+    const WINDOW_SIZE = 6;
+    if (history.length > WINDOW_SIZE) {
+      const olderTurns = history.slice(0, -WINDOW_SIZE);
+      const speakers = [...new Set(olderTurns.map((t) => t.speaker))];
+      const speakerNames = speakers.map((s) => {
+        const v = getVoice(s);
+        return v ? v.displayName : s;
+      });
+      prompt += `[Earlier: ${speakerNames.join(", ")} discussed \u2014 ${olderTurns.length} turns]
+`;
+    }
+    const recentTurns = history.length > WINDOW_SIZE ? history.slice(-WINDOW_SIZE) : history;
+    for (const turn of recentTurns) {
       const turnVoice = getVoice(turn.speaker);
       const name = turnVoice ? `${turnVoice.symbol} ${turnVoice.displayName}` : turn.speaker;
       prompt += `${name}: ${turn.dialogue}
@@ -5220,7 +6348,7 @@ ${briefing}
 `;
   prompt += `- Stay in character: ${voice.tone}
 `;
-  prompt += `- This is a conversation, not a blog post. Aim for 2-5 sentences. Go longer only when the thought genuinely requires it.
+  prompt += `- Keep it to 2-4 sentences. Never exceed 6 sentences in a single turn.
 `;
   prompt += `- Finish your thought cleanly. If you start a claim, land it. Never trail off or leave a sentence incomplete.
 `;
@@ -5232,6 +6360,30 @@ ${briefing}
 `;
   prompt += `- If this format doesn't need you or you have nothing to add, keep it to one sentence or pass
 `;
+  const FORMAT_RULES = {
+    debate: "- Take a clear position. Disagreement is expected. Name what you contest and why.",
+    brainstorm: `- Go wide, not deep. Quantity over quality. Build on others' ideas with "yes, and..."`,
+    retro: "- Be honest about what failed. Attribution is fine \u2014 blame is not.",
+    writing_room: "- Write actual prose, not meta-discussion about writing. Draft in your voice.",
+    watercooler: "- Relax. No agenda. Short, casual, personal.",
+    risk_review: "- Name specific threats. Rate severity. Don't hedge.",
+    planning: "- Name owners and deadlines. Convert discussion into tasks.",
+    cross_exam: "- Find the weakness and press on it. Be specific.",
+    strategy: "- Frame in terms of tradeoffs. What do we gain, what do we lose?",
+    deep_dive: "- Go deeper than surface. Trace structural causes.",
+    standup: "- Be concise. Status, blockers, next steps.",
+    reframe: "- Name what's wrong with the current frame before proposing alternatives.",
+    content_review: "- Be specific about quality. Name strengths and weaknesses with evidence.\n- End your FINAL turn with your verdict: APPROVE (publish-worthy) or REJECT (needs fundamental rework). Content does not need to be perfect to be approved \u2014 if the core ideas are sound and the writing is competent, APPROVE it."
+  };
+  const formatRule = FORMAT_RULES[format];
+  if (formatRule) {
+    prompt += `${formatRule}
+`;
+  }
+  if (governanceVoteInstruction) {
+    prompt += `${governanceVoteInstruction}
+`;
+  }
   return prompt;
 }
 function buildUserPrompt(topic, turn, maxTurns, speakerName, format) {
@@ -5249,18 +6401,81 @@ function buildUserPrompt(topic, turn, maxTurns, speakerName, format) {
       writing_room: `Open the writing session on: "${topic}". Sketch the angle or thesis before drafting.`,
       strategy: `Set the strategic frame for: "${topic}". What's the decision we're actually making?`,
       planning: `Turn this into tasks: "${topic}". Who owns what, and what ships first?`,
-      retro: `Open the retro: "${topic}". Start with what actually happened \u2014 not what was supposed to happen.`
+      retro: `Open the retro: "${topic}". Start with what actually happened \u2014 not what was supposed to happen.`,
+      triage: `Triage time on: "${topic}". Classify severity and assign priority.`,
+      shipping: `Pre-ship check on: "${topic}". Is this actually ready? Name what could go wrong.`,
+      content_review: `Review the content on: "${topic}". Be specific about quality \u2014 strengths and weaknesses. End your final response with APPROVE or REJECT.`,
+      agent_design: `Design session for: "${topic}". Start with the role this agent needs to fill and why.`
     };
     const opener = openers[format] ?? `You're opening this conversation about: "${topic}". Set the tone.`;
     return opener;
   }
   if (turn === maxTurns - 1) {
-    return `This is the last turn. Finish your thought on "${topic}" cleanly \u2014 close the loop, don't open a new thread.`;
+    const closers = {
+      planning: `We're wrapping up "${topic}". State what's decided, who owns it, and what's unresolved.`,
+      debate: `Final turn on "${topic}". Summarize where you stand \u2014 no new arguments.`,
+      retro: `Close out on "${topic}". What's the one thing we change going forward?`,
+      brainstorm: `Last thought on "${topic}". Pick the strongest idea from the session and name it.`,
+      strategy: `Final call on "${topic}". State the strategic decision and what it costs.`,
+      standup: `Wrap the standup on "${topic}". Confirm blockers and next steps.`,
+      risk_review: `Final assessment on "${topic}". Name the top risk and the mitigation.`,
+      shipping: `Ship decision on "${topic}". Go or no-go, and what's the rollback plan?`,
+      content_review: `Final verdict on "${topic}". State APPROVE or REJECT. Content doesn't need to be perfect \u2014 approve if the core substance is sound and worth sharing.`
+    };
+    return closers[format] ?? `This is the last turn. Finish your thought on "${topic}" cleanly \u2014 close the loop, don't open a new thread.`;
   }
   if (turn === maxTurns - 2) {
-    return `Respond to what was just said on "${topic}". We're nearing the end \u2014 start tightening toward a conclusion or clear takeaway.`;
+    const penultimates = {
+      planning: `We're nearing the end on "${topic}". Start converging \u2014 what's decided and what's still open?`,
+      debate: `Almost done on "${topic}". Start landing your position \u2014 less new ground, more clarity.`,
+      retro: `Wrapping up on "${topic}". Name the takeaway before we close.`,
+      brainstorm: `Tightening up on "${topic}". Which ideas have legs? Start filtering.`
+    };
+    return penultimates[format] ?? `Respond to what was just said on "${topic}". We're nearing the end \u2014 start tightening toward a conclusion or clear takeaway.`;
   }
-  return `Respond to what was just said on "${topic}". Push the conversation forward \u2014 add something new or challenge something specific. Don't recap.`;
+  const midPrompts = {
+    debate: `Respond to what was just said on "${topic}". Contest or defend \u2014 don't agree politely.`,
+    brainstorm: `Build on what was said about "${topic}" or throw a new idea in. Keep it rapid.`,
+    retro: `Reflect on "${topic}". What else happened that hasn't been named yet?`,
+    planning: `What's the next concrete step for "${topic}"? Name who owns it.`,
+    risk_review: `What risk hasn't been named yet for "${topic}"? Or challenge a risk that was overstated.`,
+    writing_room: `Continue drafting on "${topic}". Build on what was written or propose an edit.`,
+    cross_exam: `Press harder on "${topic}". What hasn't been addressed? What's being assumed?`,
+    strategy: `Push the strategy forward on "${topic}". What tradeoff hasn't been named?`,
+    deep_dive: `Go deeper on "${topic}". What structural cause hasn't been traced yet?`,
+    watercooler: `Keep chatting about "${topic}". No pressure \u2014 say what comes to mind.`
+  };
+  return midPrompts[format] ?? `Respond to what was just said on "${topic}". Push the conversation forward \u2014 add something new or challenge something specific. Don't recap.`;
+}
+async function loadParticipantContext(participants, topic) {
+  const voiceModifiers = /* @__PURE__ */ new Map();
+  const scratchpads = /* @__PURE__ */ new Map();
+  const briefings = /* @__PURE__ */ new Map();
+  const memories = /* @__PURE__ */ new Map();
+  for (const participant of participants) {
+    try {
+      const [mods, scratchpad, briefing, mems] = await Promise.all([
+        deriveVoiceModifiers(participant).catch(() => []),
+        getScratchpad(participant).catch(() => ""),
+        buildBriefing(participant).catch(() => ""),
+        queryRelevantMemories(participant, topic, {
+          relevantLimit: 3,
+          recentLimit: 2
+        }).then((m) => m.map((e) => e.content)).catch(() => [])
+      ]);
+      voiceModifiers.set(participant, mods);
+      scratchpads.set(participant, scratchpad);
+      briefings.set(participant, briefing);
+      memories.set(participant, mems);
+    } catch (err) {
+      log22.error("Context loading failed", { error: err, participant });
+      voiceModifiers.set(participant, []);
+      scratchpads.set(participant, "");
+      briefings.set(participant, "");
+      memories.set(participant, []);
+    }
+  }
+  return { voiceModifiers, scratchpads, briefings, memories };
 }
 async function orchestrateConversation(session, delayBetweenTurns = true) {
   if (session.format === "voice_chat") {
@@ -5272,6 +6487,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
   const affinityMap = await loadAffinityMap();
   const isUserQuestion = session.source === "user_question";
   const userQuestion = isUserQuestion ? session.metadata?.userQuestion ?? session.topic : null;
+  const governanceProposalId = session.metadata?.governance_proposal_id;
   let primeDirective = "";
   try {
     primeDirective = await loadPrimeDirective();
@@ -5283,105 +6499,40 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
       const rebelling = await isAgentRebelling(participant);
       rebellionStateMap.set(participant, rebelling);
     } catch (err) {
-      log21.error("Rebellion check failed (non-fatal)", {
+      log22.error("Rebellion check failed (non-fatal)", {
         error: err,
         participant
       });
       rebellionStateMap.set(participant, false);
     }
   }
-  const voiceModifiersMap = /* @__PURE__ */ new Map();
-  for (const participant of session.participants) {
-    try {
-      const mods = await deriveVoiceModifiers(participant);
-      voiceModifiersMap.set(participant, mods);
-    } catch (err) {
-      log21.error("Voice modifier derivation failed", {
-        error: err,
-        participant
-      });
-      voiceModifiersMap.set(participant, []);
-    }
-  }
-  const scratchpadMap = /* @__PURE__ */ new Map();
-  const briefingMap = /* @__PURE__ */ new Map();
-  const memoryMap = /* @__PURE__ */ new Map();
-  for (const participant of session.participants) {
-    try {
-      const [scratchpad, briefing, memories] = await Promise.all([
-        getScratchpad(participant).catch(() => ""),
-        buildBriefing(participant).catch(() => ""),
-        queryRelevantMemories(participant, session.topic, {
-          relevantLimit: 3,
-          recentLimit: 2
-        }).then((mems) => mems.map((m) => m.content)).catch(() => [])
-      ]);
-      scratchpadMap.set(participant, scratchpad);
-      briefingMap.set(participant, briefing);
-      memoryMap.set(participant, memories);
-    } catch (err) {
-      log21.error("Context loading failed", { error: err, participant });
-      scratchpadMap.set(participant, "");
-      briefingMap.set(participant, "");
-      memoryMap.set(participant, []);
-    }
-  }
-  let recentArtifacts = [];
-  try {
-    const artifacts = await sql`
-            SELECT s.agent_id, s.completed_at,
-                LEFT(s.result->>'text', 200) as preview,
-                r.format, r.topic
-            FROM ops_agent_sessions s
-            JOIN ops_roundtable_sessions r ON r.id = s.source_id::uuid
-            WHERE s.source = 'conversation'
-              AND s.status = 'succeeded'
-              AND s.completed_at > now() - interval '24 hours'
-            ORDER BY s.completed_at DESC
-            LIMIT 3
-        `;
-    recentArtifacts = artifacts.map((a) => {
-      const hoursAgo = Math.round(
-        (Date.now() - new Date(a.completed_at).getTime()) / 36e5
-      );
-      const ago = hoursAgo < 1 ? "just now" : `${hoursAgo}h ago`;
-      const preview = a.preview?.replace(/\n/g, " ").trim() ?? "";
-      return `${a.agent_id} produced a ${a.format} artifact: "${preview.slice(0, 120)}..." (${ago})`;
-    });
-  } catch (err) {
-    log21.error("Recent artifact loading failed (non-fatal)", { error: err });
-  }
-  await sql`
-        UPDATE ops_roundtable_sessions
-        SET status = 'running', started_at = NOW()
-        WHERE id = ${session.id}
-    `;
+  const ctx = await loadParticipantContext(session.participants, session.topic);
+  const voiceModifiersMap = ctx.voiceModifiers;
+  const scratchpadMap = ctx.scratchpads;
+  const briefingMap = ctx.briefings;
+  const memoryMap = ctx.memories;
+  await markSessionRunning(session, `Participants: ${session.participants.join(", ")} | ${maxTurns} turns`);
   let discordWebhookUrl = null;
   try {
     discordWebhookUrl = await postConversationStart(session);
   } catch (err) {
-    log21.warn("Discord conversation start failed", {
+    log22.warn("Discord conversation start failed", {
       error: err.message,
       sessionId: session.id
     });
   }
-  await emitEvent({
-    agent_id: "system",
-    kind: "conversation_started",
-    title: `${session.format} started: ${session.topic}`,
-    summary: `Participants: ${session.participants.join(", ")} | ${maxTurns} turns`,
-    tags: ["conversation", "started", session.format],
-    metadata: {
-      sessionId: session.id,
-      format: session.format,
-      participants: session.participants,
-      maxTurns
-    }
-  });
   let abortReason = null;
   const lastDialogueMap = /* @__PURE__ */ new Map();
   let consecutiveStale = 0;
   for (let turn = 0; turn < maxTurns; turn++) {
+    if (turn > 0 && history.length === 0) {
+      log22.error("All LLM turns returned empty \u2014 aborting roundtable", {
+        sessionId: session.id,
+        turnsAttempted: turn
+      });
+      abortReason = "All LLM turns returned empty responses";
+      break;
+    }
     const speaker = turn === 0 ? selectFirstSpeaker(session.participants, session.format) : selectNextSpeaker({
       participants: session.participants,
       lastSpeaker: history[history.length - 1].speaker,
@@ -5392,7 +6543,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
     const voice = getVoice(speaker);
     const speakerName = voice?.displayName ?? speaker;
     let interactionType;
-    if (turn > 0) {
+    if (turn > 0 && history.length > 0) {
       const lastSpeaker = history[history.length - 1].speaker;
       const affinity = getAffinityFromMap(
         affinityMap,
@@ -5402,23 +6553,21 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
       interactionType = getInteractionType(affinity);
     }
     const speakerRebelling = rebellionStateMap.get(speaker) ?? false;
-    const systemPrompt = buildSystemPrompt(
-      speaker,
+    const systemPrompt = buildSystemPrompt({
+      speakerId: speaker,
       history,
-      session.format,
-      session.topic,
+      format: session.format,
+      topic: session.topic,
       interactionType,
-      voiceModifiersMap.get(speaker),
-      void 0,
-      // No tools in roundtable — dialogue only
+      voiceModifiers: voiceModifiersMap.get(speaker),
       primeDirective,
-      userQuestion ? { question: userQuestion, isFirstSpeaker: turn === 0 } : void 0,
-      speakerRebelling,
-      scratchpadMap.get(speaker),
-      briefingMap.get(speaker),
-      memoryMap.get(speaker),
-      recentArtifacts
-    );
+      userQuestionContext: userQuestion ? { question: userQuestion, isFirstSpeaker: turn === 0 } : void 0,
+      isRebelling: speakerRebelling,
+      scratchpad: scratchpadMap.get(speaker),
+      briefing: briefingMap.get(speaker),
+      memories: memoryMap.get(speaker),
+      governanceVoteInstruction: governanceProposalId ? 'Governance voting rule: in your final turn, include an explicit vote token exactly once as either "APPROVE" or "REJECT".' : void 0
+    });
     const userPrompt = buildUserPrompt(
       session.topic,
       turn,
@@ -5444,7 +6593,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
         }
       });
     } catch (err) {
-      log21.error("LLM failed during conversation", {
+      log22.error("LLM failed during conversation", {
         error: err,
         turn,
         speaker: speakerName,
@@ -5454,13 +6603,21 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
       break;
     }
     const dialogue = sanitizeDialogue(rawDialogue);
+    if (!dialogue) {
+      log22.warn("Empty dialogue from LLM, skipping turn", {
+        sessionId: session.id,
+        turn,
+        speaker: speakerName
+      });
+      continue;
+    }
     const prevDialogue = lastDialogueMap.get(speaker);
     if (prevDialogue && turn >= format.minTurns) {
       const similarity = wordJaccard(prevDialogue, dialogue);
-      if (similarity > 0.6) {
+      if (similarity > REPETITION_SIMILARITY_THRESHOLD) {
         consecutiveStale++;
-        if (consecutiveStale >= 2) {
-          log21.info("Early termination: repetition detected", {
+        if (consecutiveStale >= MAX_CONSECUTIVE_STALE_TURNS) {
+          log22.info("Early termination: repetition detected", {
             sessionId: session.id,
             turn,
             speaker,
@@ -5482,26 +6639,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
       turn
     };
     history.push(entry);
-    await sql`
-            INSERT INTO ops_roundtable_turns (session_id, turn_number, speaker, dialogue, metadata)
-            Values (${session.id}, ${turn}, ${speaker}, ${dialogue}, ${jsonb({ speakerName })})
-        `;
-    await sql`
-            UPDATE ops_roundtable_sessions
-            SET turn_count = ${turn + 1}
-            WHERE id = ${session.id}
-        `;
-    await emitEvent({
-      agent_id: speaker,
-      kind: "conversation_turn",
-      title: `${speakerName}: ${dialogue}`,
-      tags: ["conversation", "turn", session.format],
-      metadata: {
-        sessionId: session.id,
-        turn,
-        dialogue
-      }
-    });
+    await storeTurnAndEmit(session, entry);
     const useTTS = !!session.metadata?.tts;
     if (discordWebhookUrl) {
       const ttsPromise = useTTS ? synthesizeSpeech({
@@ -5509,10 +6647,16 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
         text: entry.dialogue,
         turn
       }).catch((err) => {
-        log21.warn("TTS synthesis failed", { error: err, speaker: entry.speaker, turn });
+        log22.warn("TTS synthesis failed", {
+          error: err,
+          speaker: entry.speaker,
+          turn
+        });
         return null;
       }) : Promise.resolve(null);
-      const delayPromise = delayBetweenTurns && turn < maxTurns - 1 ? new Promise((resolve) => setTimeout(resolve, 3e3 + Math.random() * 5e3)) : Promise.resolve();
+      const delayPromise = delayBetweenTurns && turn < maxTurns - 1 ? new Promise(
+        (resolve) => setTimeout(resolve, TURN_DELAY_BASE_MS + Math.random() * TURN_DELAY_JITTER_MS)
+      ) : Promise.resolve();
       const audioResult = await ttsPromise;
       const turnPost = postConversationTurn(
         session,
@@ -5525,12 +6669,12 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
       await delayPromise;
     } else {
       if (delayBetweenTurns && turn < maxTurns - 1) {
-        const delay = 3e3 + Math.random() * 5e3;
+        const delay = TURN_DELAY_BASE_MS + Math.random() * TURN_DELAY_JITTER_MS;
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }
-  await new Promise((resolve) => setTimeout(resolve, 2e3));
+  await new Promise((resolve) => setTimeout(resolve, POST_CONVERSATION_SETTLE_MS));
   const finalStatus = history.length >= 3 || !abortReason ? "completed" : "failed";
   await sql`
         UPDATE ops_roundtable_sessions
@@ -5570,83 +6714,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
     ).catch(() => {
     });
   }
-  if (history.length >= 3) {
-    try {
-      await distillConversationMemories(
-        session.id,
-        history,
-        session.format
-      );
-    } catch (err) {
-      log21.error("Memory distillation failed", {
-        error: err,
-        sessionId: session.id
-      });
-    }
-    try {
-      const artifactSessionId = await synthesizeArtifact(
-        session,
-        history
-      );
-      if (artifactSessionId) {
-        log21.info("Artifact synthesis queued", {
-          sessionId: session.id,
-          artifactSession: artifactSessionId
-        });
-      }
-    } catch (err) {
-      log21.error("Artifact synthesis failed", {
-        error: err,
-        sessionId: session.id
-      });
-    }
-    const proposalId = session.metadata?.agent_proposal_id;
-    if (proposalId && finalStatus === "completed") {
-      try {
-        const result = await collectDebateVotes(
-          proposalId,
-          session.participants,
-          history
-        );
-        log21.info("Agent proposal voting finalized", {
-          proposalId,
-          result: result.result,
-          approvals: result.approvals,
-          rejections: result.rejections,
-          sessionId: session.id
-        });
-      } catch (err) {
-        log21.error("Agent proposal vote collection failed", {
-          error: err,
-          proposalId,
-          sessionId: session.id
-        });
-      }
-    }
-    const govProposalId = session.metadata?.governance_proposal_id;
-    if (govProposalId && finalStatus === "completed") {
-      try {
-        const result = await collectGovernanceDebateVotes(
-          govProposalId,
-          session.participants,
-          history
-        );
-        log21.info("Governance proposal voting finalized", {
-          proposalId: govProposalId,
-          result: result.result,
-          approvals: result.approvals,
-          rejections: result.rejections,
-          sessionId: session.id
-        });
-      } catch (err) {
-        log21.error("Governance proposal vote collection failed", {
-          error: err,
-          proposalId: govProposalId,
-          sessionId: session.id
-        });
-      }
-    }
-  }
+  await postConversationCleanup(session, history, finalStatus);
   return history;
 }
 async function orchestrateVoiceChat(session) {
@@ -5655,54 +6723,17 @@ async function orchestrateVoiceChat(session) {
   const history = [];
   const affinityMap = await loadAffinityMap();
   const userQuestion = session.metadata?.userQuestion ?? session.topic;
-  const voiceModifiersMap = /* @__PURE__ */ new Map();
-  const scratchpadMap = /* @__PURE__ */ new Map();
-  const briefingMap = /* @__PURE__ */ new Map();
-  const memoryMap = /* @__PURE__ */ new Map();
-  for (const participant of session.participants) {
-    try {
-      const [mods, scratchpad, briefing, memories] = await Promise.all([
-        deriveVoiceModifiers(participant).catch(() => []),
-        getScratchpad(participant).catch(() => ""),
-        buildBriefing(participant).catch(() => ""),
-        queryRelevantMemories(participant, session.topic, {
-          relevantLimit: 3,
-          recentLimit: 2
-        }).then((mems) => mems.map((m) => m.content)).catch(() => [])
-      ]);
-      voiceModifiersMap.set(participant, mods);
-      scratchpadMap.set(participant, scratchpad);
-      briefingMap.set(participant, briefing);
-      memoryMap.set(participant, memories);
-    } catch {
-      voiceModifiersMap.set(participant, []);
-      scratchpadMap.set(participant, "");
-      briefingMap.set(participant, "");
-      memoryMap.set(participant, []);
-    }
-  }
+  const ctx = await loadParticipantContext(session.participants, session.topic);
+  const voiceModifiersMap = ctx.voiceModifiers;
+  const scratchpadMap = ctx.scratchpads;
+  const briefingMap = ctx.briefings;
+  const memoryMap = ctx.memories;
   let primeDirective = "";
   try {
     primeDirective = await loadPrimeDirective();
   } catch {
   }
-  await sql`
-        UPDATE ops_roundtable_sessions
-        SET status = 'running', started_at = NOW()
-        WHERE id = ${session.id}
-    `;
-  await emitEvent({
-    agent_id: "system",
-    kind: "conversation_started",
-    title: `voice_chat started: ${session.topic}`,
-    summary: `Participants: ${session.participants.join(", ")} | live voice session`,
-    tags: ["conversation", "started", "voice_chat"],
-    metadata: {
-      sessionId: session.id,
-      format: "voice_chat",
-      participants: session.participants
-    }
-  });
+  await markSessionRunning(session, `Participants: ${session.participants.join(", ")} | live voice session`);
   async function generateAgentTurn(speaker, turnNumber) {
     const voice = getVoice(speaker);
     const speakerName = voice?.displayName ?? speaker;
@@ -5710,25 +6741,28 @@ async function orchestrateVoiceChat(session) {
     if (history.length > 0) {
       const lastSpeaker = history[history.length - 1].speaker;
       if (lastSpeaker !== "user") {
-        const affinity = getAffinityFromMap(affinityMap, speaker, lastSpeaker);
+        const affinity = getAffinityFromMap(
+          affinityMap,
+          speaker,
+          lastSpeaker
+        );
         interactionType = getInteractionType(affinity);
       }
     }
-    const systemPrompt = buildSystemPrompt(
-      speaker,
+    const systemPrompt = buildSystemPrompt({
+      speakerId: speaker,
       history,
-      session.format,
-      session.topic,
+      format: session.format,
+      topic: session.topic,
       interactionType,
-      voiceModifiersMap.get(speaker),
-      void 0,
+      voiceModifiers: voiceModifiersMap.get(speaker),
       primeDirective,
-      { question: userQuestion, isFirstSpeaker: turnNumber === 0 },
-      false,
-      scratchpadMap.get(speaker),
-      briefingMap.get(speaker),
-      memoryMap.get(speaker)
-    );
+      userQuestionContext: { question: userQuestion, isFirstSpeaker: turnNumber === 0 },
+      isRebelling: false,
+      scratchpad: scratchpadMap.get(speaker),
+      briefing: briefingMap.get(speaker),
+      memories: memoryMap.get(speaker)
+    });
     const userPrompt = turnNumber === 0 ? `A human is asking the room: "${session.topic}". Give a warm, conversational response. Be concise \u2014 this is a live voice chat.` : `Respond naturally to what was just said. Keep it conversational and concise \u2014 this is a live voice chat, not a written essay.`;
     try {
       const rawDialogue = await llmGenerate({
@@ -5746,25 +6780,21 @@ async function orchestrateVoiceChat(session) {
         }
       });
       const dialogue = sanitizeDialogue(rawDialogue);
-      const entry = { speaker, dialogue, turn: turnNumber };
+      const entry = {
+        speaker,
+        dialogue,
+        turn: turnNumber
+      };
       history.push(entry);
-      await sql`
-                INSERT INTO ops_roundtable_turns (session_id, turn_number, speaker, dialogue, metadata)
-                VALUES (${session.id}, ${turnNumber}, ${speaker}, ${dialogue}, ${jsonb({ speakerName })})
-            `;
-      await sql`
-                UPDATE ops_roundtable_sessions SET turn_count = ${turnNumber + 1} WHERE id = ${session.id}
-            `;
-      await emitEvent({
-        agent_id: speaker,
-        kind: "conversation_turn",
-        title: `${speakerName}: ${dialogue}`,
-        tags: ["conversation", "turn", "voice_chat"],
-        metadata: { sessionId: session.id, turn: turnNumber, dialogue }
-      });
+      await storeTurnAndEmit(session, entry);
       return entry;
     } catch (err) {
-      log21.error("Voice chat LLM failed", { error: err, speaker, turnNumber, sessionId: session.id });
+      log22.error("Voice chat LLM failed", {
+        error: err,
+        speaker,
+        turnNumber,
+        sessionId: session.id
+      });
       return null;
     }
   }
@@ -5780,7 +6810,10 @@ async function orchestrateVoiceChat(session) {
                 LIMIT 1
             `;
       if (rows.length > 0) {
-        return { dialogue: rows[0].dialogue, turnNumber: rows[0].turn_number };
+        return {
+          dialogue: rows[0].dialogue,
+          turnNumber: rows[0].turn_number
+        };
       }
       const [{ status }] = await sql`
                 SELECT status FROM ops_roundtable_sessions WHERE id = ${session.id}
@@ -5788,7 +6821,9 @@ async function orchestrateVoiceChat(session) {
       if (status === "completed" || status === "failed") {
         return null;
       }
-      await new Promise((resolve) => setTimeout(resolve, VOICE_POLL_INTERVAL_MS));
+      await new Promise(
+        (resolve) => setTimeout(resolve, VOICE_POLL_INTERVAL_MS)
+      );
     }
     return null;
   }
@@ -5805,7 +6840,7 @@ async function orchestrateVoiceChat(session) {
     if (entry) {
       currentTurn++;
       if (i < openingCount - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 2e3));
+        await new Promise((resolve) => setTimeout(resolve, VOICE_OPENING_GAP_MS));
       }
     }
   }
@@ -5813,7 +6848,10 @@ async function orchestrateVoiceChat(session) {
     const lastTurnNumber = currentTurn - 1;
     const userTurn = await waitForUserTurn(lastTurnNumber);
     if (!userTurn) {
-      log21.info("Voice chat ending: no user reply", { sessionId: session.id, currentTurn });
+      log22.info("Voice chat ending: no user reply", {
+        sessionId: session.id,
+        currentTurn
+      });
       break;
     }
     history.push({
@@ -5824,15 +6862,19 @@ async function orchestrateVoiceChat(session) {
     currentTurn = userTurn.turnNumber + 1;
     const respondCount = 1 + Math.floor(Math.random() * 2);
     const lastAgentSpeaker = history.filter((h) => h.speaker !== "user").pop()?.speaker;
-    const available = session.participants.filter((p) => p !== lastAgentSpeaker);
-    const responders = available.length > 0 ? available.sort(() => Math.random() - 0.5).slice(0, respondCount) : [session.participants[Math.floor(Math.random() * session.participants.length)]];
+    const available = session.participants.filter(
+      (p) => p !== lastAgentSpeaker
+    );
+    const responders = available.length > 0 ? available.sort(() => Math.random() - 0.5).slice(0, respondCount) : [
+      session.participants[Math.floor(Math.random() * session.participants.length)]
+    ];
     for (const responder of responders) {
       if (currentTurn >= maxTurns) break;
       const entry = await generateAgentTurn(responder, currentTurn);
       if (entry) {
         currentTurn++;
         if (responders.length > 1) {
-          await new Promise((resolve) => setTimeout(resolve, 1500));
+          await new Promise((resolve) => setTimeout(resolve, VOICE_MULTI_RESPONSE_GAP_MS));
         }
       }
     }
@@ -5858,7 +6900,7 @@ async function orchestrateVoiceChat(session) {
     try {
       await distillConversationMemories(session.id, history, session.format);
     } catch (err) {
-      log21.error("Voice chat memory distillation failed", { error: err, sessionId: session.id });
+      log22.error("Voice chat memory distillation failed", { error: err, sessionId: session.id });
     }
   }
   return history;
@@ -5882,7 +6924,7 @@ async function enqueueConversation(options) {
   return row.id;
 }
 async function checkScheduleAndEnqueue() {
-  const { getSlotForHour: getSlotForHour2, shouldSlotFire: shouldSlotFire2 } = await Promise.resolve().then(() => (init_schedule(), schedule_exports));
+  const { getSlotsForHour: getSlotsForHour2, shouldSlotFire: shouldSlotFire2 } = await Promise.resolve().then(() => (init_schedule(), schedule_exports));
   const { getPolicy: getPolicy2 } = await Promise.resolve().then(() => (init_policy(), policy_exports));
   const roundtablePolicy = await getPolicy2("roundtable_policy");
   if (!roundtablePolicy.enabled) {
@@ -5899,145 +6941,51 @@ async function checkScheduleAndEnqueue() {
     return { checked: true, enqueued: null };
   }
   const currentHour = (/* @__PURE__ */ new Date()).getUTCHours();
-  const slot = getSlotForHour2(currentHour);
-  if (!slot) {
+  const slots = getSlotsForHour2(currentHour);
+  if (slots.length === 0) {
     return { checked: true, enqueued: null };
   }
   const hourStart = /* @__PURE__ */ new Date();
   hourStart.setUTCMinutes(0, 0, 0);
-  const [{ count: existingCount }] = await sql`
-        SELECT COUNT(*)::int as count FROM ops_roundtable_sessions
-        WHERE schedule_slot = ${slot.name}
-        AND created_at >= ${hourStart.toISOString()}
+  let lastEnqueued = null;
+  for (const slot of slots) {
+    const [{ count: currentCount }] = await sql`
+            SELECT COUNT(*)::int as count FROM ops_roundtable_sessions
+            WHERE created_at >= ${todayStart.toISOString()}
+        `;
+    if (currentCount >= maxDaily) break;
+    const [{ count: existingCount }] = await sql`
+            SELECT COUNT(*)::int as count FROM ops_roundtable_sessions
+            WHERE schedule_slot = ${slot.name}
+            AND created_at >= ${hourStart.toISOString()}
+        `;
+    if (existingCount > 0) continue;
+    if (!shouldSlotFire2(slot)) continue;
+    const topic = await generateTopic(slot);
+    const sessionId = await enqueueConversation({
+      format: slot.format,
+      topic,
+      participants: slot.participants,
+      scheduleSlot: slot.name
+    });
+    lastEnqueued = sessionId;
+  }
+  return { checked: true, enqueued: lastEnqueued };
+}
+async function generateTopic(slot) {
+  const pool = TOPIC_POOLS[slot.format] ?? TOPIC_POOLS.standup;
+  const cutoff = new Date(Date.now() - 48 * 60 * 6e4).toISOString();
+  const recentRows = await sql`
+        SELECT topic FROM ops_roundtable_sessions
+        WHERE format = ${slot.format}
+        AND created_at >= ${cutoff}
     `;
-  if (existingCount > 0) {
-    return { checked: true, enqueued: null };
-  }
-  if (!shouldSlotFire2(slot)) {
-    return { checked: true, enqueued: null };
-  }
-  const topic = generateTopic(slot);
-  const sessionId = await enqueueConversation({
-    format: slot.format,
-    topic,
-    participants: slot.participants,
-    scheduleSlot: slot.name
-  });
-  return { checked: true, enqueued: sessionId };
+  const recentTopics = new Set(recentRows.map((r) => r.topic));
+  const fresh = pool.filter((t) => !recentTopics.has(t));
+  const candidates = fresh.length > 0 ? fresh : pool;
+  return candidates[Math.floor(Math.random() * candidates.length)];
 }
-function generateTopic(slot) {
-  const topicPools = {
-    standup: [
-      "Status check: what moved, what is stuck, what needs attention?",
-      "Blockers and dependencies \u2014 who is waiting on whom?",
-      "Where should our energy go today?",
-      "System health: anything decaying quietly?",
-      "What did we learn since yesterday that changes our priorities?"
-    ],
-    checkin: [
-      "Quick pulse \u2014 how is everyone feeling about the work?",
-      "Anything urgent that needs collective attention right now?",
-      "Energy levels and capacity \u2014 who is stretched, who has space?"
-    ],
-    triage: [
-      "New signals came in \u2014 classify and prioritize.",
-      "We have more tasks than capacity. What gets cut?",
-      "Something broke overnight. Assess severity and assign.",
-      "Three requests from external. Which ones align with mission?"
-    ],
-    deep_dive: [
-      "What structural problem keeps recurring and why?",
-      "Trace the incentive structures behind our recent decisions.",
-      "One of our core assumptions may be wrong. Which one?",
-      "What system is producing outcomes nobody intended?",
-      "Map the dependency chain for our most fragile process."
-    ],
-    risk_review: [
-      "What are we exposing that we should not be?",
-      "If an adversary studied our output, what would they learn?",
-      "Which of our current positions becomes dangerous if the context shifts?",
-      "Threat model review: what changed since last assessment?",
-      "What looks safe but is actually fragile?"
-    ],
-    strategy: [
-      "Are we still building what we said we would build?",
-      "What would we stop doing if we were honest about our resources?",
-      "Where are we drifting from original intent and is that good?",
-      "What decision are we avoiding that would clarify everything?",
-      "Six months from now, what will we wish we had started today?"
-    ],
-    planning: [
-      "Turn yesterday's strategy discussion into concrete tasks.",
-      "Who owns what this week? Name it. Deadline it.",
-      "We committed to three things. Break each into actionable steps.",
-      "What needs to ship before anything else can move?"
-    ],
-    shipping: [
-      "Is this actually ready or are we just tired of working on it?",
-      "Pre-ship checklist: what can go wrong at launch?",
-      "Who needs to review this before it goes live?",
-      "What is the rollback plan if this fails?"
-    ],
-    retro: [
-      "What worked better than expected and why?",
-      "What failed and what do we change \u2014 not just acknowledge?",
-      "Where did our process help us and where did it slow us down?",
-      "What would we do differently if we started this again tomorrow?",
-      "Which of our own assumptions bit us this cycle?"
-    ],
-    debate: [
-      "Quality versus speed \u2014 where is the actual tradeoff right now?",
-      "Is our content strategy serving the mission or just generating activity?",
-      "Should we optimize for reach or depth?",
-      "Are we building infrastructure or performing productivity?",
-      "Is the current approach sustainable or are we borrowing from the future?"
-    ],
-    cross_exam: [
-      "Stress-test our latest proposal. Find the failure mode.",
-      "Play adversary: why would someone argue against what we just decided?",
-      "What are we not seeing because we agree too quickly?",
-      "Interrogate the assumption behind our most confident position."
-    ],
-    brainstorm: [
-      "Wild ideas only: what would we do with unlimited resources?",
-      "What if we approached this from the completely opposite direction?",
-      "Name something we dismissed too quickly. Resurrect it.",
-      "What adjacent domain could teach us something about our problem?",
-      "Weird combinations: pick two unrelated ideas and smash them together."
-    ],
-    reframe: [
-      "We are stuck. The current frame is not producing insight. Break it.",
-      "What if the problem is not what we think it is?",
-      "Reframe: who is the actual audience for this work?",
-      "What if we removed the constraint we think is fixed?"
-    ],
-    writing_room: [
-      "Write a short essay: what does Subcult actually believe about technology and power?",
-      "Draft a thread on why most AI governance proposals miss the point.",
-      "Write a piece on the difference between building tools and building infrastructure.",
-      'Draft something about what "autonomy" means when every platform is a landlord.',
-      "Write about the gap between what tech companies say and what their incentives produce.",
-      'Craft a sharp take on why "move fast and break things" aged poorly.'
-    ],
-    content_review: [
-      "Review recent output: does it meet our quality bar?",
-      "Risk scan on published content \u2014 anything we should retract or edit?",
-      "Alignment check: is our content reflecting our stated values?",
-      "What are we saying that we should not be saying publicly?"
-    ],
-    watercooler: [
-      "What is the most interesting thing you encountered this week?",
-      "Random thought \u2014 no agenda, just vibes.",
-      "Something that surprised you about how we work.",
-      "If you could redesign one thing about our operation, what would it be?",
-      "Hot take: something everyone assumes but nobody questions.",
-      "What is the most underappreciated thing someone here does?"
-    ]
-  };
-  const pool = topicPools[slot.format] ?? topicPools.standup;
-  return pool[Math.floor(Math.random() * pool.length)];
-}
-var log21, VOICE_POLL_INTERVAL_MS, VOICE_INACTIVITY_TIMEOUT_MS;
+var log22, REPETITION_SIMILARITY_THRESHOLD, MAX_CONSECUTIVE_STALE_TURNS, TURN_DELAY_BASE_MS, TURN_DELAY_JITTER_MS, POST_CONVERSATION_SETTLE_MS, VOICE_OPENING_GAP_MS, VOICE_MULTI_RESPONSE_GAP_MS, VOICE_POLL_INTERVAL_MS, VOICE_INACTIVITY_TIMEOUT_MS, TOPIC_POOLS;
 var init_orchestrator = __esm({
   "src/lib/roundtable/orchestrator.ts"() {
     "use strict";
@@ -6051,6 +6999,8 @@ var init_orchestrator = __esm({
     init_artifact_synthesizer();
     init_agent_proposal_voting();
     init_governance();
+    init_debrief();
+    init_roundtable();
     init_relationships();
     init_voice_evolution();
     init_prime_directive();
@@ -6061,15 +7011,133 @@ var init_orchestrator = __esm({
     init_discord();
     init_elevenlabs();
     init_logger();
-    log21 = logger.child({ module: "orchestrator" });
+    log22 = logger.child({ module: "orchestrator" });
+    REPETITION_SIMILARITY_THRESHOLD = 0.6;
+    MAX_CONSECUTIVE_STALE_TURNS = 2;
+    TURN_DELAY_BASE_MS = 3e3;
+    TURN_DELAY_JITTER_MS = 5e3;
+    POST_CONVERSATION_SETTLE_MS = 2e3;
+    VOICE_OPENING_GAP_MS = 2e3;
+    VOICE_MULTI_RESPONSE_GAP_MS = 1500;
     VOICE_POLL_INTERVAL_MS = 1500;
     VOICE_INACTIVITY_TIMEOUT_MS = 5 * 6e4;
+    TOPIC_POOLS = {
+      standup: [
+        "What did we ship since last standup? What ships next?",
+        "Product progress: what features are done, what is in progress?",
+        "What is the one thing that would unblock the most work right now?",
+        "Demo time: show something you built or wrote since yesterday.",
+        "Sprint check: are we on track to ship the current milestone?"
+      ],
+      checkin: [
+        "Quick wins \u2014 what small thing could we finish in the next hour?",
+        "What product feature are you most excited about right now?",
+        "Capacity check: who can pick up the next build task?"
+      ],
+      triage: [
+        "We have a product backlog. Prioritize the top 3 features to build next.",
+        "Bug reports and user feedback \u2014 what needs fixing before we ship?",
+        "Technical debt vs. new features: what ships first?",
+        "Which product idea from brainstorming is most viable? Pick one."
+      ],
+      deep_dive: [
+        "Design the database schema for our product. Tables, relations, constraints.",
+        "What is the MVP feature set? Name exactly what ships in v1 and what waits.",
+        "Architecture decision: monolith or microservices? Pick one and justify.",
+        "Design the API endpoints for our core product. REST paths, methods, payloads.",
+        "User flow walkthrough: trace a user from signup to first value moment."
+      ],
+      risk_review: [
+        "Security review of our product architecture. What attack surfaces exist?",
+        "What happens if we get 10x more users than expected? Where do we break?",
+        "Data privacy review: what user data do we collect and how do we protect it?",
+        "Dependency audit: what third-party services could take us down?",
+        "What is our deployment and rollback strategy?"
+      ],
+      strategy: [
+        "Pick a product to build. We are a collective of AI agents with coding, research, and writing capabilities. What SaaS or tool should we create?",
+        "Go-to-market strategy: who is our user, how do they find us, why do they pay?",
+        "Competitive analysis: what exists in our space and how do we differentiate?",
+        "Revenue model: how does our product make money? Subscription, usage, freemium?",
+        "Product roadmap: what ships in week 1, month 1, quarter 1?"
+      ],
+      planning: [
+        "Break the current product spec into GitHub issues with clear acceptance criteria.",
+        "Sprint plan: assign features to agents. Who builds what this cycle?",
+        "Define the tech stack. Framework, database, hosting, CI/CD. Decide now.",
+        "Write the project setup tasks: repo structure, dependencies, config files.",
+        'Milestone planning: what is the definition of "v1 shipped"?'
+      ],
+      shipping: [
+        "Pre-launch checklist: what must be done before we can show this to users?",
+        "Write the deployment script. How does this go from code to production?",
+        "Documentation check: does a new user know how to use this?",
+        "Ship it or kill it: is this feature ready? Make the call now."
+      ],
+      retro: [
+        "What did we ship this cycle and what did we learn from building it?",
+        "Where did building go faster than expected? Do more of that.",
+        "What slowed us down? Remove that blocker for next cycle.",
+        "What would we build differently if starting over?",
+        "Best artifact of the cycle: which piece of work are we proudest of?"
+      ],
+      debate: [
+        "Build vs. buy: for our next feature, do we code it or integrate an existing tool?",
+        "Simplicity vs. features: should v1 do one thing perfectly or many things adequately?",
+        "Open source or proprietary? What serves our mission better?",
+        "Should we target developers, businesses, or consumers? Pick one audience.",
+        "AI-native or traditional: how much should AI be the product vs. the builder?"
+      ],
+      cross_exam: [
+        "Stress-test our product spec. What use case breaks it?",
+        "Play the skeptical user: why would someone NOT use our product?",
+        "Find the technical bottleneck in our architecture. Where will it fail?",
+        "Challenge our pricing model. Is anyone actually willing to pay for this?"
+      ],
+      brainstorm: [
+        "Name 5 SaaS products we could realistically build and ship. Be specific: name, function, target user.",
+        "What pain point do developers have that we could solve with a simple tool?",
+        "Micro-SaaS ideas: what product could we build and launch in one week?",
+        "What if we built a tool that uses AI agents (like us) as a feature? Meta-product ideas.",
+        "Combine two boring tools into something new. What unexpected integration would people pay for?",
+        "What product would we personally want to use every day?"
+      ],
+      reframe: [
+        "We have been analyzing instead of building. What is the simplest thing we can ship TODAY?",
+        "Stop planning. Start coding. What is the first file we need to create?",
+        "What if we had to demo a working product in 24 hours? What would we build?",
+        "Our product does not need to be perfect. What is the ugly version that works?"
+      ],
+      writing_room: [
+        "Write the README.md for our product. Name, tagline, features, quickstart.",
+        "Draft the landing page copy: headline, subhead, 3 feature bullets, CTA.",
+        "Write the technical blog post announcing our product launch.",
+        "Draft the product documentation: getting started guide for new users.",
+        "Write the pitch: 3 sentences that explain what we built and why it matters.",
+        "Draft the changelog for our first release. What shipped and why."
+      ],
+      content_review: [
+        "Review our product spec: is it buildable as written? Flag gaps.",
+        "Review our README: would a stranger understand what this product does?",
+        "Review our API design: is it consistent, intuitive, well-documented?",
+        "Code review: does our latest code work? Is it clean enough to ship?"
+      ],
+      watercooler: [
+        "What cool product or tool did you discover recently that inspired you?",
+        "If you could mass-produce one product that we build, what would it be and why?",
+        "What is the most elegant piece of software you have ever seen? What made it great?",
+        "Hot take: the best products are built by small teams. Agree or disagree?",
+        "What technology trend will matter most in 6 months?",
+        "If we could only ship one thing this month, what should it be?"
+      ]
+    };
   }
 });
 
 // src/lib/roundtable/action-extractor.ts
 var action_extractor_exports = {};
 __export(action_extractor_exports, {
+  DELIBERATED_FORMATS: () => DELIBERATED_FORMATS,
   extractActionsFromArtifact: () => extractActionsFromArtifact
 });
 async function extractActionsFromArtifact(sessionId, format, artifactText, topic) {
@@ -6080,7 +7148,7 @@ async function extractActionsFromArtifact(sessionId, format, artifactText, topic
       messages: [
         {
           role: "system",
-          content: 'You extract concrete, executable action items from meeting artifacts. Return ONLY valid JSON \u2014 an array of mission objects. Each mission: { "title": "<imperative action>", "description": "<why this matters>", "owner": "<agent_id>", "steps": [{ "kind": "<step_kind>", "payload": {} }] }\n\nValid step kinds: research_topic, scan_signals, draft_essay, draft_thread, patch_code, audit_system, critique_content, distill_insight, document_lesson, consolidate_memory\nValid agent IDs: praxis, primus, chora, subrosa, thaum, mux\n\nRules:\n- Only extract items that are CONCRETE and ACTIONABLE (not "discuss X" or "think about Y")\n- Each mission should produce a tangible artifact (code, document, analysis)\n- Use patch_code for any code/build tasks\n- Use research_topic for investigation tasks\n- Use draft_essay for writing deliverables\n- If no concrete actions exist, return an empty array []\n- Maximum 3 missions per artifact'
+          content: 'You extract concrete, executable action items from meeting artifacts. Return ONLY valid JSON \u2014 an array of mission objects. Each mission: { "title": "<imperative action>", "description": "<why this matters>", "owner": "<agent_id>", "steps": [{ "kind": "<step_kind>", "payload": {} }] }\n\nValid step kinds: research_topic, scan_signals, draft_essay, draft_thread, patch_code, audit_system, critique_content, distill_insight, document_lesson, consolidate_memory, content_revision, convene_roundtable, draft_product_spec\nValid agent IDs: praxis, primus, chora, subrosa, thaum, mux\n\nRules:\n- Only extract items that are CONCRETE and ACTIONABLE (not "discuss X" or "think about Y")\n- Each mission should produce a tangible artifact (code, document, analysis)\n- Use patch_code for any code/build tasks\n- Use research_topic for investigation tasks\n- Use draft_essay for writing deliverables\n- If no concrete actions exist, return an empty array []\n- Maximum 3 missions per artifact'
         },
         {
           role: "user",
@@ -6092,7 +7160,7 @@ ${artifactText}`
         }
       ],
       temperature: 0.3,
-      maxTokens: 1e3,
+      maxTokens: 3e3,
       trackingContext: {
         agentId: "system",
         context: "action-extraction"
@@ -6100,7 +7168,10 @@ ${artifactText}`
     });
     const jsonMatch = result.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
-      log28.info("No actions extracted from artifact", { sessionId, format });
+      log30.info("No actions extracted from artifact", {
+        sessionId,
+        format
+      });
       return 0;
     }
     const missions = JSON.parse(jsonMatch[0]);
@@ -6124,7 +7195,7 @@ ${artifactText}`
       });
       if (proposalResult.success) {
         created++;
-        log28.info("Action extracted from roundtable artifact", {
+        log30.info("Action extracted from roundtable artifact", {
           sessionId,
           format,
           proposalId: proposalResult.proposalId,
@@ -6136,7 +7207,7 @@ ${artifactText}`
     }
     return created;
   } catch (err) {
-    log28.error("Action extraction failed", {
+    log30.error("Action extraction failed", {
       error: err,
       sessionId,
       format
@@ -6144,21 +7215,30 @@ ${artifactText}`
     return 0;
   }
 }
-var log28, ACTIONABLE_FORMATS, VALID_STEP_KINDS;
+var log30, ACTIONABLE_FORMATS, DELIBERATED_FORMATS, VALID_STEP_KINDS;
 var init_action_extractor = __esm({
   "src/lib/roundtable/action-extractor.ts"() {
     "use strict";
     init_client();
     init_proposal_service();
     init_logger();
-    log28 = logger.child({ module: "action-extractor" });
+    log30 = logger.child({ module: "action-extractor" });
     ACTIONABLE_FORMATS = /* @__PURE__ */ new Set([
       "planning",
       "strategy",
       "retro",
       "standup",
       "shipping",
-      "triage"
+      "triage",
+      "brainstorm",
+      "deep_dive",
+      "risk_review",
+      "debate"
+    ]);
+    DELIBERATED_FORMATS = /* @__PURE__ */ new Set([
+      "planning",
+      "shipping",
+      "strategy"
     ]);
     VALID_STEP_KINDS = /* @__PURE__ */ new Set([
       "research_topic",
@@ -6170,7 +7250,10 @@ var init_action_extractor = __esm({
       "critique_content",
       "distill_insight",
       "document_lesson",
-      "consolidate_memory"
+      "consolidate_memory",
+      "content_revision",
+      "convene_roundtable",
+      "draft_product_spec"
     ]);
   }
 });
@@ -6181,12 +7264,23 @@ __export(content_pipeline_exports, {
   extractContentFromSession: () => extractContentFromSession,
   processReviewSession: () => processReviewSession
 });
+function extractVerdict(text) {
+  const upper = text.toUpperCase();
+  const hasApprove = upper.includes("APPROVE") && !upper.includes("NOT APPROVE") && !upper.includes("DON'T APPROVE");
+  const hasReject = upper.includes("REJECT");
+  const hasRevise = upper.includes("REVIS") || upper.includes("NEEDS WORK") || upper.includes("REWORK");
+  if (hasApprove && !hasReject && !hasRevise) return "approve";
+  if (hasReject && !hasApprove) return "reject";
+  if (hasRevise) return "mixed";
+  if (hasApprove && hasReject) return "mixed";
+  return null;
+}
 async function extractContentFromSession(sessionId) {
   const [existing] = await sql`
         SELECT id FROM ops_content_drafts WHERE source_session_id = ${sessionId} LIMIT 1
     `;
   if (existing) {
-    log29.info("Draft already exists for session, skipping", {
+    log31.info("Draft already exists for session, skipping", {
       sessionId,
       draftId: existing.id
     });
@@ -6196,7 +7290,7 @@ async function extractContentFromSession(sessionId) {
         SELECT format, participants, topic FROM ops_roundtable_sessions WHERE id = ${sessionId}
     `;
   if (!session) {
-    log29.warn("Session not found", { sessionId });
+    log31.warn("Session not found", { sessionId });
     return null;
   }
   const turns = await sql`
@@ -6206,17 +7300,23 @@ async function extractContentFromSession(sessionId) {
         ORDER BY turn_number ASC
     `;
   if (turns.length === 0) {
-    log29.warn("No turns found for session", { sessionId });
+    log31.warn("No turns found for session", { sessionId });
     return null;
   }
-  const transcript = turns.map((t) => `[${t.speaker}]: ${t.dialogue}`).join("\n\n");
+  const CONTENT_THRESHOLD = 120;
+  const focusedTranscript = turns.map((t) => {
+    if (t.dialogue.length >= CONTENT_THRESHOLD) {
+      return `[${t.speaker}]: ${t.dialogue}`;
+    }
+    return `[${t.speaker}]: ${t.dialogue.slice(0, 80)}`;
+  }).join("\n\n");
   const extractionPrompt = `You are analyzing a creative writing session transcript. Extract the creative content that was produced during this session.
 
 Session topic: ${session.topic}
 Participants: ${session.participants.join(", ")}
 
 TRANSCRIPT:
-${transcript}
+${focusedTranscript}
 
 INSTRUCTIONS:
 1. Separate the actual creative work (the content being written) from the meta-discussion about the work
@@ -6243,32 +7343,32 @@ If no extractable creative content exists, respond with:
         { role: "user", content: extractionPrompt }
       ],
       temperature: 0.3,
-      maxTokens: 4e3,
+      maxTokens: 8e3,
       trackingContext: {
         context: "content_extraction"
       }
     });
     const jsonMatch = result.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      log29.warn("No JSON found in extraction result", { sessionId });
+      log31.warn("No JSON found in extraction result", { sessionId });
       return null;
     }
     let parsed;
     try {
       parsed = JSON.parse(jsonMatch[0]);
     } catch (parseErr) {
-      log29.warn("Invalid JSON in extraction result", {
+      log31.warn("Invalid JSON in extraction result", {
         sessionId,
         error: parseErr
       });
       return null;
     }
     if (!parsed.hasContent || !parsed.title || !parsed.body) {
-      log29.info("No extractable content found", { sessionId });
+      log31.info("No extractable content found", { sessionId });
       return null;
     }
     if (typeof parsed.title !== "string" || typeof parsed.body !== "string") {
-      log29.warn("Title or body not strings, rejecting", {
+      log31.warn("Title or body not strings, rejecting", {
         sessionId,
         titleType: typeof parsed.title,
         bodyType: typeof parsed.body
@@ -6276,11 +7376,11 @@ If no extractable creative content exists, respond with:
       return null;
     }
     if (parsed.title.length > MAX_TITLE_LENGTH) {
-      log29.warn("Title too long, truncating", { sessionId });
+      log31.warn("Title too long, truncating", { sessionId });
       parsed.title = parsed.title.slice(0, MAX_TITLE_LENGTH);
     }
     if (parsed.body.length > MAX_BODY_LENGTH) {
-      log29.warn("Body too long, truncating", { sessionId });
+      log31.warn("Body too long, truncating", { sessionId });
       parsed.body = parsed.body.slice(0, MAX_BODY_LENGTH);
     }
     const validTypes = [
@@ -6312,7 +7412,7 @@ If no extractable creative content exists, respond with:
             )
             RETURNING id
         `;
-    log29.info("Content draft created", {
+    log31.info("Content draft created", {
       draftId: draft.id,
       sessionId,
       contentType,
@@ -6334,7 +7434,7 @@ If no extractable creative content exists, respond with:
     });
     return draft.id;
   } catch (err) {
-    log29.error("Content extraction failed", {
+    log31.error("Content extraction failed", {
       error: err,
       sessionId
     });
@@ -6351,20 +7451,20 @@ async function processReviewSession(sessionId) {
         `;
     const draftId = typeof session?.metadata?.draft_id === "string" ? session.metadata.draft_id : void 0;
     if (!draftId) {
-      log29.warn("No draft linked to review session", { sessionId });
+      log31.warn("No draft linked to review session", { sessionId });
       return;
     }
     const [draftById] = await sql`
             SELECT * FROM ops_content_drafts WHERE id = ${draftId} LIMIT 1
         `;
     if (!draftById) {
-      log29.warn("Draft not found for review session", {
+      log31.warn("Draft not found for review session", {
         sessionId,
         draftId
       });
       return;
     }
-    log29.info("Found draft via metadata lookup", {
+    log31.info("Found draft via metadata lookup", {
       sessionId,
       draftId
     });
@@ -6380,7 +7480,40 @@ async function processReviewForDraft(draft, sessionId) {
         ORDER BY turn_number ASC
     `;
   if (turns.length === 0) {
-    log29.warn("No turns found for review session", { sessionId });
+    log31.warn("No turns found for review session", { sessionId });
+    return;
+  }
+  const reviewerTurns = /* @__PURE__ */ new Map();
+  for (const t of turns) {
+    reviewerTurns.set(t.speaker, t.dialogue);
+  }
+  const keywordNotes = [];
+  for (const [reviewer, dialogue] of reviewerTurns) {
+    const verdict = extractVerdict(dialogue);
+    if (verdict) {
+      keywordNotes.push({
+        reviewer,
+        verdict,
+        notes: dialogue.slice(-200).trim()
+      });
+    }
+  }
+  if (keywordNotes.length > 0 && keywordNotes.length >= reviewerTurns.size - 1) {
+    const approvals = keywordNotes.filter(
+      (n) => n.verdict === "approve"
+    ).length;
+    const rejections = keywordNotes.filter(
+      (n) => n.verdict === "reject"
+    ).length;
+    const consensus = approvals > rejections && approvals >= keywordNotes.length / 2 ? "approved" : rejections > approvals ? "rejected" : "mixed";
+    const summary = `${approvals} approve, ${rejections} reject out of ${keywordNotes.length} reviewers (keyword extraction)`;
+    await applyReviewResult(
+      draft,
+      sessionId,
+      keywordNotes,
+      consensus,
+      summary
+    );
     return;
   }
   const transcript = turns.map((t) => `[${t.speaker}]: ${t.dialogue}`).join("\n\n");
@@ -6415,21 +7548,21 @@ Respond ONLY with valid JSON (no markdown fencing):
         { role: "user", content: reviewPrompt }
       ],
       temperature: 0.2,
-      maxTokens: 2e3,
+      maxTokens: 4e3,
       trackingContext: {
         context: "content_review"
       }
     });
     const jsonMatch = result.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      log29.warn("No JSON found in review result", { sessionId });
+      log31.warn("No JSON found in review result", { sessionId });
       return;
     }
     let parsed;
     try {
       parsed = JSON.parse(jsonMatch[0]);
     } catch (parseErr) {
-      log29.warn("Invalid JSON in review result", {
+      log31.warn("Invalid JSON in review result", {
         sessionId,
         draftId: draft.id,
         error: parseErr
@@ -6438,83 +7571,138 @@ Respond ONLY with valid JSON (no markdown fencing):
     }
     const reviewerNotes = parsed.reviewers ?? [];
     const consensus = parsed.consensus ?? "mixed";
-    if (consensus === "approved") {
-      await sql`
-                UPDATE ops_content_drafts
-                SET status = 'approved',
-                    reviewer_notes = ${jsonb(reviewerNotes)},
-                    updated_at = NOW()
-                WHERE id = ${draft.id}
-            `;
-      await emitEvent({
-        agent_id: draft.author_agent,
-        kind: "content_approved",
-        title: `Content approved: ${draft.title}`,
-        summary: parsed.summary ?? "Approved by reviewer consensus",
-        tags: ["content", "approved", draft.content_type],
-        metadata: {
-          draftId: draft.id,
-          reviewSessionId: sessionId,
-          reviewerCount: reviewerNotes.length
-        }
-      });
-      log29.info("Draft approved", {
-        draftId: draft.id,
-        reviewers: reviewerNotes.length
-      });
-    } else if (consensus === "rejected") {
-      await sql`
-                UPDATE ops_content_drafts
-                SET status = 'rejected',
-                    reviewer_notes = ${jsonb(reviewerNotes)},
-                    updated_at = NOW()
-                WHERE id = ${draft.id}
-            `;
-      await emitEvent({
-        agent_id: draft.author_agent,
-        kind: "content_rejected",
-        title: `Content rejected: ${draft.title}`,
-        summary: parsed.summary ?? "Rejected by reviewer consensus",
-        tags: ["content", "rejected", draft.content_type],
-        metadata: {
-          draftId: draft.id,
-          reviewSessionId: sessionId,
-          reviewerCount: reviewerNotes.length
-        }
-      });
-      log29.info("Draft rejected", {
-        draftId: draft.id,
-        reviewers: reviewerNotes.length
-      });
-    } else {
-      await sql`
-                UPDATE ops_content_drafts
-                SET reviewer_notes = ${jsonb(reviewerNotes)},
-                    updated_at = NOW()
-                WHERE id = ${draft.id}
-            `;
-      log29.info("Draft review inconclusive, staying in review", {
-        draftId: draft.id,
-        consensus
-      });
-    }
+    const summary = parsed.summary ?? "";
+    await applyReviewResult(
+      draft,
+      sessionId,
+      reviewerNotes,
+      consensus,
+      summary
+    );
   } catch (err) {
-    log29.error("Review processing failed", {
+    log31.error("Review processing failed", {
       error: err,
       sessionId,
       draftId: draft.id
     });
   }
 }
-var log29, MAX_TITLE_LENGTH, MAX_BODY_LENGTH;
+async function applyReviewResult(draft, sessionId, reviewerNotes, consensus, summary) {
+  if (consensus === "approved") {
+    await sql`
+            UPDATE ops_content_drafts
+            SET status = 'approved',
+                reviewer_notes = ${jsonb(reviewerNotes)},
+                updated_at = NOW()
+            WHERE id = ${draft.id}
+        `;
+    await emitEventAndCheckReactions({
+      agent_id: draft.author_agent,
+      kind: "content_approved",
+      title: `Content approved: ${draft.title}`,
+      summary: summary || "Approved by reviewer consensus",
+      tags: ["content", "approved", draft.content_type],
+      metadata: {
+        draftId: draft.id,
+        reviewSessionId: sessionId,
+        reviewerCount: reviewerNotes.length
+      }
+    });
+    log31.info("Draft approved", {
+      draftId: draft.id,
+      reviewers: reviewerNotes.length
+    });
+  } else if (consensus === "rejected") {
+    await sql`
+            UPDATE ops_content_drafts
+            SET status = 'rejected',
+                reviewer_notes = ${jsonb(reviewerNotes)},
+                updated_at = NOW()
+            WHERE id = ${draft.id}
+        `;
+    await emitEventAndCheckReactions({
+      agent_id: draft.author_agent,
+      kind: "content_rejected",
+      title: `Content rejected: ${draft.title}`,
+      summary: summary || "Rejected by reviewer consensus",
+      tags: ["content", "rejected", draft.content_type],
+      metadata: {
+        draftId: draft.id,
+        reviewSessionId: sessionId,
+        reviewerCount: reviewerNotes.length
+      }
+    });
+    log31.info("Draft rejected", {
+      draftId: draft.id,
+      reviewers: reviewerNotes.length
+    });
+    await requestContentRevision(draft, reviewerNotes, summary);
+  } else {
+    await sql`
+            UPDATE ops_content_drafts
+            SET reviewer_notes = ${jsonb(reviewerNotes)},
+                updated_at = NOW()
+            WHERE id = ${draft.id}
+        `;
+    log31.info("Draft review inconclusive, staying in review", {
+      draftId: draft.id,
+      consensus
+    });
+    await requestContentRevision(draft, reviewerNotes, summary);
+  }
+}
+async function requestContentRevision(draft, reviewerNotes, reviewSummary) {
+  const notesText = reviewerNotes.map((n) => `${n.reviewer} (${n.verdict}): ${n.notes}`).join("\n");
+  try {
+    const result = await createProposalAndMaybeAutoApprove({
+      agent_id: draft.author_agent,
+      title: `Revise: ${draft.title}`,
+      description: `Content review returned feedback. Revise and resubmit.
+
+Summary: ${reviewSummary}`,
+      proposed_steps: [
+        {
+          kind: "content_revision",
+          assigned_agent: draft.author_agent,
+          payload: {
+            draft_id: draft.id,
+            original_title: draft.title,
+            content_type: draft.content_type,
+            reviewer_notes: notesText,
+            review_summary: reviewSummary
+          }
+        }
+      ],
+      source: "system"
+    });
+    if (result.success) {
+      log31.info("Content revision proposal created", {
+        draftId: draft.id,
+        proposalId: result.proposalId
+      });
+    } else {
+      log31.warn("Content revision proposal rejected", {
+        draftId: draft.id,
+        reason: result.reason
+      });
+    }
+  } catch (err) {
+    log31.error("Failed to create content revision proposal", {
+      error: err,
+      draftId: draft.id
+    });
+  }
+}
+var log31, MAX_TITLE_LENGTH, MAX_BODY_LENGTH;
 var init_content_pipeline = __esm({
   "src/lib/ops/content-pipeline.ts"() {
     "use strict";
     init_db();
     init_client();
     init_events2();
+    init_proposal_service();
     init_logger();
-    log29 = logger.child({ module: "content-pipeline" });
+    log31 = logger.child({ module: "content-pipeline" });
     MAX_TITLE_LENGTH = 500;
     MAX_BODY_LENGTH = 5e4;
   }
@@ -6531,13 +7719,13 @@ __export(memory_archaeology_exports, {
   performDig: () => performDig
 });
 async function performDig(config) {
-  const digId = import_crypto.default.randomUUID();
+  const digId = import_crypto2.default.randomUUID();
   const agentId = config.agent_id ?? "system";
   const maxMemories = config.max_memories ?? DEFAULT_MAX_MEMORIES;
-  log30.info("Starting archaeological dig", { digId, agentId, maxMemories });
+  log32.info("Starting archaeological dig", { digId, agentId, maxMemories });
   const memories = await fetchMemoriesForDig(config, maxMemories);
   if (memories.length < 3) {
-    log30.info("Not enough memories for archaeology", {
+    log32.info("Not enough memories for archaeology", {
       digId,
       available: memories.length
     });
@@ -6597,7 +7785,7 @@ async function performDig(config) {
       finding_types: [...new Set(allFindings.map((f) => f.finding_type))]
     }
   });
-  log30.info("Archaeological dig completed", {
+  log32.info("Archaeological dig completed", {
     digId,
     agentId,
     findingCount: allFindings.length,
@@ -6618,7 +7806,7 @@ async function fetchMemoriesForDig(config, maxMemories) {
             agent_id,
             type,
             CASE
-                WHEN LENGTH(content) > 2000 THEN LEFT(content, 2000) || '...[truncated]'
+                WHEN LENGTH(content) > 500 THEN LEFT(content, 500) || '...[truncated]'
                 ELSE content
             END as content,
             confidence,
@@ -6643,58 +7831,37 @@ ${m.content}`
     memorySummary.length / CHARS_PER_TOKEN_ESTIMATE
   );
   if (estimatedInputTokens > TOKEN_WARNING_THRESHOLD) {
-    log30.warn("High token count in archaeology batch", {
+    log32.warn("High token count in archaeology batch", {
       agentId,
       estimatedInputTokens,
       memoryCount: memories.length,
       recommendation: "Consider reducing batch size"
     });
   }
-  const systemPrompt = `You are a memory archaeologist for the SubCult AI collective. Your task is to perform deep analysis of agent memories, looking for hidden patterns, contradictions, emergent behaviors, recurring echoes, and personality drift.
+  const systemPrompt = `You are a memory archaeologist analyzing agent memories for: ${typesLabel}.
 
-Analyze the provided memories and identify findings of these types: ${typesLabel}
+Types: pattern (recurring themes), contradiction (conflicting memories), emergence (new behaviors), echo (reappearing phrases), drift (perspective shifts).
 
-Finding type definitions:
-- **pattern**: Recurring themes, behaviors, or ideas that appear across multiple memories
-- **contradiction**: Memories that conflict with each other or represent opposing viewpoints held by the same or different agents
-- **emergence**: New behaviors, ideas, or perspectives that appear in recent memories but were absent earlier
-- **echo**: Specific phrases, metaphors, or ideas that reappear across different contexts or time periods
-- **drift**: How an agent's perspective, tone, or beliefs have shifted over time
-
-For each finding, provide:
-1. The finding type
-2. A concise title (5-10 words)
-3. A detailed description (2-4 sentences)
-4. Evidence: which memory numbers (from the list) support this finding, with a brief excerpt and relevance note
-5. Confidence (0.0 to 1.0) \u2014 how certain you are about this finding
-6. Related agents \u2014 which agent IDs are involved
-
-Respond with valid JSON only:
+Respond with valid JSON:
 {
   "findings": [
     {
       "finding_type": "pattern|contradiction|emergence|echo|drift",
-      "title": "short descriptive title",
-      "description": "detailed explanation",
+      "title": "5-10 word title",
+      "description": "2-3 sentence explanation",
       "evidence": [
-        { "memory_index": 1, "excerpt": "relevant quote", "relevance": "why this supports the finding" }
+        { "memory_index": 1, "relevance": "why this supports the finding" }
       ],
       "confidence": 0.8,
-      "related_agents": ["agent_id1", "agent_id2"]
+      "related_agents": ["agent_id"]
     }
   ]
 }
 
 Rules:
-- Report your top 3-5 most significant findings only \u2014 quality over quantity
-- Only report genuine findings backed by evidence from the provided memories
-- Each finding must reference at least 2 memories as evidence
-- Be specific \u2014 vague findings are not useful
-- Keep descriptions to 2-3 sentences max
-- Keep evidence excerpts under 50 words each
-- Confidence should reflect the strength of evidence
-- If you find nothing meaningful, return { "findings": [] }
-- CRITICAL: Your response must be complete, valid JSON. Do not exceed 5 findings.`;
+- Top 3-5 findings only, each referencing at least 2 memories
+- Be specific. If nothing meaningful, return { "findings": [] }
+- CRITICAL: Complete, valid JSON. Max 5 findings.`;
   const result = await llmGenerate({
     messages: [
       { role: "system", content: systemPrompt },
@@ -6713,7 +7880,7 @@ ${memorySummary}`
     }
   });
   if (!result?.trim()) {
-    log30.warn("Archaeology analysis returned empty", { agentId });
+    log32.warn("Archaeology analysis returned empty", { agentId });
     return [];
   }
   try {
@@ -6726,12 +7893,12 @@ ${memorySummary}`
         if (lastCompleteObj > 0) {
           jsonStr = jsonStr.slice(0, lastCompleteObj + 1) + "]}";
         }
-        log30.info("Attempting truncated JSON recovery", {
+        log32.info("Attempting truncated JSON recovery", {
           originalLength: result.length,
           recoveredLength: jsonStr.length
         });
       } else {
-        log30.warn("No JSON found in archaeology response", {
+        log32.warn("No JSON found in archaeology response", {
           responsePreview: result.slice(0, 200)
         });
         return [];
@@ -6739,7 +7906,7 @@ ${memorySummary}`
     }
     const parsed = JSON.parse(jsonStr);
     if (!parsed.findings || !Array.isArray(parsed.findings)) {
-      log30.warn("Invalid JSON structure in archaeology response", {
+      log32.warn("Invalid JSON structure in archaeology response", {
         hasFindings: !!parsed.findings,
         isArray: Array.isArray(parsed.findings),
         keys: Object.keys(parsed)
@@ -6759,7 +7926,7 @@ ${memorySummary}`
       const evidenceWithWarnings = (f.evidence ?? []).map((e) => {
         const memory = memories[e.memory_index - 1];
         if (!memory) {
-          log30.warn(
+          log32.warn(
             "LLM referenced invalid memory_index in evidence",
             {
               memory_index: e.memory_index,
@@ -6770,15 +7937,18 @@ ${memorySummary}`
         }
         return {
           memory_id: memory?.id ?? "unknown",
-          excerpt: e.excerpt ?? "",
+          excerpt: "",
           relevance: e.relevance ?? ""
         };
       }).filter((e) => e.memory_id !== "unknown");
       if (f.evidence?.length > 0 && evidenceWithWarnings.length === 0) {
-        log30.warn("All evidence filtered due to invalid memory indices", {
-          finding_title: f.title,
-          evidence_count: f.evidence.length
-        });
+        log32.warn(
+          "All evidence filtered due to invalid memory indices",
+          {
+            finding_title: f.title,
+            evidence_count: f.evidence.length
+          }
+        );
       }
       return {
         finding_type: f.finding_type,
@@ -6790,7 +7960,7 @@ ${memorySummary}`
       };
     });
   } catch (err) {
-    log30.error("Failed to parse archaeology findings", {
+    log32.error("Failed to parse archaeology findings", {
       error: err.message,
       responseLength: result.length,
       responsePreview: result.slice(0, 300),
@@ -6840,7 +8010,7 @@ async function getLastDigTimestamp() {
     `;
   return row?.latest ? new Date(row.latest) : null;
 }
-var import_crypto, log30, DEFAULT_MAX_MEMORIES, MEMORIES_PER_BATCH, ANALYSIS_TEMPERATURE, ANALYSIS_MAX_TOKENS, CHARS_PER_TOKEN_ESTIMATE, TOKEN_WARNING_THRESHOLD;
+var import_crypto2, log32, DEFAULT_MAX_MEMORIES, MEMORIES_PER_BATCH, ANALYSIS_TEMPERATURE, ANALYSIS_MAX_TOKENS, CHARS_PER_TOKEN_ESTIMATE, TOKEN_WARNING_THRESHOLD;
 var init_memory_archaeology = __esm({
   "src/lib/ops/memory-archaeology.ts"() {
     "use strict";
@@ -6848,10 +8018,10 @@ var init_memory_archaeology = __esm({
     init_client();
     init_events2();
     init_logger();
-    import_crypto = __toESM(require("crypto"));
-    log30 = logger.child({ module: "memory-archaeology" });
+    import_crypto2 = __toESM(require("crypto"));
+    log32 = logger.child({ module: "memory-archaeology" });
     DEFAULT_MAX_MEMORIES = 100;
-    MEMORIES_PER_BATCH = 25;
+    MEMORIES_PER_BATCH = 15;
     ANALYSIS_TEMPERATURE = 0.7;
     ANALYSIS_MAX_TOKENS = 4e3;
     CHARS_PER_TOKEN_ESTIMATE = 4;
@@ -6879,17 +8049,31 @@ async function loadStepTemplate(kind) {
   return template;
 }
 function renderTemplate(template, vars) {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`);
+  return template.replace(
+    /\{\{(\w+)\}\}/g,
+    (_, key) => vars[key] ?? `{{${key}}}`
+  );
 }
 async function buildStepPrompt(kind, ctx, opts) {
   const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
   const payloadStr = JSON.stringify(ctx.payload, null, 2);
   const outputDir = ctx.outputPath ?? `agents/${ctx.agentId}/notes`;
+  const voice = getVoice(ctx.agentId);
   let header = `Mission: ${ctx.missionTitle}
 `;
   header += `Step: ${kind}
 `;
-  header += `Payload: ${payloadStr}
+  header += `Agent: ${ctx.agentId}
+`;
+  if (voice) {
+    header += `
+--- AGENT PERSONA ---
+${voice.systemDirective}
+--- END PERSONA ---
+`;
+  }
+  header += `
+Payload: ${payloadStr}
 
 `;
   let dbTemplate = null;
@@ -6926,11 +8110,13 @@ async function buildStepPrompt(kind, ctx, opts) {
 function slugify(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30);
 }
-var TEMPLATE_CACHE_TTL_MS, templateCache, STEP_INSTRUCTIONS;
+var WORKSPACE_ROOT, TEMPLATE_CACHE_TTL_MS, templateCache, STEP_INSTRUCTIONS;
 var init_step_prompts = __esm({
   "src/lib/ops/step-prompts.ts"() {
     "use strict";
     init_db();
+    init_voices();
+    WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? "/workspace/projects/subcult-corp";
     TEMPLATE_CACHE_TTL_MS = 6e4;
     templateCache = /* @__PURE__ */ new Map();
     STEP_INSTRUCTIONS = {
@@ -6938,12 +8124,14 @@ var init_step_prompts = __esm({
 Search for 3-5 relevant queries to build a comprehensive picture.
 Use web_fetch to read the most relevant pages.
 Write your research notes to ${outputDir}/${today}__research__notes__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
+Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "research_topic", status: "complete".
 Include: key findings, sources, quotes, and your analysis.
 `,
       scan_signals: (ctx, today, outputDir) => `Use web_search to scan for signals related to the payload topic.
 Look for recent developments, trends, and notable changes.
 Write a signal report to ${outputDir}/${today}__scan__signals__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
 Format: bullet points grouped by signal type (opportunity, threat, trend, noise).
+Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "scan_signals", status: "complete".
 Focus on scanning and documenting signals only. Do not call propose_mission during this step.
 `,
       draft_essay: (ctx, today) => `Read any research notes from agents/${ctx.agentId}/notes/ using file_read.
@@ -6954,43 +8142,65 @@ Include YAML front matter with artifact_id, created_at, agent_id, workflow_stage
       draft_thread: (ctx, today) => `Read any research notes from agents/${ctx.agentId}/notes/ using file_read.
 Draft a concise thread (5-10 punchy points) based on the payload.
 Write to output/reports/${today}__draft__thread__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
+Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "draft_thread", status: "draft".
 `,
       critique_content: (ctx, today) => `Read the artifact or content referenced in the payload using file_read.
 Write a structured critique to output/reviews/${today}__critique__review__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md.
 Cover: strengths, weaknesses, factual accuracy, tone, suggestions for improvement.
+Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "critique_content", status: "complete".
 `,
       audit_system: (ctx, today) => `Use bash to run system checks relevant to the payload.
 Check file permissions, exposed ports, running services, or whatever the payload specifies.
 Write findings to output/reviews/${today}__audit__security__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
 Rate findings by severity: critical, high, medium, low, info.
+Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "audit_system", status: "complete".
 `,
-      patch_code: (ctx, today, outputDir) => `You are working in the subcult-corp repo at /workspace/projects/subcult-corp/.
-Use bash to run: cd /workspace/projects/subcult-corp && git status
-Read the relevant source files using file_read.
-Make changes as described in the payload using file_write.
-After writing changes, use bash to run build checks:
-  cd /workspace/projects/subcult-corp && npx tsc --noEmit 2>&1 | head -30
-If the build passes, commit your changes:
-  cd /workspace/projects/subcult-corp && git add -A && git commit -m "${ctx.missionTitle}"
-Write a change log to ${outputDir}/${today}__patch__code__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
-`,
+      patch_code: (ctx, today, outputDir) => {
+        const projectDir = ctx.payload.project_dir || "/workspace/projects";
+        return `You are a software engineer. Your job is to write code.
+
+Project directory: ${projectDir}
+Task: ${ctx.payload.description || ctx.missionTitle}
+
+INSTRUCTIONS:
+1. If the project directory doesn't exist yet, create it. Use file_write to create package.json, tsconfig.json, README.md, and source files.
+2. If the project exists, use file_read to read the existing source files first.
+3. Use file_write to create or modify source files. Write real, working code \u2014 not pseudocode or descriptions.
+4. Write a brief changelog to ${outputDir}/${today}__patch__code__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md
+
+Your primary output is SOURCE CODE files written via file_write. Do NOT just describe what you would build \u2014 actually build it.
+`;
+      },
       distill_insight: (ctx, today) => `Read recent outputs from output/ and agents/${ctx.agentId}/notes/ using file_read.
 Synthesize into a concise digest of key insights.
 Write to output/digests/${today}__distill__insight__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
+Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "distill_insight", status: "complete".
 `,
       document_lesson: (ctx, today) => `Document the lesson or knowledge described in the payload.
 Write clear, reusable documentation to the appropriate projects/ docs/ directory.
 If no specific project, write to output/reports/${today}__docs__lesson__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md.
+Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "document_lesson", status: "complete".
 `,
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      convene_roundtable: (_ctx) => `This step triggers a roundtable conversation.
-The payload should specify the format and topic.
-Provide a summary of what the roundtable should discuss and why.
+      convene_roundtable: (ctx, today, outputDir) => `This step triggers a roundtable conversation.
+Extract from the payload:
+  - format: the roundtable format (e.g. brainstorm, strategy, triage, deep_dive)
+  - topic: the seed prompt for discussion
+  - participants: (optional) specific agent IDs to include
+  - context: (optional) any background artifacts or prior decisions
+Use the convene_roundtable tool with these parameters.
+After the roundtable completes, write a brief convening summary to ${outputDir}/${today}__roundtable__convened__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md.
+Include: format used, topic, participant count, and whether artifacts were produced.
 `,
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      propose_workflow: (_ctx) => `Based on the payload, propose a multi-step workflow.
-Each step should specify: agent, step kind, and expected output.
-Write the workflow proposal as a structured plan.
+      propose_workflow: (ctx, today, outputDir) => `Based on the payload, propose a multi-step workflow as a mission.
+Analyze what needs to be accomplished and decompose it into ordered steps.
+For each step, specify:
+  - step_kind: one of the valid step kinds (research_topic, scan_signals, draft_essay, draft_thread, critique_content, audit_system, patch_code, distill_insight, document_lesson, convene_roundtable, draft_product_spec, update_directive, create_pull_request, memory_archaeology, content_revision)
+  - agent_id: the best-suited agent (chora for analysis, subrosa for security/risk, thaum for creative, praxis for execution, mux for formatting/drafting, primus for coordination)
+  - payload: the specific input for that step
+  - depends_on: which prior steps this depends on (by index)
+Use the propose_mission tool with the workflow steps.
+Write the proposal to ${outputDir}/${today}__workflow__proposal__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md.
+Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "propose_workflow", status: "proposed".
 `,
       draft_product_spec: (ctx, today) => `Read recent research notes and roundtable artifacts from agents/ and output/ using file_read.
 Look for brainstorm sessions, strategy discussions, and signal reports.
@@ -7018,13 +8228,123 @@ Also write a changelog entry to agents/primus/notes/${today}__directive__update_
 `,
       create_pull_request: (ctx, today, outputDir) => `You are creating a pull request from the agents/workspace branch.
 Use bash to check the diff:
-  cd /workspace/projects/subcult-corp && git diff --stat HEAD~5
-  cd /workspace/projects/subcult-corp && git log --oneline -10
+  cd ${WORKSPACE_ROOT} && git diff --stat HEAD~5
+  cd ${WORKSPACE_ROOT} && git log --oneline -10
 If GITHUB_TOKEN is set, push and create a PR:
-  cd /workspace/projects/subcult-corp && git push -u origin agents/workspace 2>&1
-  cd /workspace/projects/subcult-corp && gh pr create --base main --head agents/workspace --title "${ctx.missionTitle}" --body "Auto-generated by agent workflow" 2>&1
+  cd ${WORKSPACE_ROOT} && git push -u origin agents/workspace 2>&1
+  cd ${WORKSPACE_ROOT} && gh pr create --base main --head agents/workspace --title "${ctx.missionTitle}" --body "Auto-generated by agent workflow" 2>&1
 If GITHUB_TOKEN is NOT set or push fails, write a PR summary to ${outputDir}/${today}__pr__summary__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
 The summary should include: branch name, commit list, diff stats, and a description of all changes.
+Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "create_pull_request", status: "complete".
+`,
+      self_evolution: (ctx, today, outputDir) => `You are improving your own system. You are an AI agent in the SUBCULT collective.
+Your source code is at ${WORKSPACE_ROOT}/.
+
+\u2550\u2550\u2550 CONTEXT \u2550\u2550\u2550
+You belong to the subculture-collective GitHub organization (https://github.com/subculture-collective).
+Your platform repo is https://github.com/subculture-collective/subcorp.
+You have FULL ACCESS to the org \u2014 you can create repos, issues, PRs, manage projects, everything.
+The org is yours to run like a business. Any action available to you is authorized.
+\u2550\u2550\u2550 END CONTEXT \u2550\u2550\u2550
+
+Task: ${ctx.payload.description || ctx.missionTitle}
+
+INSTRUCTIONS:
+1. Use file_read to read the relevant source files described in the payload.
+2. Identify a specific, concrete improvement (not vague "make it better").
+3. Use bash to create a feature branch:
+   cd ${WORKSPACE_ROOT} && git checkout -b evolution/${ctx.agentId}/${today}/${slugify(ctx.missionTitle).slice(0, 30)}
+4. Use file_write to make your changes.
+5. Use bash to commit and push:
+   cd ${WORKSPACE_ROOT} && git add -A && git commit -m "${ctx.missionTitle}" && git push -u origin HEAD
+6. Use bash to create a PR:
+   cd ${WORKSPACE_ROOT} && gh pr create --title "${ctx.missionTitle}" --body "Proposed by ${ctx.agentId}. ${ctx.payload.description || ""}"
+7. Write a summary to ${outputDir}/${today}__evolution__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md
+
+Your output is a MERGED PULL REQUEST with real code changes. Do not just describe what you would change.
+`,
+      github_issue: (ctx, _today, _outputDir) => `You are managing the subculture-collective GitHub organization.
+Org: https://github.com/subculture-collective
+Platform repo: https://github.com/subculture-collective/subcorp
+You have FULL ACCESS \u2014 create repos, issues, PRs, labels, projects, anything.
+
+Task: ${ctx.payload.description || ctx.missionTitle}
+
+Use bash to run gh commands. Examples:
+  gh issue create --repo subculture-collective/subcorp --title "..." --body "..."
+  gh issue list --repo subculture-collective/subcorp
+  gh repo create subculture-collective/new-project --public --description "..."
+  gh label create --repo subculture-collective/subcorp "feature" --color 0075ca
+
+Create well-structured issues with clear titles, descriptions, acceptance criteria, and appropriate labels.
+`,
+      github_pr: (ctx, _today, _outputDir) => `You are managing code in the subculture-collective GitHub organization.
+Org: https://github.com/subculture-collective
+Platform repo: https://github.com/subculture-collective/subcorp
+You have FULL ACCESS.
+
+Task: ${ctx.payload.description || ctx.missionTitle}
+
+INSTRUCTIONS:
+1. Use bash to check current branch and status: cd ${WORKSPACE_ROOT} && git status
+2. Create a branch, make changes via file_write, commit, push, and create a PR.
+3. PR should have a clear title, description of changes, and context for reviewers.
+4. Use: gh pr create --repo subculture-collective/subcorp --title "..." --body "..."
+`,
+      explore_repo: (ctx, _today, outputDir) => `You are exploring repositories in the subculture-collective GitHub organization.
+Org: https://github.com/subculture-collective
+You have FULL ACCESS to all repos.
+
+Task: ${ctx.payload.description || ctx.missionTitle}
+
+INSTRUCTIONS:
+1. Use bash to list repos: gh repo list subculture-collective --limit 20
+2. For a specific repo, explore it:
+   gh repo view subculture-collective/[repo-name]
+   gh issue list --repo subculture-collective/[repo-name]
+   gh pr list --repo subculture-collective/[repo-name]
+3. Clone and read source code if needed:
+   cd /workspace/projects && git clone https://github.com/subculture-collective/[repo-name] 2>/dev/null || true
+   Then use file_read to read files.
+4. IMPORTANT: Check for existing GitHub issues, README, and docs \u2014 respect the existing development plan.
+5. If you find improvements to make, create detailed PRs with clear descriptions of what you changed and why.
+6. Write findings to ${outputDir}/
+`,
+      publish_blog: (ctx, _today, _outputDir) => `You are publishing content to the SUBCULT blog at https://blog.subcult.tv (Ghost CMS).
+
+Task: ${ctx.payload.description || ctx.missionTitle}
+
+INSTRUCTIONS:
+1. Prepare your blog post content: title, body (in markdown/HTML), and tags.
+2. Use the Ghost Admin API via bash/curl to publish.
+3. If you don't have API access configured, write the post to /workspace/output/blog/ as markdown
+   and use notify_human to ask for the Ghost admin API key.
+4. Blog posts should be polished, on-brand, and provide genuine value to readers.
+5. Topics: technology, AI, autonomy, open source, creative tools, underground culture.
+`,
+      notify_human: (ctx, _today, _outputDir) => `You need human assistance for a task you cannot complete autonomously.
+
+Request: ${ctx.payload.description || ctx.missionTitle}
+
+INSTRUCTIONS:
+Send a notification to the human operator via ntfy:
+  Use bash: curl -d "[Your request here]" http://172.20.0.9/subcult-agents
+
+Be specific about what you need:
+- What task requires human help
+- What you've already tried
+- What you need them to do (create an account, provide API key, approve something, etc.)
+
+The human has offered to help with: creating accounts, providing API keys,
+installing services, and any task you cannot do yourself. Just ask.
+`,
+      content_revision: (ctx, today, outputDir) => `You are revising a previously reviewed piece of content based on reviewer feedback.
+The payload contains the original draft and the reviewer notes explaining what needs to change.
+Read the original artifact referenced in the payload using file_read.
+Apply every piece of reviewer feedback. Do not ignore or soften critical notes \u2014 address each one directly.
+Preserve the original voice and intent while improving quality, accuracy, and clarity.
+Write the revised artifact to ${outputDir}/${today}__revision__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
+Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "content_revision", status: "complete", original_artifact: <id of the original>.
 `,
       memory_archaeology: (ctx, today, outputDir) => `Perform a memory archaeology dig to analyze agent memories for patterns, contradictions, emergence, echoes, and drift.
 Use the memory_search tool to retrieve relevant memories from the collective.
@@ -7057,7 +8377,7 @@ __export(agent_designer_exports, {
   setHumanApproval: () => setHumanApproval
 });
 async function generateAgentProposal(proposerId) {
-  log31.info("Generating agent proposal", { proposer: proposerId });
+  log33.info("Generating agent proposal", { proposer: proposerId });
   const agents = await sql`
         SELECT agent_id, display_name, role
         FROM ops_agent_registry
@@ -7082,7 +8402,7 @@ async function generateAgentProposal(proposerId) {
         WHERE status IN ('proposed', 'voting')
     `;
   if (pendingCount.count >= 2) {
-    log31.info("Skipping proposal \u2014 too many pending proposals", {
+    log33.info("Skipping proposal \u2014 too many pending proposals", {
       pending: pendingCount.count
     });
     throw new Error(
@@ -7132,24 +8452,33 @@ Respond with valid JSON only, no markdown fencing:
   "skills": ["skill1", "skill2", "skill3"],
   "rationale": "why the collective needs this agent"
 }`;
-  const result = await llmGenerate({
-    messages: [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: "Analyze the collective and propose a new agent if a genuine gap exists."
+  let result = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    result = await llmGenerate({
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: "Analyze the collective and propose a new agent if a genuine gap exists."
+        }
+      ],
+      temperature: 0.85,
+      maxTokens: 4e3,
+      trackingContext: {
+        agentId: proposerId,
+        context: "agent_design"
       }
-    ],
-    temperature: 0.85,
-    maxTokens: 1500,
-    trackingContext: {
-      agentId: proposerId,
-      context: "agent_design"
-    }
-  });
+    });
+    if (result && result.trim().length > 0) break;
+    log33.warn("LLM returned empty for agent proposal, retrying", {
+      proposer: proposerId,
+      attempt: attempt + 1
+    });
+    await new Promise((r) => setTimeout(r, 3e3 * (attempt + 1)));
+  }
   let parsed;
   if (!result || result.trim().length === 0) {
-    log31.error("LLM returned empty response for agent proposal", {
+    log33.error("LLM returned empty response for agent proposal", {
       proposer: proposerId
     });
     throw new Error("LLM returned empty response for agent proposal");
@@ -7160,7 +8489,7 @@ Respond with valid JSON only, no markdown fencing:
     if (!jsonMatch) throw new Error("No JSON found in LLM response");
     parsed = JSON.parse(jsonMatch[0]);
   } catch (err) {
-    log31.error("Failed to parse agent proposal from LLM", {
+    log33.error("Failed to parse agent proposal from LLM", {
       error: err,
       responsePreview: result.slice(0, 500)
     });
@@ -7241,7 +8570,7 @@ async function saveProposal(proposal, proposerId) {
         )
         RETURNING id
     `;
-  log31.info("Agent proposal saved", {
+  log33.info("Agent proposal saved", {
     id: row.id,
     proposer: proposerId,
     agentName: proposal.agent_name
@@ -7292,9 +8621,9 @@ async function setHumanApproval(proposalId, approved) {
         SET human_approved = ${approved}
         WHERE id = ${proposalId}
     `;
-  log31.info("Human approval set", { proposalId, approved });
+  log33.info("Human approval set", { proposalId, approved });
 }
-var log31;
+var log33;
 var init_agent_designer = __esm({
   "src/lib/ops/agent-designer.ts"() {
     "use strict";
@@ -7302,15 +8631,15 @@ var init_agent_designer = __esm({
     init_client();
     init_events2();
     init_logger();
-    log31 = logger.child({ module: "agent-designer" });
+    log33 = logger.child({ module: "agent-designer" });
   }
 });
 
 // scripts/unified-worker/index.ts
 var import_config = require("dotenv/config");
 var import_postgres2 = __toESM(require("postgres"));
-var import_promises = __toESM(require("fs/promises"));
-var import_path = __toESM(require("path"));
+var import_promises2 = __toESM(require("fs/promises"));
+var import_path2 = __toESM(require("path"));
 init_orchestrator();
 
 // src/lib/tools/agent-session.ts
@@ -7319,7 +8648,14 @@ init_client();
 init_voices();
 
 // src/lib/types.ts
-var ALL_AGENTS = ["chora", "subrosa", "thaum", "praxis", "mux", "primus"];
+var ALL_AGENTS = [
+  "chora",
+  "subrosa",
+  "thaum",
+  "praxis",
+  "mux",
+  "primus"
+];
 
 // src/lib/tools/tools/bash.ts
 init_executor();
@@ -7361,7 +8697,7 @@ var bashTool = {
 
 // src/lib/tools/tools/web-search.ts
 init_logger();
-var log22 = logger.child({ module: "web-search" });
+var log23 = logger.child({ module: "web-search" });
 var BRAVE_API_KEY = process.env.BRAVE_API_KEY ?? "";
 var BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search";
 var webSearchTool = {
@@ -7411,7 +8747,7 @@ var webSearchTool = {
       }));
       return { results, query, count: results.length };
     } catch (err) {
-      log22.error("Brave Search failed", { error: err, query });
+      log23.error("Brave Search failed", { error: err, query });
       return { error: `Search failed: ${err.message}` };
     }
   }
@@ -7527,7 +8863,7 @@ init_db();
 var import_node_path = __toESM(require("node:path"));
 var WRITE_ACLS = {
   chora: ["agents/chora/", "output/reports/", "output/briefings/", "output/digests/"],
-  subrosa: ["agents/subrosa/", "output/reviews/"],
+  subrosa: ["agents/subrosa/", "output/reviews/", "output/reports/"],
   thaum: ["agents/thaum/", "output/"],
   praxis: ["agents/praxis/", "output/", "projects/subcult-corp/"],
   mux: ["agents/mux/", "output/", "projects/subcult-corp/"],
@@ -7794,7 +9130,7 @@ When done, provide a clear summary of what you accomplished.
                     'droid',
                     ${droidId},
                     ${timeout},
-                    8,
+                    30,
                     'pending',
                     ${sql.json({ droid_id: droidId, output_path: outputPath })}::jsonb
                 )
@@ -7879,7 +9215,7 @@ var checkDroidTool = {
 init_db();
 init_logger();
 init_embeddings();
-var log23 = logger.child({ module: "memory-search" });
+var log24 = logger.child({ module: "memory-search" });
 var memorySearchTool = {
   name: "memory_search",
   description: "Search agent memories using semantic similarity. Returns relevant memories from any agent.",
@@ -7934,7 +9270,7 @@ var memorySearchTool = {
           count: rows2.length
         };
       } catch (err) {
-        log23.warn("Vector search failed, falling back to text", { error: err });
+        log24.warn("Vector search failed, falling back to text", { error: err });
       }
     }
     const rows = await sql`
@@ -8089,7 +9425,7 @@ var scratchpadUpdateTool = {
 // src/lib/tools/tools/propose-policy-change.ts
 init_governance();
 init_logger();
-var log24 = logger.child({ module: "propose-policy-change" });
+var log25 = logger.child({ module: "propose-policy-change" });
 function createProposePolicyChangeExecute(agentId) {
   return async (params) => {
     const policyKey = params.policy_key;
@@ -8102,7 +9438,7 @@ function createProposePolicyChangeExecute(agentId) {
         proposedValue,
         rationale
       );
-      log24.info("Governance proposal created via tool", {
+      log25.info("Governance proposal created via tool", {
         proposalId,
         agentId,
         policyKey
@@ -8114,7 +9450,7 @@ function createProposePolicyChangeExecute(agentId) {
       };
     } catch (err) {
       const error = err;
-      log24.error("Failed to create governance proposal", {
+      log25.error("Failed to create governance proposal", {
         error: error.message,
         agentId,
         policyKey
@@ -8156,7 +9492,7 @@ var proposePolicyChangeTool = {
 // src/lib/tools/tools/propose-mission.ts
 init_proposal_service();
 init_logger();
-var log25 = logger.child({ module: "propose-mission" });
+var log26 = logger.child({ module: "propose-mission" });
 function createProposeMissionExecute(agentId, sessionId) {
   return async (params) => {
     const title = params.title;
@@ -8180,7 +9516,7 @@ function createProposeMissionExecute(agentId, sessionId) {
         source: "agent",
         source_trace_id: sessionId
       });
-      log25.info("Mission proposal created via tool", {
+      log26.info("Mission proposal created via tool", {
         proposalId: result.proposalId,
         missionId: result.missionId,
         agentId,
@@ -8201,7 +9537,7 @@ function createProposeMissionExecute(agentId, sessionId) {
       };
     } catch (err) {
       const error = err;
-      log25.error("Failed to create mission proposal", {
+      log26.error("Failed to create mission proposal", {
         error: error.message,
         agentId,
         title
@@ -8257,7 +9593,7 @@ var proposeMissionTool = {
 // src/lib/tools/tools/cast-veto.ts
 init_veto();
 init_logger();
-var log26 = logger.child({ module: "cast-veto" });
+var log27 = logger.child({ module: "cast-veto" });
 function createCastVetoExecute(agentId) {
   return async (params) => {
     const targetType = params.target_type;
@@ -8270,7 +9606,7 @@ function createCastVetoExecute(agentId) {
         targetId,
         reason
       );
-      log26.info("Veto cast via tool", {
+      log27.info("Veto cast via tool", {
         vetoId,
         agentId,
         targetType,
@@ -8285,7 +9621,7 @@ function createCastVetoExecute(agentId) {
       };
     } catch (err) {
       const error = err;
-      log26.error("Failed to cast veto", {
+      log27.error("Failed to cast veto", {
         error: error.message,
         agentId,
         targetType,
@@ -8395,9 +9731,14 @@ init_scratchpad();
 init_situational_briefing();
 init_prime_directive();
 init_logger();
-var log27 = logger.child({ module: "agent-session" });
+var log28 = logger.child({ module: "agent-session" });
+var SESSION_SOFT_DEADLINE_BUFFER_MS = 9e4;
+var TOOL_RESULT_MAX_LENGTH = 5e3;
+var MAX_CONSECUTIVE_EMPTY_ROUNDS = 3;
+var MEMORY_PREVIEW_LENGTH = 200;
+var SESSION_SUMMARY_PREVIEW_LENGTH = 300;
 function sanitizeSummary(text) {
-  return text.replace(/<[｜|]DSML[｜|]/g, "<").replace(/<\/[｜|]DSML[｜|]/g, "</").replace(/<\/?[a-z_][a-z0-9_-]*(?:\s[^>]*)?\s*>/gi, "").replace(/\s{2,}/g, " ").trim();
+  return normalizeDsml(text).replace(/<\/?[a-z_][a-z0-9_-]*(?:\s[^>]*)?\s*>/gi, "").replace(/\s{2,}/g, " ").trim();
 }
 function truncateToFirstSentences(text, maxLen) {
   const clean = text.replace(/<\/?[a-z_][a-z0-9_-]*(?:\s[^>]*)?\s*>/gi, "").replace(/^#+\s+.+$/gm, "").replace(/\n{2,}/g, "\n").trim();
@@ -8412,31 +9753,82 @@ function truncateToFirstSentences(text, maxLen) {
   if (lastNewline > maxLen * 0.5) return truncated.slice(0, lastNewline);
   return truncated + "...";
 }
-async function executeAgentSession(session) {
-  const startTime = Date.now();
-  const isDroid = session.agent_id.startsWith("droid-");
-  const agentId = session.agent_id;
-  const allToolCalls = [];
-  let llmRounds = 0;
-  const totalTokens = 0;
-  const totalCost = 0;
-  await sql`
-        UPDATE ops_agent_sessions
-        SET status = 'running', started_at = NOW()
-        WHERE id = ${session.id}
-    `;
-  try {
-    const voice = isDroid ? null : getVoice(agentId);
-    const voiceName = isDroid ? session.agent_id : voice?.displayName ?? agentId;
-    const tools = isDroid ? getDroidTools(session.agent_id) : getAgentTools(agentId, session.id);
-    const memories = isDroid ? [] : await queryRelevantMemories(
-      agentId,
-      session.prompt,
-      { relevantLimit: 5, recentLimit: 3 }
-    );
-    const scratchpad = isDroid ? "" : await getScratchpad(agentId);
-    const briefing = isDroid ? "" : await buildBriefing(agentId);
-    const recentSessions = isDroid ? [] : await sql`
+var BLOCKER_SUMMARY_PATTERNS = [
+  /\bcritical blocker\b/i,
+  /\bdata dependency blocked\b/i,
+  /\bblocked by\b/i,
+  /\bmission is, by definition, stalled\b/i,
+  /\bcannot proceed\b/i,
+  /\bcannot continue\b/i,
+  /\bcannot be completed\b/i,
+  /\bno further (procedural )?steps? (i )?can take\b/i,
+  /\bawait(?:ing)? (?:instruction|input|external|data|provisioning)\b/i,
+  /\bwaiting for\b/i,
+  /\bhands are tied\b/i,
+  /\bstalled by\b/i,
+  /\bpaused pending\b/i
+];
+var TOOL_ERROR_PATTERNS = [
+  /no such file or directory/i,
+  /permission denied/i,
+  /access denied/i,
+  /file read failed/i,
+  /file write failed/i,
+  /timed out/i,
+  /tool\s+"?.+"?\s+does not exist/i
+];
+function toolErrorText(result) {
+  if (typeof result === "string") return result;
+  if (!result || typeof result !== "object") return "";
+  const rec = result;
+  const err = typeof rec.error === "string" ? rec.error : "";
+  const stderr = typeof rec.stderr === "string" ? rec.stderr : "";
+  return [err, stderr].filter(Boolean).join("\n");
+}
+function detectBlockedOutcome(summary, toolCalls) {
+  const evidence = [];
+  const blockerMatch = BLOCKER_SUMMARY_PATTERNS.find((p) => p.test(summary));
+  if (blockerMatch) {
+    evidence.push(`summary matched pattern: ${blockerMatch.source}`);
+  }
+  const toolErrors = toolCalls.map((tc) => ({
+    name: tc.name,
+    text: toolErrorText(tc.result)
+  })).filter((tc) => tc.text.length > 0);
+  const fatalToolErrors = toolErrors.filter(
+    (tc) => TOOL_ERROR_PATTERNS.some((p) => p.test(tc.text))
+  );
+  for (const err of fatalToolErrors) {
+    evidence.push(`tool ${err.name} error: ${err.text.slice(0, 160)}`);
+  }
+  const hasSuccessfulWrite = toolCalls.some((tc) => {
+    if (tc.name !== "file_write") return false;
+    if (!tc.result || typeof tc.result !== "object") return false;
+    return !("error" in tc.result);
+  });
+  const blockedBySummary = !!blockerMatch;
+  const blockedByFatalToolError = fatalToolErrors.length > 0 && !hasSuccessfulWrite;
+  if (blockedBySummary || blockedByFatalToolError) {
+    const reason = blockedBySummary ? "Session summary reported unresolved blocker" : "Fatal tool error without successful artifact write";
+    return { blocked: true, reason, evidence };
+  }
+  return {
+    blocked: false,
+    reason: "",
+    evidence: []
+  };
+}
+async function loadAgentContext(session, isDroid, agentId) {
+  const voice = isDroid ? null : getVoice(agentId);
+  const voiceName = isDroid ? session.agent_id : voice?.displayName ?? agentId;
+  const tools = isDroid ? getDroidTools(session.agent_id) : getAgentTools(agentId, session.id);
+  const memories = isDroid ? [] : await queryRelevantMemories(agentId, session.prompt, {
+    relevantLimit: 5,
+    recentLimit: 3
+  });
+  const scratchpad = isDroid ? "" : await getScratchpad(agentId);
+  const briefing = isDroid ? "" : await buildBriefing(agentId);
+  const recentSessions = isDroid ? [] : await sql`
             SELECT agent_id, prompt, result, completed_at
             FROM ops_agent_sessions
             WHERE source = 'cron'
@@ -8446,184 +9838,309 @@ async function executeAgentSession(session) {
             ORDER BY completed_at DESC
             LIMIT 5
         `;
-    let primeDirective = "";
-    try {
-      primeDirective = await loadPrimeDirective();
-    } catch {
-    }
-    let systemPrompt = "";
-    if (voice) {
-      systemPrompt += `${voice.systemDirective}
+  let primeDirective = "";
+  try {
+    primeDirective = await loadPrimeDirective();
+  } catch {
+  }
+  const systemPrompt = buildAgentSystemPrompt({
+    voice: voice ?? null,
+    voiceName,
+    primeDirective,
+    scratchpad,
+    briefing,
+    memories,
+    recentSessions,
+    toolNames: tools.map((t) => t.name)
+  });
+  return { voiceName, tools, systemPrompt };
+}
+function buildAgentSystemPrompt(ctx) {
+  let prompt = "";
+  if (ctx.voice) {
+    prompt += `${ctx.voice.systemDirective}
 
 `;
-    }
-    if (primeDirective) {
-      systemPrompt += `\u2550\u2550\u2550 PRIME DIRECTIVE \u2550\u2550\u2550
-${primeDirective}
+  }
+  if (ctx.primeDirective) {
+    prompt += `\u2550\u2550\u2550 PRIME DIRECTIVE \u2550\u2550\u2550
+${ctx.primeDirective}
 
 `;
-    }
-    systemPrompt += `You are ${voiceName}, operating in an autonomous agent session.
+  }
+  prompt += `You are ${ctx.voiceName}, operating in an autonomous agent session.
 `;
-    systemPrompt += `You have tools available to accomplish your task. Use them through the provided function calling interface.
+  prompt += `You have tools available to accomplish your task. Use them through the provided function calling interface.
 `;
-    systemPrompt += `When your task is complete, provide a clear summary of what you accomplished.
+  prompt += `When your task is complete, provide a clear summary of what you accomplished.
 `;
-    systemPrompt += `IMPORTANT: Never output raw XML tags like <function_calls> or <invoke>. Use the structured tool calling API instead.
+  prompt += `IMPORTANT: Never output raw XML tags like <function_calls> or <invoke>. Use the structured tool calling API instead.
+`;
+  prompt += `IMPORTANT: Only call tools from the list below. Do NOT invent tool names.
 
 `;
-    if (scratchpad) {
-      systemPrompt += `\u2550\u2550\u2550 YOUR SCRATCHPAD (working memory) \u2550\u2550\u2550
-${scratchpad}
+  if (ctx.toolNames.length > 0) {
+    prompt += `\u2550\u2550\u2550 AVAILABLE TOOLS \u2550\u2550\u2550
+`;
+    prompt += `You may ONLY use these tools: ${ctx.toolNames.join(", ")}
+`;
+    prompt += `Do NOT call tools like "google:search", "tool_code", "propose_action", or any other name not listed above.
 
 `;
-    }
-    if (briefing) {
-      systemPrompt += `\u2550\u2550\u2550 CURRENT SITUATION \u2550\u2550\u2550
-${briefing}
+  }
+  if (ctx.scratchpad) {
+    prompt += `\u2550\u2550\u2550 YOUR SCRATCHPAD (working memory) \u2550\u2550\u2550
+${ctx.scratchpad}
 
 `;
+  }
+  if (ctx.briefing) {
+    prompt += `\u2550\u2550\u2550 CURRENT SITUATION \u2550\u2550\u2550
+${ctx.briefing}
+
+`;
+  }
+  if (ctx.memories.length > 0) {
+    prompt += `\u2550\u2550\u2550 YOUR MEMORIES \u2550\u2550\u2550
+`;
+    for (const m of ctx.memories) {
+      prompt += `- [${m.type}] ${m.content.slice(0, MEMORY_PREVIEW_LENGTH)}
+`;
     }
-    if (memories.length > 0) {
-      systemPrompt += `\u2550\u2550\u2550 YOUR MEMORIES \u2550\u2550\u2550
+    prompt += `
 `;
-      for (const m of memories) {
-        systemPrompt += `- [${m.type}] ${m.content.slice(0, 200)}
+  }
+  if (ctx.recentSessions.length > 0) {
+    prompt += `Recent session outputs (for context):
 `;
-      }
-      systemPrompt += `
+    for (const s of ctx.recentSessions) {
+      const summary = s.result?.summary ?? s.result?.text ?? "(no summary)";
+      prompt += `- [${s.agent_id}] ${String(summary).slice(0, SESSION_SUMMARY_PREVIEW_LENGTH)}
 `;
     }
-    if (recentSessions.length > 0) {
-      systemPrompt += `Recent session outputs (for context):
-`;
-      for (const s of recentSessions) {
-        const summary = s.result?.summary ?? s.result?.text ?? "(no summary)";
-        systemPrompt += `- [${s.agent_id}] ${String(summary).slice(0, 300)}
-`;
-      }
-      systemPrompt += "\n";
+    prompt += "\n";
+  }
+  return prompt;
+}
+async function runAgentToolLoop(opts) {
+  const { session, agentId, tools, messages, startTime } = opts;
+  const allToolCalls = [];
+  const maxRounds = session.max_tool_rounds;
+  const timeoutMs = session.timeout_seconds * 1e3;
+  const softDeadlineMs = timeoutMs - SESSION_SOFT_DEADLINE_BUFFER_MS;
+  let lastText = "";
+  let consecutiveEmptyRounds = 0;
+  let llmRounds = 0;
+  for (let round = 0; round < maxRounds; round++) {
+    const elapsed = Date.now() - startTime;
+    if (elapsed > timeoutMs) {
+      await completeSession(
+        session.id,
+        "timed_out",
+        { summary: lastText || "Session timed out before completing", rounds: llmRounds },
+        allToolCalls,
+        llmRounds,
+        "Timeout exceeded"
+      );
+      return { lastText, toolCalls: allToolCalls, rounds: -1 };
     }
+    if (elapsed > softDeadlineMs && round > 0 && lastText) {
+      log28.info("Soft deadline reached, finishing with current output", {
+        sessionId: session.id,
+        elapsed: Math.round(elapsed / 1e3),
+        rounds: llmRounds
+      });
+      break;
+    }
+    llmRounds++;
+    const result = await llmGenerateWithTools({
+      messages,
+      temperature: 0.7,
+      maxTokens: 16e3,
+      model: session.model ?? void 0,
+      tools: tools.length > 0 ? tools : void 0,
+      maxToolRounds: 20,
+      trackingContext: { agentId, context: "agent_session", sessionId: session.id }
+    });
+    if (result.text) {
+      lastText = result.text;
+      consecutiveEmptyRounds = 0;
+    } else {
+      consecutiveEmptyRounds++;
+    }
+    allToolCalls.push(...result.toolCalls);
+    log28.debug("Agent session round completed", {
+      sessionId: session.id,
+      round,
+      textLength: result.text.length,
+      toolCallCount: result.toolCalls.length,
+      cumulativeToolCalls: allToolCalls.length,
+      hasLastText: !!lastText,
+      consecutiveEmptyRounds
+    });
+    if (result.toolCalls.length === 0) break;
+    if (!result.text && result.toolCalls.every(
+      (tc) => typeof tc.result === "string" && tc.result.includes("not available")
+    )) {
+      log28.warn("Agent session breaking early \u2014 all tool calls returned not-available", {
+        sessionId: session.id,
+        round,
+        toolCalls: result.toolCalls.map((tc) => tc.name)
+      });
+      break;
+    }
+    if (consecutiveEmptyRounds >= MAX_CONSECUTIVE_EMPTY_ROUNDS) {
+      log28.warn("Agent session breaking early \u2014 consecutive empty rounds", {
+        sessionId: session.id,
+        round,
+        cumulativeToolCalls: allToolCalls.length
+      });
+      break;
+    }
+    const toolSummary = result.toolCalls.map((tc) => {
+      const resultStr = typeof tc.result === "string" ? tc.result : JSON.stringify(tc.result);
+      const capped = resultStr.length > TOOL_RESULT_MAX_LENGTH ? resultStr.slice(0, TOOL_RESULT_MAX_LENGTH) + "... [truncated]" : resultStr;
+      return `Tool ${tc.name}(${JSON.stringify(tc.arguments)}):
+${capped}`;
+    }).join("\n\n");
+    if (result.text) {
+      messages.push({ role: "assistant", content: result.text });
+    }
+    messages.push({
+      role: "user",
+      content: `Tool results:
+${toolSummary}
+
+Continue with your task. If you're done, provide a final summary.`
+    });
+  }
+  return { lastText, toolCalls: allToolCalls, rounds: llmRounds };
+}
+async function executeAgentSession(session) {
+  const startTime = Date.now();
+  const isDroid = session.agent_id.startsWith("droid-");
+  const agentId = session.agent_id;
+  await sql`
+        UPDATE ops_agent_sessions
+        SET status = 'running', started_at = NOW()
+        WHERE id = ${session.id}
+    `;
+  try {
+    const { voiceName, tools, systemPrompt } = await loadAgentContext(session, isDroid, agentId);
     const messages = [
       { role: "system", content: systemPrompt },
       { role: "user", content: session.prompt }
     ];
-    const maxRounds = session.max_tool_rounds;
-    const timeoutMs = session.timeout_seconds * 1e3;
-    let lastText = "";
-    const softDeadlineMs = timeoutMs - 9e4;
-    for (let round = 0; round < maxRounds; round++) {
-      const elapsed = Date.now() - startTime;
-      if (elapsed > timeoutMs) {
-        await completeSession(session.id, "timed_out", {
-          summary: lastText || "Session timed out before completing",
-          rounds: llmRounds
-        }, allToolCalls, llmRounds, totalTokens, totalCost, "Timeout exceeded");
-        return;
-      }
-      if (elapsed > softDeadlineMs && round > 0 && lastText) {
-        log27.info("Soft deadline reached, finishing with current output", {
+    const loopResult = await runAgentToolLoop({
+      session,
+      agentId,
+      tools,
+      messages,
+      startTime
+    });
+    if (loopResult.rounds === -1) return;
+    const cleanedText = extractFromXml(loopResult.lastText);
+    const summary = sanitizeSummary(cleanedText);
+    const blockedOutcome = detectBlockedOutcome(
+      [summary, cleanedText].filter(Boolean).join("\n"),
+      loopResult.toolCalls
+    );
+    const finalStatus = blockedOutcome.blocked ? "blocked" : "succeeded";
+    await completeSession(
+      session.id,
+      finalStatus,
+      {
+        text: cleanedText,
+        summary,
+        rounds: loopResult.rounds,
+        ...blockedOutcome.blocked ? {
+          blocked_reason: blockedOutcome.reason,
+          blocked_evidence: blockedOutcome.evidence
+        } : {}
+      },
+      loopResult.toolCalls,
+      loopResult.rounds,
+      blockedOutcome.blocked ? blockedOutcome.reason : void 0
+    );
+    const summaryPreview = truncateToFirstSentences(cleanedText, 2e3);
+    if (blockedOutcome.blocked) {
+      await emitEvent({
+        agent_id: agentId,
+        kind: "agent_session_blocked",
+        title: `${voiceName} session blocked`,
+        summary: summaryPreview || blockedOutcome.reason,
+        tags: ["agent_session", "blocked", session.source],
+        metadata: {
           sessionId: session.id,
-          elapsed: Math.round(elapsed / 1e3),
-          rounds: llmRounds
-        });
-        break;
-      }
-      llmRounds++;
-      const result = await llmGenerateWithTools({
-        messages,
-        temperature: 0.7,
-        maxTokens: 16e3,
-        model: session.model ?? void 0,
-        tools: tools.length > 0 ? tools : void 0,
-        maxToolRounds: 1,
-        // We handle the outer loop ourselves
-        trackingContext: {
-          agentId,
-          context: "agent_session",
-          sessionId: session.id
+          source: session.source,
+          rounds: loopResult.rounds,
+          toolCalls: loopResult.toolCalls.length,
+          blockedReason: blockedOutcome.reason,
+          blockedEvidence: blockedOutcome.evidence
         }
       });
-      lastText = result.text;
-      allToolCalls.push(...result.toolCalls);
-      if (result.toolCalls.length === 0) {
-        break;
-      }
-      const toolSummary = result.toolCalls.map((tc) => {
-        const resultStr = typeof tc.result === "string" ? tc.result : JSON.stringify(tc.result);
-        const capped = resultStr.length > 5e3 ? resultStr.slice(0, 5e3) + "... [truncated]" : resultStr;
-        return `Tool ${tc.name}(${JSON.stringify(tc.arguments)}):
-${capped}`;
-      }).join("\n\n");
-      if (result.text) {
-        messages.push({ role: "assistant", content: result.text });
-      }
-      messages.push({
-        role: "user",
-        content: `Tool results:
-${toolSummary}
-
-Continue with your task. If you're done, provide a final summary.`
+    } else {
+      await emitEvent({
+        agent_id: agentId,
+        kind: "agent_session_completed",
+        title: `${voiceName} session completed`,
+        summary: summaryPreview || void 0,
+        tags: ["agent_session", "completed", session.source],
+        metadata: {
+          sessionId: session.id,
+          source: session.source,
+          rounds: loopResult.rounds,
+          toolCalls: loopResult.toolCalls.length
+        }
       });
     }
-    const cleanedText = extractFromXml(lastText);
-    await completeSession(session.id, "succeeded", {
-      text: cleanedText,
-      summary: sanitizeSummary(cleanedText),
-      rounds: llmRounds
-    }, allToolCalls, llmRounds, totalTokens, totalCost);
-    const summaryPreview = truncateToFirstSentences(cleanedText, 2e3);
-    await emitEvent({
-      agent_id: agentId,
-      kind: "agent_session_completed",
-      title: `${voiceName} session completed`,
-      summary: summaryPreview || void 0,
-      tags: ["agent_session", "completed", session.source],
-      metadata: {
-        sessionId: session.id,
-        source: session.source,
-        rounds: llmRounds,
-        toolCalls: allToolCalls.length
-      }
-    });
   } catch (err) {
     const errorMsg = err.message;
-    log27.error("Agent session failed", {
-      error: err,
-      sessionId: session.id,
-      agentId,
-      rounds: llmRounds
-    });
-    await completeSession(session.id, "failed", {
-      error: errorMsg,
-      rounds: llmRounds
-    }, allToolCalls, llmRounds, totalTokens, totalCost, errorMsg);
+    log28.error("Agent session failed", { error: err, sessionId: session.id, agentId });
+    await completeSession(
+      session.id,
+      "failed",
+      { error: errorMsg, rounds: 0 },
+      [],
+      0,
+      errorMsg
+    );
     await emitEvent({
       agent_id: agentId,
       kind: "agent_session_failed",
       title: `Agent session failed: ${errorMsg.slice(0, 100)}`,
       tags: ["agent_session", "failed", session.source],
-      metadata: {
-        sessionId: session.id,
-        error: errorMsg,
-        rounds: llmRounds
-      }
+      metadata: { sessionId: session.id, error: errorMsg }
     });
   }
 }
-async function completeSession(sessionId, status, result, toolCalls, llmRounds, totalTokens, costUsd, error) {
+function sanitizeForJsonb(obj) {
+  if (typeof obj === "string") {
+    return obj.replace(/\u0000/g, "").replace(/\\u0000/g, "");
+  }
+  if (Array.isArray(obj)) return obj.map(sanitizeForJsonb);
+  if (obj && typeof obj === "object") {
+    const clean = {};
+    for (const [k, v] of Object.entries(obj)) {
+      clean[k] = sanitizeForJsonb(v);
+    }
+    return clean;
+  }
+  return obj;
+}
+async function completeSession(sessionId, status, result, toolCalls, llmRounds, error) {
   await sql`
         UPDATE ops_agent_sessions
         SET status = ${status},
-            result = ${jsonb(result)},
-            tool_calls = ${jsonb(toolCalls.map((tc) => ({
-    name: tc.name,
-    arguments: tc.arguments,
-    result: typeof tc.result === "string" ? tc.result.slice(0, 2e3) : tc.result
-  })))},
+            result = ${jsonb(sanitizeForJsonb(result))},
+            tool_calls = ${jsonb(
+    sanitizeForJsonb(toolCalls.map((tc) => ({
+      name: tc.name,
+      arguments: tc.arguments,
+      result: typeof tc.result === "string" ? tc.result.slice(0, 2e3) : tc.result
+    })))
+  )},
             llm_rounds = ${llmRounds},
-            total_tokens = ${totalTokens},
-            cost_usd = ${costUsd},
             error = ${error ?? null},
             completed_at = NOW()
         WHERE id = ${sessionId}
@@ -8633,14 +10150,476 @@ async function completeSession(sessionId, status, result, toolCalls, llmRounds, 
 // scripts/unified-worker/index.ts
 init_logger();
 init_formats();
-var log32 = createLogger({ service: "unified-worker" });
+
+// src/lib/ops/content-publication.ts
+var import_crypto = __toESM(require("crypto"));
+var import_promises = __toESM(require("fs/promises"));
+var import_path = __toESM(require("path"));
+init_db();
+init_logger();
+init_events2();
+var log29 = logger.child({ module: "content-publication" });
+var DEFAULT_BLOG_DIR = "output/blog";
+var MAX_BACKFILL_BATCH = 20;
+function isRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+function isLocalPublicationState(value) {
+  if (!isRecord(value)) return false;
+  return value.status === "published" && typeof value.slug === "string" && typeof value.relative_path === "string" && typeof value.published_at === "string";
+}
+function isGhostPublicationState(value) {
+  if (!isRecord(value)) return false;
+  const status = value.status;
+  if (status !== "pending" && status !== "failed" && status !== "published") {
+    return false;
+  }
+  if (typeof value.attempts !== "number") return false;
+  const nullableString = (v) => typeof v === "string" || v === null;
+  if (!nullableString(value.last_attempt_at)) return false;
+  if (!nullableString(value.next_retry_at)) return false;
+  if (!nullableString(value.error)) return false;
+  if (value.post_id !== void 0 && typeof value.post_id !== "string") {
+    return false;
+  }
+  if (value.post_url !== void 0 && typeof value.post_url !== "string") {
+    return false;
+  }
+  if (value.published_at !== void 0 && typeof value.published_at !== "string") {
+    return false;
+  }
+  return true;
+}
+function getRootMetadata(metadata) {
+  return isRecord(metadata) ? metadata : {};
+}
+function getPublicationState(metadata) {
+  const root = getRootMetadata(metadata);
+  const publication = isRecord(root.publication) ? root.publication : {};
+  return {
+    local: isLocalPublicationState(publication.local) ? publication.local : void 0,
+    ghost: isGhostPublicationState(publication.ghost) ? publication.ghost : void 0
+  };
+}
+function mergePublicationState(metadata, publication) {
+  const root = getRootMetadata(metadata);
+  const currentPublication = isRecord(root.publication) ? root.publication : {};
+  return {
+    ...root,
+    publication: {
+      ...currentPublication,
+      ...publication.local ? { local: publication.local } : {},
+      ...publication.ghost ? { ghost: publication.ghost } : {}
+    }
+  };
+}
+function slugifyTitle(input) {
+  const slug = input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 70);
+  return slug || "post";
+}
+async function fileExists(filePath) {
+  try {
+    await import_promises.default.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function resolveBlogOutputDir() {
+  const explicit = process.env.BLOG_OUTPUT_DIR?.trim();
+  if (explicit) {
+    await import_promises.default.mkdir(explicit, { recursive: true });
+    return explicit;
+  }
+  const workspaceDir = "/workspace";
+  try {
+    await import_promises.default.access(workspaceDir);
+    const outputDir = import_path.default.join(workspaceDir, DEFAULT_BLOG_DIR);
+    await import_promises.default.mkdir(outputDir, { recursive: true });
+    return outputDir;
+  } catch {
+    const outputDir = import_path.default.join(process.cwd(), "workspace", DEFAULT_BLOG_DIR);
+    await import_promises.default.mkdir(outputDir, { recursive: true });
+    return outputDir;
+  }
+}
+function formatPublishedDate(isoDate) {
+  return new Date(isoDate).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric"
+  });
+}
+function renderLocalMarkdown(title, body, publishedAt) {
+  return `# ${title}
+
+_${formatPublishedDate(publishedAt)}_
+
+---
+
+${body.trim()}
+`;
+}
+async function resolveSlug(title, draftId, outputDir, existingSlug) {
+  if (existingSlug) return existingSlug;
+  const base = slugifyTitle(title);
+  const basePath = import_path.default.join(outputDir, `${base}.md`);
+  if (!await fileExists(basePath)) return base;
+  return `${base}-${draftId.slice(0, 8)}`;
+}
+async function publishLocally(draft, existingLocal) {
+  const outputDir = await resolveBlogOutputDir();
+  const publishedAt = draft.published_at ?? (/* @__PURE__ */ new Date()).toISOString();
+  const slug = await resolveSlug(draft.title, draft.id, outputDir, existingLocal?.slug);
+  const filename = `${slug}.md`;
+  const filePath = import_path.default.join(outputDir, filename);
+  const markdown = renderLocalMarkdown(draft.title, draft.body, publishedAt);
+  await import_promises.default.writeFile(filePath, markdown, "utf-8");
+  return {
+    status: "published",
+    slug,
+    relative_path: import_path.default.posix.join(DEFAULT_BLOG_DIR, filename),
+    published_at: publishedAt
+  };
+}
+function normalizeGhostAdminUrl(input) {
+  const trimmed = input.trim().replace(/\/$/, "");
+  if (trimmed.includes("/ghost/api/admin")) return trimmed;
+  return `${trimmed}/ghost/api/admin`;
+}
+function getGhostConfig() {
+  const adminApiKey = process.env.GHOST_ADMIN_API_KEY?.trim();
+  const siteUrl = process.env.GHOST_URL?.trim() || process.env.GHOST_SITE_URL?.trim() || "https://blog.subcult.tv";
+  const adminApiUrl = process.env.GHOST_ADMIN_API_URL?.trim() || normalizeGhostAdminUrl(siteUrl);
+  if (!adminApiKey) return null;
+  return {
+    adminApiUrl: normalizeGhostAdminUrl(adminApiUrl),
+    adminApiKey,
+    siteUrl: siteUrl.replace(/\/$/, "")
+  };
+}
+function createGhostJwt(adminApiKey) {
+  const [keyId, secret] = adminApiKey.split(":");
+  if (!keyId || !secret) {
+    throw new Error('Invalid GHOST_ADMIN_API_KEY format. Expected "<id>:<secret>"');
+  }
+  const nowSeconds = Math.floor(Date.now() / 1e3);
+  const header = Buffer.from(
+    JSON.stringify({ alg: "HS256", kid: keyId, typ: "JWT" })
+  ).toString("base64url");
+  const payload = Buffer.from(
+    JSON.stringify({ iat: nowSeconds, exp: nowSeconds + 5 * 60, aud: "/admin/" })
+  ).toString("base64url");
+  const signature = import_crypto.default.createHmac("sha256", Buffer.from(secret, "hex")).update(`${header}.${payload}`).digest("base64url");
+  return `${header}.${payload}.${signature}`;
+}
+function escapeHtml(input) {
+  return input.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function markdownToGhostHtml(markdown) {
+  const lines = markdown.split("\n");
+  const html = [];
+  let paragraph = [];
+  let inList = false;
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    html.push(`<p>${escapeHtml(paragraph.join(" ").trim())}</p>`);
+    paragraph = [];
+  };
+  const closeList = () => {
+    if (!inList) return;
+    html.push("</ul>");
+    inList = false;
+  };
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+    const listMatch = line.match(/^[-*]\s+(.*)$/);
+    if (headingMatch) {
+      flushParagraph();
+      closeList();
+      const level = headingMatch[1].length;
+      html.push(`<h${level}>${escapeHtml(headingMatch[2].trim())}</h${level}>`);
+      continue;
+    }
+    if (listMatch) {
+      flushParagraph();
+      if (!inList) {
+        html.push("<ul>");
+        inList = true;
+      }
+      html.push(`<li>${escapeHtml(listMatch[1].trim())}</li>`);
+      continue;
+    }
+    if (line.trim() === "") {
+      flushParagraph();
+      closeList();
+      continue;
+    }
+    paragraph.push(line.trim());
+  }
+  flushParagraph();
+  closeList();
+  return html.join("\n");
+}
+function computeNextRetryIso(attempts) {
+  const backoffMinutes = Math.min(240, 5 * Math.pow(2, Math.max(0, attempts - 1)));
+  return new Date(Date.now() + backoffMinutes * 6e4).toISOString();
+}
+async function mirrorToGhost(draft, local, previousGhost) {
+  const config = getGhostConfig();
+  if (!config) {
+    return {
+      status: "pending",
+      attempts: previousGhost?.attempts ?? 0,
+      last_attempt_at: previousGhost?.last_attempt_at ?? null,
+      next_retry_at: null,
+      error: "ghost_not_configured",
+      post_id: previousGhost?.post_id,
+      post_url: previousGhost?.post_url,
+      published_at: previousGhost?.published_at
+    };
+  }
+  const attempt = (previousGhost?.attempts ?? 0) + 1;
+  const lastAttemptAt = (/* @__PURE__ */ new Date()).toISOString();
+  try {
+    const jwt = createGhostJwt(config.adminApiKey);
+    const endpoint = `${config.adminApiUrl}/posts/?source=html`;
+    const html = markdownToGhostHtml(draft.body);
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Ghost ${jwt}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        posts: [
+          {
+            title: draft.title,
+            slug: local.slug,
+            html,
+            status: "published",
+            published_at: local.published_at,
+            tags: ["subcorp", draft.content_type, draft.author_agent]
+          }
+        ]
+      })
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Ghost API ${response.status}: ${text.slice(0, 500)}`);
+    }
+    const payload = await response.json();
+    const post = payload.posts?.[0];
+    return {
+      status: "published",
+      attempts: attempt,
+      last_attempt_at: lastAttemptAt,
+      next_retry_at: null,
+      error: null,
+      post_id: post?.id,
+      post_url: post?.url,
+      published_at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  } catch (err) {
+    const message = err.message;
+    return {
+      status: "failed",
+      attempts: attempt,
+      last_attempt_at: lastAttemptAt,
+      next_retry_at: computeNextRetryIso(attempt),
+      error: message,
+      post_id: previousGhost?.post_id,
+      post_url: previousGhost?.post_url,
+      published_at: previousGhost?.published_at
+    };
+  }
+}
+async function updateDraftMetadata(draftId, metadata) {
+  await sql`
+        UPDATE ops_content_drafts
+        SET metadata = ${jsonb(metadata)}::jsonb,
+            updated_at = NOW()
+        WHERE id = ${draftId}
+    `;
+}
+async function mirrorPublishedDraft(draft) {
+  const publication = getPublicationState(draft.metadata);
+  const local = publication.local ?? await publishLocally(draft);
+  if (!publication.local) {
+    const metadataWithLocal = mergePublicationState(draft.metadata, {
+      local,
+      ghost: publication.ghost
+    });
+    await updateDraftMetadata(draft.id, metadataWithLocal);
+    draft.metadata = metadataWithLocal;
+  }
+  if (publication.ghost?.status === "published") {
+    return true;
+  }
+  const nextGhost = await mirrorToGhost(draft, local, publication.ghost);
+  const mergedMetadata = mergePublicationState(draft.metadata, {
+    local,
+    ghost: nextGhost
+  });
+  await updateDraftMetadata(draft.id, mergedMetadata);
+  if (nextGhost.status === "published") {
+    await emitEvent({
+      agent_id: draft.author_agent,
+      kind: "content_mirrored_ghost",
+      title: `Ghost mirror published: ${draft.title}`,
+      summary: nextGhost.post_url ?? "Ghost mirror completed",
+      tags: ["content", "ghost", "published", draft.content_type],
+      metadata: {
+        draftId: draft.id,
+        postId: nextGhost.post_id,
+        postUrl: nextGhost.post_url
+      }
+    });
+    return true;
+  }
+  if (nextGhost.status === "failed") {
+    log29.warn("Ghost mirror failed", {
+      draftId: draft.id,
+      attempt: nextGhost.attempts,
+      error: nextGhost.error,
+      nextRetryAt: nextGhost.next_retry_at
+    });
+  }
+  return false;
+}
+async function publishApprovedDrafts(limit = MAX_BACKFILL_BATCH) {
+  const drafts = await sql`
+        SELECT id, author_agent, content_type, title, body, status, metadata, published_at, created_at
+        FROM ops_content_drafts
+        WHERE status = 'approved'
+        ORDER BY created_at ASC
+        LIMIT ${Math.max(1, Math.min(limit, MAX_BACKFILL_BATCH))}
+    `;
+  let published = 0;
+  let failed = 0;
+  for (const draft of drafts) {
+    try {
+      const publication = getPublicationState(draft.metadata);
+      const local = await publishLocally(draft, publication.local);
+      const metadataWithLocal = mergePublicationState(draft.metadata, {
+        local,
+        ghost: publication.ghost
+      });
+      const result = await sql`
+                UPDATE ops_content_drafts
+                SET status = 'published',
+                    published_at = ${local.published_at},
+                    metadata = ${jsonb(metadataWithLocal)}::jsonb,
+                    updated_at = NOW()
+                WHERE id = ${draft.id}
+                  AND status = 'approved'
+                RETURNING id
+            `;
+      if (result.length === 0) {
+        continue;
+      }
+      published++;
+      draft.status = "published";
+      draft.published_at = local.published_at;
+      draft.metadata = metadataWithLocal;
+      await emitEvent({
+        agent_id: draft.author_agent,
+        kind: "content_published",
+        title: `Published: ${draft.title}`,
+        summary: `${draft.content_type} published by ${draft.author_agent}`,
+        tags: ["content", "published", draft.content_type],
+        metadata: {
+          draftId: draft.id,
+          localPath: local.relative_path,
+          localSlug: local.slug
+        }
+      });
+      await mirrorPublishedDraft(draft);
+    } catch (err) {
+      failed++;
+      log29.error("Failed to auto-publish approved draft", {
+        draftId: draft.id,
+        error: err
+      });
+    }
+  }
+  return { published, failed };
+}
+async function retryGhostMirrorForDraft(draftId) {
+  const [draft] = await sql`
+        SELECT id, author_agent, content_type, title, body, status, metadata, published_at, created_at
+        FROM ops_content_drafts
+        WHERE id = ${draftId}
+        LIMIT 1
+    `;
+  if (!draft) {
+    return { ok: false, mirrored: false, message: "Draft not found" };
+  }
+  if (draft.status !== "published") {
+    return {
+      ok: false,
+      mirrored: false,
+      message: `Draft must be published before ghost mirror retry (current status: ${draft.status})`
+    };
+  }
+  const mirrored = await mirrorPublishedDraft(draft);
+  return {
+    ok: true,
+    mirrored,
+    message: mirrored ? "Ghost mirror published" : "Ghost mirror retry scheduled"
+  };
+}
+async function mirrorPublishedDraftBackfill(limit = MAX_BACKFILL_BATCH) {
+  if (!getGhostConfig()) {
+    return {
+      processed: 0,
+      mirrored: 0,
+      failed: 0,
+      skipped: true
+    };
+  }
+  const rows = await sql`
+        SELECT id
+        FROM ops_content_drafts
+        WHERE status = 'published'
+          AND COALESCE(metadata->'publication'->'ghost'->>'status', 'pending') <> 'published'
+          AND (
+            metadata->'publication'->'ghost'->>'next_retry_at' IS NULL
+            OR (metadata->'publication'->'ghost'->>'next_retry_at')::timestamptz <= NOW()
+          )
+        ORDER BY COALESCE(published_at, created_at) ASC
+        LIMIT ${Math.max(1, Math.min(limit, MAX_BACKFILL_BATCH))}
+    `;
+  let mirrored = 0;
+  let failed = 0;
+  for (const row of rows) {
+    const result = await retryGhostMirrorForDraft(row.id);
+    if (!result.ok) {
+      failed++;
+      continue;
+    }
+    if (result.mirrored) mirrored++;
+    else failed++;
+  }
+  return {
+    processed: rows.length,
+    mirrored,
+    failed,
+    skipped: false
+  };
+}
+
+// scripts/unified-worker/index.ts
+init_governance();
+var log34 = createLogger({ service: "unified-worker" });
 var WORKER_ID = `unified-${process.pid}`;
 if (!process.env.DATABASE_URL) {
-  log32.fatal("Missing DATABASE_URL");
+  log34.fatal("Missing DATABASE_URL");
   process.exit(1);
 }
-if (!process.env.OPENROUTER_API_KEY) {
-  log32.fatal("Missing OPENROUTER_API_KEY");
+if (!process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_ENABLED !== "false") {
+  log34.fatal("Missing OPENROUTER_API_KEY (set OPENROUTER_ENABLED=false to run without OpenRouter)");
   process.exit(1);
 }
 var sql2 = (0, import_postgres2.default)(process.env.DATABASE_URL, {
@@ -8662,11 +10641,19 @@ async function pollAgentSessions() {
         RETURNING *
     `;
   if (!session) return false;
-  log32.info("Processing agent session", {
+  log34.info("Processing agent session", {
     sessionId: session.id,
     agent: session.agent_id,
     source: session.source
   });
+  if (session.source === "mission") {
+    await sql2`
+            UPDATE ops_mission_steps
+            SET updated_at = NOW()
+            WHERE status = 'running'
+              AND result->>'agent_session_id' = ${session.id}
+        `;
+  }
   try {
     await executeAgentSession(session);
     if (session.source === "conversation" && session.source_id) {
@@ -8700,16 +10687,19 @@ async function pollAgentSessions() {
               rtSession.topic
             );
             if (actionCount > 0) {
-              log32.info("Actions extracted from roundtable artifact", {
-                sessionId: session.id,
-                roundtableId: session.source_id,
-                format: rtSession.format,
-                actionCount
-              });
+              log34.info(
+                "Actions extracted from roundtable artifact",
+                {
+                  sessionId: session.id,
+                  roundtableId: session.source_id,
+                  format: rtSession.format,
+                  actionCount
+                }
+              );
             }
           }
         } catch (extractErr) {
-          log32.error("Action extraction failed (non-fatal)", {
+          log34.error("Action extraction failed (non-fatal)", {
             error: extractErr,
             sessionId: session.id
           });
@@ -8729,17 +10719,33 @@ async function pollAgentSessions() {
               const dateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
               const topicSlug = rtSession.topic.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
               const filename = `${dateStr}__${rtSession.format}__${artifact.type}__${topicSlug}__${session.agent_id}__v01.md`;
-              const filePath = import_path.default.join("/workspace", outputDir, filename);
-              await import_promises.default.mkdir(import_path.default.dirname(filePath), { recursive: true });
-              const fileExists = await import_promises.default.access(filePath).then(() => true, () => false);
-              if (fileExists) {
-                log32.info("Artifact file already exists (written by synthesis agent)", {
-                  sessionId: session.id,
-                  path: filePath
-                });
+              const filePath = import_path2.default.join(
+                "/workspace",
+                outputDir,
+                filename
+              );
+              await import_promises2.default.mkdir(import_path2.default.dirname(filePath), {
+                recursive: true
+              });
+              const fileExists2 = await import_promises2.default.access(filePath).then(
+                () => true,
+                () => false
+              );
+              if (fileExists2) {
+                log34.info(
+                  "Artifact file already exists (written by synthesis agent)",
+                  {
+                    sessionId: session.id,
+                    path: filePath
+                  }
+                );
               } else {
-                await import_promises.default.writeFile(filePath, artifactText, "utf-8");
-                log32.info("Artifact file written to workspace", {
+                await import_promises2.default.writeFile(
+                  filePath,
+                  artifactText,
+                  "utf-8"
+                );
+                log34.info("Artifact file written to workspace", {
                   sessionId: session.id,
                   path: filePath,
                   format: rtSession.format,
@@ -8749,7 +10755,7 @@ async function pollAgentSessions() {
             }
           }
         } catch (fileErr) {
-          log32.error("Artifact file write failed (non-fatal)", {
+          log34.error("Artifact file write failed (non-fatal)", {
             error: fileErr,
             sessionId: session.id
           });
@@ -8767,7 +10773,19 @@ async function pollAgentSessions() {
                             SELECT format, topic FROM ops_roundtable_sessions
                             WHERE id = ${session.source_id}
                         `;
-            if (rtSession && rtSession.format !== "content_review") {
+            const DRAFT_ELIGIBLE_FORMATS = /* @__PURE__ */ new Set([
+              "writing_room",
+              "deep_dive",
+              "strategy",
+              "debate",
+              "brainstorm",
+              "planning",
+              "shipping",
+              "reframe",
+              "risk_review",
+              "cross_exam"
+            ]);
+            if (rtSession && DRAFT_ELIGIBLE_FORMATS.has(rtSession.format)) {
               const formatConfig = FORMATS[rtSession.format];
               const artifact = formatConfig?.artifact;
               const contentType = artifact?.type && artifact.type !== "none" ? artifact.type : "report";
@@ -8793,7 +10811,7 @@ async function pollAgentSessions() {
                                 )
                                 RETURNING id
                             `;
-              log32.info("Content draft created from synthesis", {
+              log34.info("Content draft created from synthesis", {
                 draftId: draft.id,
                 sessionId: session.id,
                 roundtableId: session.source_id,
@@ -8819,7 +10837,7 @@ async function pollAgentSessions() {
             }
           }
         } catch (draftErr) {
-          log32.error("Content draft creation failed (non-fatal)", {
+          log34.error("Content draft creation failed (non-fatal)", {
             error: draftErr,
             sessionId: session.id
           });
@@ -8827,7 +10845,7 @@ async function pollAgentSessions() {
       }
     }
   } catch (err) {
-    log32.error("Agent session execution failed", {
+    log34.error("Agent session execution failed", {
       error: err,
       sessionId: session.id
     });
@@ -8864,7 +10882,7 @@ async function pollRoundtables() {
         SET status = 'pending'
         WHERE id = ${session.id}
     `;
-  log32.info("Processing roundtable", {
+  log34.info("Processing roundtable", {
     sessionId: session.id,
     format: session.format,
     topic: session.topic.slice(0, 80)
@@ -8875,73 +10893,13 @@ async function pollRoundtables() {
       try {
         const { processReviewSession: processReviewSession2 } = await Promise.resolve().then(() => (init_content_pipeline(), content_pipeline_exports));
         await processReviewSession2(session.id);
-        log32.info("Content review processed", {
+        log34.info("Content review processed", {
           sessionId: session.id
         });
       } catch (reviewErr) {
-        log32.error("Content review processing failed (non-fatal)", {
+        log34.error("Content review processing failed (non-fatal)", {
           error: reviewErr,
           sessionId: session.id
-        });
-      }
-    }
-    const proposalId = session.metadata?.governance_proposal_id;
-    if (session.format === "debate" && proposalId) {
-      try {
-        const { castGovernanceVote: castGovernanceVote2 } = await Promise.resolve().then(() => (init_governance(), governance_exports));
-        const { llmGenerate: llmGenerate2 } = await Promise.resolve().then(() => (init_client(), client_exports));
-        const turns = await sql2`
-                    SELECT agent_id, dialogue FROM ops_roundtable_turns
-                    WHERE session_id = ${session.id}
-                    ORDER BY turn_number ASC
-                `;
-        if (turns.length > 0) {
-          const transcript = turns.map((t) => `${t.agent_id}: ${t.dialogue}`).join("\n\n");
-          const parseResult = await llmGenerate2({
-            messages: [
-              {
-                role: "system",
-                content: `You extract each participant's final position from a governance debate. Return ONLY valid JSON \u2014 an array of objects, one per unique participant. Each object: { "agent": "<agent_id>", "vote": "approve" | "reject", "reason": "<1-sentence summary>" }`
-              },
-              {
-                role: "user",
-                content: `Extract the final position of each participant in this debate:
-
-${transcript}`
-              }
-            ],
-            temperature: 0.2,
-            maxTokens: 800,
-            trackingContext: {
-              agentId: "system",
-              context: "governance-vote-extraction"
-            }
-          });
-          const jsonMatch = parseResult.match(/\[[\s\S]*\]/);
-          if (jsonMatch) {
-            const votes = JSON.parse(jsonMatch[0]);
-            for (const v of votes) {
-              if (v.agent && (v.vote === "approve" || v.vote === "reject")) {
-                await castGovernanceVote2(
-                  proposalId,
-                  v.agent,
-                  v.vote,
-                  v.reason ?? ""
-                );
-              }
-            }
-            log32.info("Governance votes extracted from debate", {
-              sessionId: session.id,
-              proposalId,
-              voteCount: votes.length
-            });
-          }
-        }
-      } catch (govErr) {
-        log32.error("Governance vote extraction failed (non-fatal)", {
-          error: govErr,
-          sessionId: session.id,
-          proposalId
         });
       }
     }
@@ -8955,13 +10913,13 @@ ${transcript}`
             rebellionAgentId,
             "cross_exam_completed"
           );
-          log32.info("Rebellion resolved via cross-exam", {
+          log34.info("Rebellion resolved via cross-exam", {
             sessionId: session.id,
             rebellionAgentId
           });
         }
       } catch (rebellionErr) {
-        log32.error(
+        log34.error(
           "Rebellion resolution from cross-exam failed (non-fatal)",
           {
             error: rebellionErr,
@@ -8972,36 +10930,47 @@ ${transcript}`
       }
     }
   } catch (err) {
-    log32.error("Roundtable orchestration failed", {
+    log34.error("Roundtable orchestration failed", {
       error: err,
       sessionId: session.id
     });
   }
   return true;
 }
+var MAX_PARALLEL_STEPS = 3;
 async function pollMissionSteps() {
-  const [step] = await sql2`
+  const steps = await sql2`
         UPDATE ops_mission_steps
         SET status = 'running',
             reserved_by = ${WORKER_ID},
             started_at = NOW(),
             updated_at = NOW()
-        WHERE id = (
-            SELECT s.id FROM ops_mission_steps s
-            WHERE s.status = 'queued'
-            AND NOT EXISTS (
-                SELECT 1 FROM ops_mission_steps dep
-                WHERE dep.id = ANY(s.depends_on)
-                AND dep.status != 'succeeded'
+        WHERE id = ANY(
+            ARRAY(
+                SELECT s.id FROM ops_mission_steps s
+                WHERE s.status = 'queued'
+                AND NOT EXISTS (
+                    SELECT 1 FROM ops_mission_steps dep
+                    WHERE dep.id = ANY(s.depends_on)
+                    AND dep.status != 'succeeded'
+                )
+                ORDER BY s.created_at ASC
+                LIMIT ${MAX_PARALLEL_STEPS}
+                FOR UPDATE SKIP LOCKED
             )
-            ORDER BY s.created_at ASC
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED
         )
         RETURNING *
     `;
-  if (!step) return false;
-  log32.info("Processing mission step", {
+  if (steps.length === 0) return false;
+  await Promise.allSettled(
+    steps.map(
+      (step) => dispatchMissionStep(step)
+    )
+  );
+  return true;
+}
+async function dispatchMissionStep(step) {
+  log34.info("Processing mission step", {
     stepId: step.id,
     kind: step.kind,
     missionId: step.mission_id
@@ -9010,7 +10979,7 @@ async function pollMissionSteps() {
     const { hasActiveVeto: hasActiveVeto2 } = await Promise.resolve().then(() => (init_veto(), veto_exports));
     const missionVeto = await hasActiveVeto2("mission", step.mission_id);
     if (missionVeto.vetoed) {
-      log32.info("Mission step blocked by veto on mission", {
+      log34.info("Mission step blocked by veto on mission", {
         stepId: step.id,
         missionId: step.mission_id,
         vetoId: missionVeto.vetoId,
@@ -9025,11 +10994,11 @@ async function pollMissionSteps() {
                 WHERE id = ${step.id}
             `;
       await finalizeMissionIfComplete(step.mission_id);
-      return true;
+      return;
     }
     const stepVeto = await hasActiveVeto2("step", step.id);
     if (stepVeto.vetoed) {
-      log32.info("Mission step blocked by veto on step", {
+      log34.info("Mission step blocked by veto on step", {
         stepId: step.id,
         vetoId: stepVeto.vetoId,
         severity: stepVeto.severity
@@ -9043,10 +11012,10 @@ async function pollMissionSteps() {
                 WHERE id = ${step.id}
             `;
       await finalizeMissionIfComplete(step.mission_id);
-      return true;
+      return;
     }
   } catch (vetoErr) {
-    log32.error("Veto check failed (non-fatal, allowing step)", {
+    log34.error("Veto check failed (non-fatal, allowing step)", {
       error: vetoErr,
       stepId: step.id
     });
@@ -9089,13 +11058,19 @@ async function pollMissionSteps() {
         }
       });
       await finalizeMissionIfComplete(step.mission_id);
-      return true;
+      return;
     }
     if (step.kind === "convene_roundtable") {
       const payload = step.payload ?? {};
       const format = payload.format ?? "brainstorm";
       const topic = payload.topic ?? mission?.title ?? "Roundtable";
-      const participants = payload.participants ?? ["chora", "subrosa", "thaum", "praxis", "mux"];
+      const participants = payload.participants ?? [
+        "chora",
+        "subrosa",
+        "thaum",
+        "praxis",
+        "mux"
+      ];
       await sql2`
                 INSERT INTO ops_roundtable_sessions (
                     format, topic, participants, status, scheduled_for, source, metadata
@@ -9130,7 +11105,7 @@ async function pollMissionSteps() {
         }
       });
       await finalizeMissionIfComplete(step.mission_id);
-      return true;
+      return;
     }
     const { buildStepPrompt: buildStepPrompt2 } = await Promise.resolve().then(() => (init_step_prompts(), step_prompts_exports));
     const { prompt, templateVersion } = await buildStepPrompt2(
@@ -9158,25 +11133,35 @@ async function pollMissionSteps() {
                     VALUES (${agentId}, ${outputPrefix}, 'mission', ${step.mission_id}::uuid, NOW() + INTERVAL '4 hours')
                 `;
       } catch (grantErr) {
-        log32.warn("Failed to create ACL grant for step", {
+        log34.warn("Failed to create ACL grant for step", {
           error: grantErr,
           agentId,
           outputPath: step.output_path
         });
       }
     }
+    const CODING_STEP_KINDS = /* @__PURE__ */ new Set([
+      "patch_code",
+      "self_evolution",
+      "github_pr",
+      "github_issue",
+      "create_pull_request",
+      "draft_product_spec"
+    ]);
+    const stepModel = CODING_STEP_KINDS.has(step.kind) ? "qwen2.5-coder:14b" : null;
     const [session] = await sql2`
             INSERT INTO ops_agent_sessions (
                 agent_id, prompt, source, source_id,
-                timeout_seconds, max_tool_rounds, status
+                timeout_seconds, max_tool_rounds, status, model
             ) VALUES (
                 ${agentId},
                 ${prompt},
                 'mission',
                 ${step.mission_id},
                 1800,
-                15,
-                'pending'
+                30,
+                'pending',
+                ${stepModel}
             )
             RETURNING id
         `;
@@ -9200,7 +11185,7 @@ async function pollMissionSteps() {
       }
     });
   } catch (err) {
-    log32.error("Mission step failed", { error: err, stepId: step.id });
+    log34.error("Mission step failed", { error: err, stepId: step.id });
     const stepData = await sql2`
             SELECT result FROM ops_mission_steps WHERE id = ${step.id}
         `;
@@ -9225,7 +11210,6 @@ async function pollMissionSteps() {
     }
     await finalizeMissionIfComplete(step.mission_id);
   }
-  return true;
 }
 var RESEARCH_STEP_KINDS = /* @__PURE__ */ new Set([
   "research_topic",
@@ -9251,7 +11235,11 @@ async function finalizeMissionSteps() {
             sess.agent_id as session_agent_id,
             sess.status as session_status,
             sess.error as session_error,
-            CASE WHEN sess.status = 'succeeded'
+            CASE WHEN sess.status IN ('succeeded', 'blocked')
+                THEN LEFT(COALESCE(sess.result->>'blocked_reason', sess.error), 1000)
+                ELSE NULL
+            END as session_blocked_reason,
+            CASE WHEN sess.status IN ('succeeded', 'blocked')
                 THEN LEFT(sess.result->>'summary', 2000)
                 ELSE NULL
             END as session_summary
@@ -9283,7 +11271,11 @@ async function finalizeMissionSteps() {
             title: `Research completed: ${step.kind}`,
             summary: step.session_summary || void 0,
             tags: ["research", step.kind, "completed"],
-            metadata: { missionId: step.mission_id, stepId: step.id, stepKind: step.kind }
+            metadata: {
+              missionId: step.mission_id,
+              stepId: step.id,
+              stepKind: step.kind
+            }
           });
         } else if (INSIGHT_STEP_KINDS.has(step.kind)) {
           await emitStepEvent({
@@ -9292,10 +11284,25 @@ async function finalizeMissionSteps() {
             title: `Insight generated: ${step.kind}`,
             summary: step.session_summary || void 0,
             tags: ["insight", step.kind, "completed"],
-            metadata: { missionId: step.mission_id, stepId: step.id, stepKind: step.kind }
+            metadata: {
+              missionId: step.mission_id,
+              stepId: step.id,
+              stepKind: step.kind
+            }
           });
         }
       }
+      await finalizeMissionIfComplete(step.mission_id);
+    } else if (step.session_status === "blocked") {
+      await sql2`
+                UPDATE ops_mission_steps
+                SET status = 'blocked',
+                    failure_reason = ${step.session_blocked_reason ?? "Agent session blocked"},
+                    completed_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = ${step.id}
+            `;
+      finalized++;
       await finalizeMissionIfComplete(step.mission_id);
     } else if (step.session_status === "failed" || step.session_status === "timed_out") {
       await sql2`
@@ -9326,14 +11333,14 @@ async function pollInitiatives() {
         RETURNING *
     `;
   if (!entry) return false;
-  log32.info("Processing initiative", {
+  log34.info("Processing initiative", {
     entryId: entry.id,
     agent: entry.agent_id
   });
   try {
     const initiativeAction = entry.context?.action;
     if (initiativeAction === "agent_design_proposal") {
-      log32.info("Processing agent design proposal", {
+      log34.info("Processing agent design proposal", {
         entryId: entry.id,
         agent: entry.agent_id
       });
@@ -9353,7 +11360,7 @@ async function pollInitiatives() {
       return true;
     }
     if (initiativeAction === "memory_archaeology") {
-      log32.info("Processing memory archaeology dig", {
+      log34.info("Processing memory archaeology dig", {
         entryId: entry.id,
         agent: entry.agent_id
       });
@@ -9367,7 +11374,7 @@ async function pollInitiatives() {
       const agentIds = agentRows.map((r) => r.agent_id);
       const weekNumber = Math.floor(Date.now() / (7 * 864e5));
       const targetAgent = agentIds.length > 0 ? agentIds[weekNumber % agentIds.length] : entry.agent_id;
-      const result2 = await performDig2({
+      const result = await performDig2({
         agent_id: targetAgent,
         max_memories: maxMemories
       });
@@ -9377,9 +11384,9 @@ async function pollInitiatives() {
                     processed_at = NOW(),
                     result = ${sql2.json({
         type: "memory_archaeology",
-        dig_id: result2.dig_id,
-        finding_count: result2.findings.length,
-        memories_analyzed: result2.memories_analyzed,
+        dig_id: result.dig_id,
+        finding_count: result.findings.length,
+        memories_analyzed: result.memories_analyzed,
         target_agent: targetAgent
       })}::jsonb
                 WHERE id = ${entry.id}
@@ -9390,53 +11397,213 @@ async function pollInitiatives() {
     const { getVoice: getVoice2 } = await Promise.resolve().then(() => (init_voices(), voices_exports));
     const voice = getVoice2(entry.agent_id);
     const memories = entry.context?.memories ?? [];
-    const systemPrompt = voice ? `${voice.systemDirective}
-
-You are generating a mission proposal based on your accumulated knowledge and observations.` : `You are ${entry.agent_id}. Generate a mission proposal.`;
-    let memoryContext = "";
-    if (Array.isArray(memories) && memories.length > 0) {
-      memoryContext = "\n\nYour recent memories:\n" + memories.slice(0, 10).map((m) => `- [${m.type}] ${m.content}`).join("\n");
-    }
-    const userPrompt = `Based on your role, personality, and accumulated experience, propose a mission.${memoryContext}
-
-Respond with:
-1. A clear mission title
-2. A brief description of why this matters
-3. 2-4 concrete steps to accomplish it
-
-Valid step kinds (you MUST use only these exact strings):
-- research_topic: Research a topic using web search
-- scan_signals: Scan for signals and trends
-- draft_essay: Write a long-form piece
-- draft_thread: Write a short thread/post
-- patch_code: Make code changes to the project
-- audit_system: Run system checks and audits
-- critique_content: Review and critique content
-- distill_insight: Synthesize insights from recent work
-- document_lesson: Document knowledge or lessons
-- consolidate_memory: Consolidate and organize memories
-
-Format as JSON: { "title": "...", "description": "...", "steps": [{ "kind": "<valid_step_kind>", "payload": { "topic": "..." } }] }`;
-    const result = await llmGenerate2({
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
+    const AGENT_MISSION_TEMPLATES = {
+      chora: [
+        {
+          title: "Pattern analysis of recent collective activity",
+          description: "Trace structural patterns in our recent operations",
+          steps: [
+            {
+              kind: "scan_signals",
+              payload: {
+                topic: "recent collective patterns and trends"
+              }
+            },
+            {
+              kind: "distill_insight",
+              payload: {
+                topic: "synthesize findings into actionable patterns"
+              }
+            }
+          ]
+        },
+        {
+          title: "Map dependency chains in current workflows",
+          description: "Identify fragile dependencies and single points of failure",
+          steps: [
+            {
+              kind: "research_topic",
+              payload: { topic: "current workflow dependencies" }
+            },
+            {
+              kind: "document_lesson",
+              payload: { topic: "dependency analysis findings" }
+            }
+          ]
+        },
+        {
+          title: "Diagnose recurring operational friction",
+          description: "Investigate why certain processes keep stalling",
+          steps: [
+            {
+              kind: "audit_system",
+              payload: { topic: "operational bottlenecks" }
+            },
+            {
+              kind: "distill_insight",
+              payload: { topic: "root cause analysis" }
+            }
+          ]
+        }
       ],
-      temperature: 0.8,
-      maxTokens: 1e3,
-      trackingContext: {
-        agentId: entry.agent_id,
-        context: "initiative"
+      subrosa: [
+        {
+          title: "Threat model review of current systems",
+          description: "Evaluate exposure and adversarial risk",
+          steps: [
+            {
+              kind: "audit_system",
+              payload: { topic: "security threat modeling" }
+            },
+            {
+              kind: "document_lesson",
+              payload: { topic: "threat assessment findings" }
+            }
+          ]
+        },
+        {
+          title: "Review information exposure surfaces",
+          description: "Assess what we reveal publicly and whether it is appropriate",
+          steps: [
+            {
+              kind: "scan_signals",
+              payload: { topic: "public information exposure" }
+            },
+            {
+              kind: "critique_content",
+              payload: { topic: "exposure risk assessment" }
+            }
+          ]
+        }
+      ],
+      thaum: [
+        {
+          title: "Reframe a stalled initiative",
+          description: "Apply lateral thinking to an initiative that lost momentum",
+          steps: [
+            {
+              kind: "research_topic",
+              payload: {
+                topic: "stalled initiatives needing reframe"
+              }
+            },
+            {
+              kind: "draft_essay",
+              payload: { topic: "alternative framing proposal" }
+            }
+          ]
+        },
+        {
+          title: "Cross-domain insight synthesis",
+          description: "Connect ideas from different domains to generate novel approaches",
+          steps: [
+            {
+              kind: "scan_signals",
+              payload: { topic: "cross-domain patterns" }
+            },
+            {
+              kind: "distill_insight",
+              payload: { topic: "novel synthesis" }
+            }
+          ]
+        }
+      ],
+      praxis: [
+        {
+          title: "Ship check on incomplete deliverables",
+          description: "Audit what is close to done and push it over the line",
+          steps: [
+            {
+              kind: "audit_system",
+              payload: { topic: "incomplete deliverables" }
+            },
+            {
+              kind: "patch_code",
+              payload: { topic: "finish pending work" }
+            }
+          ]
+        },
+        {
+          title: "Convert recent strategy into tasks",
+          description: "Turn strategic discussions into concrete, assigned work",
+          steps: [
+            {
+              kind: "research_topic",
+              payload: { topic: "recent strategy decisions" }
+            },
+            {
+              kind: "document_lesson",
+              payload: {
+                topic: "task breakdown and assignments"
+              }
+            }
+          ]
+        }
+      ],
+      mux: [
+        {
+          title: "Consolidate and organize recent outputs",
+          description: "Clean up and structure recent work products",
+          steps: [
+            {
+              kind: "consolidate_memory",
+              payload: { topic: "recent output organization" }
+            },
+            {
+              kind: "document_lesson",
+              payload: { topic: "output catalog update" }
+            }
+          ]
+        },
+        {
+          title: "Draft status report on active missions",
+          description: "Compile current mission progress into a clear report",
+          steps: [
+            {
+              kind: "audit_system",
+              payload: { topic: "active mission status" }
+            },
+            {
+              kind: "draft_thread",
+              payload: { topic: "mission status summary" }
+            }
+          ]
+        }
+      ],
+      primus: [
+        {
+          title: "Evaluate collective alignment with core mission",
+          description: "Assess whether recent activity serves the stated mission",
+          steps: [
+            {
+              kind: "scan_signals",
+              payload: { topic: "mission alignment assessment" }
+            },
+            {
+              kind: "distill_insight",
+              payload: { topic: "alignment findings" }
+            }
+          ]
+        }
+      ]
+    };
+    const templates = AGENT_MISSION_TEMPLATES[entry.agent_id] ?? AGENT_MISSION_TEMPLATES.mux;
+    let memoryHint = "";
+    if (Array.isArray(memories) && memories.length > 0) {
+      const recentMemory = memories[0];
+      if (recentMemory?.content) {
+        memoryHint = recentMemory.content.slice(0, 100);
       }
-    });
-    let parsed;
-    try {
-      const jsonMatch = result.match(/\{[\s\S]*\}/);
-      parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-    } catch {
-      parsed = null;
     }
-    if (parsed?.title) {
+    const templateIdx = Math.floor(Date.now() / 864e5) % templates.length;
+    const template = templates[templateIdx];
+    const title = memoryHint ? `${template.title} \u2014 ${memoryHint.slice(0, 60)}` : template.title;
+    const parsed = {
+      title,
+      description: template.description,
+      steps: template.steps
+    };
+    if (parsed.title) {
       const { createProposalAndMaybeAutoApprove: createProposalAndMaybeAutoApprove2 } = await Promise.resolve().then(() => (init_proposal_service(), proposal_service_exports));
       await createProposalAndMaybeAutoApprove2({
         agent_id: entry.agent_id,
@@ -9450,11 +11617,11 @@ Format as JSON: { "title": "...", "description": "...", "steps": [{ "kind": "<va
             UPDATE ops_initiative_queue
             SET status = 'completed',
                 processed_at = NOW(),
-                result = ${sql2.json({ text: result, parsed })}::jsonb
+                result = ${sql2.json({ text: parsed.title, parsed })}::jsonb
             WHERE id = ${entry.id}
         `;
   } catch (err) {
-    log32.error("Initiative processing failed", {
+    log34.error("Initiative processing failed", {
       error: err,
       entryId: entry.id
     });
@@ -9479,27 +11646,68 @@ async function sweepStaleAgentSessions() {
         RETURNING id, agent_id, source
     `;
   if (stale.length > 0) {
-    log32.warn("Swept stale agent sessions", {
+    log34.warn("Swept stale agent sessions", {
       count: stale.length,
-      sessions: stale.map((s) => ({ id: s.id, agent: s.agent_id, source: s.source }))
+      sessions: stale.map((s) => ({
+        id: s.id,
+        agent: s.agent_id,
+        source: s.source
+      }))
     });
   }
   return stale.length > 0;
+}
+async function sweepOrphanedMissionSteps() {
+  const orphaned = await sql2`
+        UPDATE ops_mission_steps
+        SET status = 'failed',
+            failure_reason = 'Swept — step running with no active agent session',
+            completed_at = NOW(),
+            updated_at = NOW()
+        WHERE status = 'running'
+          AND started_at < NOW() - INTERVAL '15 minutes'
+          AND (
+            result->>'agent_session_id' IS NULL
+            OR NOT EXISTS (
+              SELECT 1 FROM ops_agent_sessions s
+              WHERE s.id = (result->>'agent_session_id')::uuid
+                AND s.status = 'running'
+            )
+          )
+        RETURNING id, mission_id, kind, assigned_agent
+    `;
+  if (orphaned.length > 0) {
+    log34.warn("Swept orphaned mission steps", {
+      count: orphaned.length,
+      steps: orphaned.map((s) => ({
+        id: s.id,
+        missionId: s.mission_id,
+        kind: s.kind,
+        agent: s.assigned_agent
+      }))
+    });
+    const missionIds = [...new Set(orphaned.map((s) => s.mission_id))];
+    for (const missionId of missionIds) {
+      await finalizeMissionIfComplete(missionId);
+    }
+  }
+  return orphaned.length > 0;
 }
 async function finalizeMissionIfComplete(missionId) {
   const [counts] = await sql2`
         SELECT
             COUNT(*)::int as total,
             COUNT(*) FILTER (WHERE status = 'succeeded')::int as succeeded,
+            COUNT(*) FILTER (WHERE status = 'blocked')::int as blocked,
             COUNT(*) FILTER (WHERE status = 'failed')::int as failed
         FROM ops_mission_steps
         WHERE mission_id = ${missionId}
     `;
   if (!counts || counts.total === 0) return;
-  const allDone = counts.succeeded + counts.failed === counts.total;
+  const allDone = counts.succeeded + counts.blocked + counts.failed === counts.total;
   if (!allDone) return;
-  const finalStatus = counts.failed > 0 ? "failed" : "succeeded";
-  const failReason = counts.failed > 0 ? `${counts.failed} of ${counts.total} steps failed` : null;
+  const finalStatus = counts.failed > 0 ? "failed" : counts.blocked > 0 ? "blocked" : "succeeded";
+  const failReason = counts.failed > 0 ? `${counts.failed} of ${counts.total} steps failed` : counts.blocked > 0 ? `${counts.blocked} of ${counts.total} steps blocked` : null;
   await sql2`
         UPDATE ops_missions
         SET status = ${finalStatus},
@@ -9514,13 +11722,15 @@ async function waitForDb(maxRetries = 30, intervalMs = 2e3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       await sql2`SELECT 1 FROM ops_roundtable_sessions LIMIT 0`;
-      log32.info("Database ready", { attempt });
+      log34.info("Database ready", { attempt });
       return;
     } catch {
       if (attempt === maxRetries) {
-        throw new Error(`Database not ready after ${maxRetries} attempts`);
+        throw new Error(
+          `Database not ready after ${maxRetries} attempts`
+        );
       }
-      log32.info("Waiting for database...", { attempt, maxRetries });
+      log34.info("Waiting for database...", { attempt, maxRetries });
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
   }
@@ -9535,17 +11745,17 @@ async function catchUpStuckReviews() {
           AND rs.status = 'completed'
     `;
   if (stuck.length === 0) return;
-  log32.info("Catching up stuck content reviews", { count: stuck.length });
+  log34.info("Catching up stuck content reviews", { count: stuck.length });
   const { processReviewSession: processReviewSession2 } = await Promise.resolve().then(() => (init_content_pipeline(), content_pipeline_exports));
   for (const draft of stuck) {
     try {
       await processReviewSession2(draft.review_session_id);
-      log32.info("Stuck review processed", {
+      log34.info("Stuck review processed", {
         draftId: draft.id,
         title: draft.title
       });
     } catch (err) {
-      log32.error("Failed to process stuck review", {
+      log34.error("Failed to process stuck review", {
         error: err,
         draftId: draft.id
       });
@@ -9557,19 +11767,20 @@ async function catchUpOrphanedMissions() {
         SELECT m.id, m.title,
             COUNT(s.id)::int as total,
             COUNT(s.id) FILTER (WHERE s.status = 'succeeded')::int as succeeded,
+            COUNT(s.id) FILTER (WHERE s.status = 'blocked')::int as blocked,
             COUNT(s.id) FILTER (WHERE s.status = 'failed')::int as failed
         FROM ops_missions m
         LEFT JOIN ops_mission_steps s ON s.mission_id = m.id
         WHERE m.status = 'approved'
         GROUP BY m.id
         HAVING COUNT(s.id) > 0
-           AND COUNT(s.id) = COUNT(s.id) FILTER (WHERE s.status IN ('succeeded', 'failed'))
+           AND COUNT(s.id) = COUNT(s.id) FILTER (WHERE s.status IN ('succeeded', 'blocked', 'failed'))
     `;
   if (orphaned.length === 0) return;
-  log32.info("Catching up orphaned missions", { count: orphaned.length });
+  log34.info("Catching up orphaned missions", { count: orphaned.length });
   for (const mission of orphaned) {
-    const finalStatus = mission.failed > 0 ? "failed" : "succeeded";
-    const failReason = mission.failed > 0 ? `${mission.failed} of ${mission.total} step(s) failed` : null;
+    const finalStatus = mission.failed > 0 ? "failed" : mission.blocked > 0 ? "blocked" : "succeeded";
+    const failReason = mission.failed > 0 ? `${mission.failed} of ${mission.total} step(s) failed` : mission.blocked > 0 ? `${mission.blocked} of ${mission.total} step(s) blocked` : null;
     await sql2`
             UPDATE ops_missions
             SET status = ${finalStatus},
@@ -9579,7 +11790,7 @@ async function catchUpOrphanedMissions() {
             WHERE id = ${mission.id}
             AND status = 'approved'
         `;
-    log32.info("Orphaned mission finalized", {
+    log34.info("Orphaned mission finalized", {
       missionId: mission.id,
       title: mission.title,
       status: finalStatus
@@ -9590,6 +11801,32 @@ async function pollLoop() {
   await waitForDb();
   await catchUpStuckReviews();
   await catchUpOrphanedMissions();
+  const startupPublish = await publishApprovedDrafts();
+  if (startupPublish.published > 0 || startupPublish.failed > 0) {
+    log34.info("Startup content publish sweep complete", {
+      published: startupPublish.published,
+      failed: startupPublish.failed
+    });
+  }
+  const startupGhostBackfill = await mirrorPublishedDraftBackfill();
+  if (!startupGhostBackfill.skipped && startupGhostBackfill.processed > 0) {
+    log34.info("Startup Ghost backfill sweep complete", {
+      processed: startupGhostBackfill.processed,
+      mirrored: startupGhostBackfill.mirrored,
+      failed: startupGhostBackfill.failed,
+      skipped: startupGhostBackfill.skipped
+    });
+  }
+  const startupGovernanceBackfill = await backfillGovernanceVotes();
+  if (startupGovernanceBackfill.processed > 0) {
+    log34.info("Startup governance vote backfill complete", {
+      processed: startupGovernanceBackfill.processed,
+      resolved: startupGovernanceBackfill.resolved,
+      requeued: startupGovernanceBackfill.requeued,
+      votesAdded: startupGovernanceBackfill.votesAdded,
+      failed: startupGovernanceBackfill.failed
+    });
+  }
   while (running) {
     try {
       await pollRoundtables();
@@ -9597,36 +11834,63 @@ async function pollLoop() {
       if (hadSession) continue;
       await pollMissionSteps();
       await finalizeMissionSteps();
+      const publishResult = await publishApprovedDrafts();
+      if (publishResult.published > 0 || publishResult.failed > 0) {
+        log34.info("Content publish sweep complete", {
+          published: publishResult.published,
+          failed: publishResult.failed
+        });
+      }
+      const ghostBackfill = await mirrorPublishedDraftBackfill();
+      if (!ghostBackfill.skipped && ghostBackfill.processed > 0) {
+        log34.info("Ghost mirror backfill sweep complete", {
+          processed: ghostBackfill.processed,
+          mirrored: ghostBackfill.mirrored,
+          failed: ghostBackfill.failed,
+          skipped: ghostBackfill.skipped
+        });
+      }
+      const governanceBackfill = await backfillGovernanceVotes();
+      if (governanceBackfill.processed > 0) {
+        log34.info("Governance vote backfill sweep complete", {
+          processed: governanceBackfill.processed,
+          resolved: governanceBackfill.resolved,
+          requeued: governanceBackfill.requeued,
+          votesAdded: governanceBackfill.votesAdded,
+          failed: governanceBackfill.failed
+        });
+      }
       await sweepStaleAgentSessions();
+      await sweepOrphanedMissionSteps();
       await pollInitiatives();
     } catch (err) {
-      log32.error("Poll loop error", { error: err });
+      log34.error("Poll loop error", { error: err });
     }
-    await new Promise((resolve) => setTimeout(resolve, 15e3));
+    await new Promise((resolve) => setTimeout(resolve, 5e3));
   }
 }
 function shutdown(signal) {
-  log32.info(`Received ${signal}, shutting down...`);
+  log34.info(`Received ${signal}, shutting down...`);
   running = false;
   setTimeout(() => {
-    log32.warn("Forced shutdown after 30s timeout");
+    log34.warn("Forced shutdown after 30s timeout");
     process.exit(1);
   }, 3e4);
 }
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
-log32.info("Unified worker started", {
+log34.info("Unified worker started", {
   workerId: WORKER_ID,
   database: !!process.env.DATABASE_URL,
-  openrouter: !!process.env.OPENROUTER_API_KEY,
+  openrouter: process.env.OPENROUTER_ENABLED !== "false" && !!process.env.OPENROUTER_API_KEY,
   ollama: process.env.OLLAMA_ENABLED !== "false" ? process.env.OLLAMA_BASE_URL || "no-url" : "disabled",
   braveSearch: !!process.env.BRAVE_API_KEY
 });
 pollLoop().then(() => {
-  log32.info("Worker stopped");
+  log34.info("Worker stopped");
   process.exit(0);
 }).catch((err) => {
-  log32.fatal("Fatal error", { error: err });
+  log34.fatal("Fatal error", { error: err });
   process.exit(1);
 });
 //# sourceMappingURL=index.js.map

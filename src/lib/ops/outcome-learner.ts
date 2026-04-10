@@ -99,7 +99,7 @@ export async function learnFromOutcomes(): Promise<{ learned: number }> {
     >`
         SELECT id, title, status, created_by, failure_reason
         FROM ops_missions
-        WHERE status IN ('succeeded', 'failed')
+        WHERE status IN ('succeeded', 'failed', 'blocked')
         AND completed_at >= ${oneHourAgo.toISOString()}
     `;
 
@@ -121,8 +121,9 @@ export async function learnFromOutcomes(): Promise<{ learned: number }> {
         let confidence: number;
         let memoryType: MemoryType;
 
-        if (mission.status === 'failed') {
-            content = `Mission "${mission.title}" failed: ${mission.failure_reason ?? 'unknown reason'}`;
+        if (mission.status === 'failed' || mission.status === 'blocked') {
+            const verb = mission.status === 'blocked' ? 'blocked' : 'failed';
+            content = `Mission "${mission.title}" ${verb}: ${mission.failure_reason ?? 'unknown reason'}`;
             confidence = 0.8;
             memoryType = 'lesson';
         } else {

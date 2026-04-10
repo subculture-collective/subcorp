@@ -298,13 +298,15 @@ async function gatherWeekData(
 }
 
 function buildStats(data: WeekData): NewsletterStats {
+    const completedStatuses = new Set(['succeeded']);
+    const activeStatuses = new Set(['approved', 'running']);
+
     return {
         conversations: data.sessions.length,
-        missions_completed: data.missions.filter(m => m.status === 'completed')
+        missions_completed: data.missions.filter(m => completedStatuses.has(m.status))
             .length,
-        missions_active: data.missions.filter(
-            m => m.status === 'approved' || m.status === 'in_progress',
-        ).length,
+        missions_active: data.missions.filter(m => activeStatuses.has(m.status))
+            .length,
         proposals: data.proposals.length,
         events: data.events.length,
         content_drafts: data.contentDrafts.length,
@@ -322,7 +324,7 @@ function generateNewsletterHeadline(
     stats: NewsletterStats,
 ): string {
     // Use the most prominent mission title or event
-    const topMission = data.missions.find(m => m.status === 'completed');
+    const topMission = data.missions.find(m => m.status === 'succeeded');
     if (topMission && topMission.title.length <= 80) {
         return topMission.title;
     }
@@ -397,11 +399,9 @@ function generateSectionNarratives(
         formatBreakdown.set(s.format, (formatBreakdown.get(s.format) ?? 0) + 1);
     }
 
-    const completedMissions = data.missions.filter(
-        m => m.status === 'completed',
-    );
+    const completedMissions = data.missions.filter(m => m.status === 'succeeded');
     const activeMissions = data.missions.filter(
-        m => m.status === 'approved' || m.status === 'in_progress',
+        m => m.status === 'approved' || m.status === 'running',
     );
 
     const sections: Record<string, string> = {};

@@ -1,7 +1,7 @@
 // /api/ops/newspaper — List newspaper editions (public)
 import { NextRequest, NextResponse } from 'next/server';
 import { listEditions } from '@/lib/ops/newspaper';
-import { withRequestContext } from '@/middleware';
+import { withRequestContext } from '@/lib/with-request-context';
 
 export const dynamic = 'force-dynamic';
 

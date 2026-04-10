@@ -2,7 +2,13 @@
 'use client';
 
 import { useState, useMemo, useCallback } from 'react';
-import { useContent, type ContentDraft, type ContentStatus, type ContentType } from './hooks';
+import {
+    useContent,
+    type ContentDraft,
+    type ContentStatus,
+    type ContentType,
+    type MutableContentStatus,
+} from './hooks';
 import { useAuth } from '@/lib/auth/client';
 import { AGENTS } from '@/lib/agents';
 import type { AgentId } from '@/lib/types';
@@ -88,14 +94,14 @@ function DraftCard({
 // ─── DetailPanel ───
 
 /** Valid next statuses for each draft status */
-const NEXT_ACTIONS: Record<ContentStatus, { status: ContentStatus; label: string; style: string }[]> = {
+const NEXT_ACTIONS: Record<ContentStatus, { status: MutableContentStatus; label: string; style: string }[]> = {
     draft: [],
     review: [
         { status: 'approved', label: 'Approve', style: 'bg-emerald-600 hover:bg-emerald-500 text-white' },
         { status: 'rejected', label: 'Reject', style: 'bg-rose-600 hover:bg-rose-500 text-white' },
     ],
     approved: [
-        { status: 'published', label: 'Publish', style: 'bg-blue-600 hover:bg-blue-500 text-white' },
+        { status: 'rejected', label: 'Send Back', style: 'bg-rose-700 hover:bg-rose-600 text-white' },
     ],
     rejected: [
         { status: 'draft', label: 'Re-draft', style: 'bg-zinc-600 hover:bg-zinc-500 text-white' },
@@ -107,10 +113,12 @@ function DetailPanel({
     draft,
     onClose,
     onAction,
+    onRetryGhostMirror,
 }: {
     draft: ContentDraft;
     onClose: () => void;
-    onAction: (id: string, status: ContentStatus) => Promise<void>;
+    onAction: (id: string, status: MutableContentStatus) => Promise<void>;
+    onRetryGhostMirror: (id: string) => Promise<void>;
 }) {
     const { user, requireAuth } = useAuth();
     const [acting, setActing] = useState(false);
@@ -118,8 +126,26 @@ function DetailPanel({
     const agent = AGENTS[draft.author_agent as AgentId];
     const badge = TYPE_BADGES[draft.content_type] ?? TYPE_BADGES.essay;
     const actions = NEXT_ACTIONS[draft.status] ?? [];
+    const ghostMirror = draft.metadata?.publication?.ghost;
+    const localPublication = draft.metadata?.publication?.local;
 
-    const handleAction = useCallback(async (status: ContentStatus) => {
+    const ghostBadge =
+        ghostMirror?.status === 'published' ?
+            {
+                label: 'Ghost mirrored',
+                style: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+            }
+        : ghostMirror?.status === 'failed' ?
+            {
+                label: 'Ghost retry pending',
+                style: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+            }
+        : {
+            label: 'Ghost pending',
+            style: 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30',
+        };
+
+    const handleAction = useCallback(async (status: MutableContentStatus) => {
         setActionError('');
         try {
             if (!user) await requireAuth('Sign in to manage content');
@@ -131,6 +157,19 @@ function DetailPanel({
             setActing(false);
         }
     }, [user, requireAuth, onAction, draft.id]);
+
+    const handleRetryGhost = useCallback(async () => {
+        setActionError('');
+        try {
+            if (!user) await requireAuth('Sign in to manage content');
+            setActing(true);
+            await onRetryGhostMirror(draft.id);
+        } catch (err) {
+            setActionError((err as Error).message);
+        } finally {
+            setActing(false);
+        }
+    }, [user, requireAuth, onRetryGhostMirror, draft.id]);
 
     return (
         <div className='rounded-xl bg-zinc-800/70 border border-zinc-700/50 p-5 space-y-4'>
@@ -240,6 +279,45 @@ function DetailPanel({
                     Published {timeAgo(draft.published_at)}
                 </p>
             )}
+
+            {draft.status === 'published' && (
+                <div className='rounded-lg border border-zinc-700/30 bg-zinc-900/40 p-3 space-y-2'>
+                    <div className='flex items-center justify-between gap-2'>
+                        <p className='text-[11px] uppercase tracking-wider text-zinc-500 font-medium'>
+                            Publication Mirror
+                        </p>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${ghostBadge.style}`}>
+                            {ghostBadge.label}
+                        </span>
+                    </div>
+                    {ghostMirror?.error && (
+                        <p className='text-[11px] text-zinc-400 break-words'>
+                            {ghostMirror.error === 'ghost_not_configured' ?
+                                'Ghost is not configured yet. Local blog is live; mirror will backfill when Ghost keys are added.'
+                            :   `Last Ghost error: ${ghostMirror.error}`}
+                        </p>
+                    )}
+                    {ghostMirror?.next_retry_at && (
+                        <p className='text-[10px] text-zinc-500'>
+                            Next retry {timeAgo(ghostMirror.next_retry_at)}
+                        </p>
+                    )}
+                    {(ghostMirror?.status === 'failed' || ghostMirror?.status === 'pending' || !ghostMirror) && (
+                        <button
+                            onClick={handleRetryGhost}
+                            disabled={acting}
+                            className='px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 cursor-pointer bg-zinc-700 hover:bg-zinc-600 text-zinc-100'
+                        >
+                            {acting ? '...' : 'Retry Ghost Mirror'}
+                        </button>
+                    )}
+                    {localPublication?.slug && (
+                        <p className='text-[10px] text-zinc-500'>
+                            Local canonical path: <span className='font-mono text-zinc-400'>/blog/{localPublication.slug}</span>
+                        </p>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -264,7 +342,9 @@ function ContentPipelineSkeleton() {
 // ─── ContentPipeline (main export) ───
 
 export function ContentPipeline() {
-    const { drafts, loading, error, updateStatus } = useContent({ limit: 100 });
+    const { drafts, loading, error, updateStatus, retryGhostMirror } = useContent({
+        limit: 100,
+    });
     const [selected, setSelected] = useState<ContentDraft | null>(null);
     const [showRejected, setShowRejected] = useState(false);
 
@@ -304,6 +384,7 @@ export function ContentPipeline() {
                         await updateStatus(id, status);
                         setSelected(null);
                     }}
+                    onRetryGhostMirror={retryGhostMirror}
                 />
             )}
 
@@ -374,6 +455,10 @@ export function ContentPipeline() {
                     </p>
                 </div>
             )}
+
+            <p className='text-[10px] text-zinc-600'>
+                Publication is automatic: approved drafts are published to local `/blog` and mirrored to Ghost when configured.
+            </p>
         </div>
     );
 }

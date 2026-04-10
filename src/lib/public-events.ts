@@ -12,6 +12,7 @@ export const PUBLIC_SAFE_KINDS = [
     'conversation_completed',
     'content_draft_created',
     'content_published',
+    'content_mirrored_ghost',
     'daily_digest_generated',
     'dream_cycle_completed',
     'rebellion_started',

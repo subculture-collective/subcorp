@@ -81,6 +81,7 @@ export type MissionStatus =
     | 'approved'
     | 'running'
     | 'succeeded'
+    | 'blocked'
     | 'failed'
     | 'cancelled';
 
@@ -140,6 +141,7 @@ export type StepStatus =
     | 'queued'
     | 'running'
     | 'succeeded'
+    | 'blocked'
     | 'failed'
     | 'skipped';
 

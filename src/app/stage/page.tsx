@@ -109,7 +109,7 @@ function StageContent() {
     );
     const [officeMode, setOfficeMode] = useState<'svg' | '3d'>('svg');
     const [connectionStatus, setConnectionStatus] =
-        useState<ConnectionStatus>('reconnecting');
+        useState<ConnectionStatus>('connected');
     const handleConnectionStatus = useCallback((status: ConnectionStatus) => {
         setConnectionStatus(status);
     }, []);
@@ -187,7 +187,7 @@ function StageContent() {
                     <div className='mx-auto max-w-6xl w-full px-4 py-6 sm:px-6 lg:px-8 space-y-6'>
                     {/* Header with stats */}
                     <StageHeader
-                        connectionStatus={connectionStatus}
+                        connectionStatus={view === 'feed' || view === 'office' ? connectionStatus : undefined}
                     />
 
                     {/* Mission playback overlay */}

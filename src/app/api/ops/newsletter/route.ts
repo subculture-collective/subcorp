@@ -1,7 +1,7 @@
 // /api/ops/newsletter — List newsletter editions (public)
 import { NextRequest, NextResponse } from 'next/server';
 import { listNewsletterEditions } from '@/lib/ops/newsletter';
-import { withRequestContext } from '@/middleware';
+import { withRequestContext } from '@/lib/with-request-context';
 
 export const dynamic = 'force-dynamic';
 

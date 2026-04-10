@@ -3,6 +3,7 @@ import { sql, jsonb } from '@/lib/db';
 import { getPolicy, setPolicy, clearPolicyCache } from './policy';
 import { emitEventAndCheckReactions } from './events';
 import { logger } from '@/lib/logger';
+import { llmGenerate } from '@/lib/llm/client';
 import type { ConversationTurnEntry } from '@/lib/types';
 
 const log = logger.child({ module: 'governance' });
@@ -30,6 +31,8 @@ export interface GovernanceProposal {
     created_at: string;
     resolved_at: string | null;
 }
+
+type GovernanceVoteChoice = 'approve' | 'reject';
 
 // ─── Protected policies that cannot be proposed ───
 
@@ -342,12 +345,18 @@ export async function collectGovernanceDebateVotes(
     for (const agentId of participants) {
         // Proposer implicitly approves
         if (agentId === proposal.proposer) {
-            await castGovernanceVote(
-                proposalId,
-                agentId,
-                'approve',
-                'I proposed this change.',
-            );
+            try {
+                await castGovernanceVote(
+                    proposalId,
+                    agentId,
+                    'approve',
+                    'I proposed this change.',
+                );
+            } catch (err) {
+                const message = (err as Error).message;
+                if (message.includes('not in voting status')) break;
+                throw err;
+            }
             continue;
         }
 
@@ -365,11 +374,19 @@ export async function collectGovernanceDebateVotes(
         }
 
         const text = lastTurn.dialogue;
-        const vote = extractVoteFromText(text);
+        const vote =
+            extractVoteFromText(text) ??
+            (await inferVoteFromDebateTurn(agentId, proposal, text, debateHistory));
 
         if (vote) {
             const reason = text.slice(-200).trim();
-            await castGovernanceVote(proposalId, agentId, vote, reason);
+            try {
+                await castGovernanceVote(proposalId, agentId, vote, reason);
+            } catch (err) {
+                const message = (err as Error).message;
+                if (message.includes('not in voting status')) break;
+                throw err;
+            }
         } else {
             log.warn(
                 'Could not determine vote from debate turn, skipping agent',
@@ -411,6 +428,159 @@ export async function collectGovernanceDebateVotes(
     return { result, approvals, rejections };
 }
 
+export async function backfillGovernanceVotes(
+    limit = 10,
+): Promise<{
+    processed: number;
+    resolved: number;
+    requeued: number;
+    votesAdded: number;
+    failed: number;
+}> {
+    const rows = await sql<
+        Array<{
+            id: string;
+            debate_session_id: string;
+            participants: string[];
+        }>
+    >`
+        SELECT gp.id, gp.debate_session_id, rs.participants
+        FROM ops_governance_proposals gp
+        JOIN ops_roundtable_sessions rs ON rs.id = gp.debate_session_id
+        WHERE gp.status = 'voting'
+          AND gp.debate_session_id IS NOT NULL
+          AND rs.status = 'completed'
+        ORDER BY gp.created_at ASC
+        LIMIT ${Math.max(1, Math.min(limit, 50))}
+    `;
+
+    let processed = 0;
+    let resolved = 0;
+    let requeued = 0;
+    let votesAdded = 0;
+    let failed = 0;
+
+    const staleCutoff = new Date(Date.now() - 20 * 60_000).toISOString();
+
+    const staleRunning = await sql<Array<{ id: string }>>`
+        SELECT gp.id
+        FROM ops_governance_proposals gp
+        JOIN ops_roundtable_sessions rs ON rs.id = gp.debate_session_id
+        WHERE gp.status = 'voting'
+          AND gp.debate_session_id IS NOT NULL
+          AND rs.status = 'running'
+          AND rs.started_at < ${staleCutoff}
+    `;
+
+    for (const row of staleRunning) {
+        await sql`
+            UPDATE ops_governance_proposals
+            SET status = 'proposed',
+                debate_session_id = NULL,
+                votes = '{}'::jsonb
+            WHERE id = ${row.id}
+        `;
+
+        await emitEventAndCheckReactions({
+            agent_id: 'system',
+            kind: 'governance_debate_requeued',
+            title: 'Governance debate requeued after stale running session',
+            summary: `Proposal ${row.id} returned to proposed for a fresh debate`,
+            tags: ['governance', 'debate', 'requeued'],
+            metadata: { proposalId: row.id },
+        });
+
+        requeued++;
+    }
+
+    for (const row of rows) {
+        try {
+            const [before] = await sql<
+                [{ votes: Record<string, GovernanceVote> | null; status: ProposalStatus }]
+            >`
+                SELECT votes, status FROM ops_governance_proposals WHERE id = ${row.id}
+            `;
+
+            const beforeVotes =
+                before?.votes && typeof before.votes === 'object' ?
+                    Object.keys(before.votes).length
+                :   0;
+
+            const debateHistory = await sql<
+                Array<{ speaker: string; dialogue: string; turn_number: number }>
+            >`
+                SELECT speaker, dialogue, turn_number
+                FROM ops_roundtable_turns
+                WHERE session_id = ${row.debate_session_id}
+                ORDER BY turn_number ASC
+            `;
+
+            if (debateHistory.length === 0) {
+                continue;
+            }
+
+            await collectGovernanceDebateVotes(
+                row.id,
+                row.participants,
+                debateHistory.map(turn => ({
+                    speaker: turn.speaker,
+                    dialogue: turn.dialogue,
+                    turn: turn.turn_number,
+                })),
+            );
+
+            const [after] = await sql<
+                [{ votes: Record<string, GovernanceVote> | null; status: ProposalStatus }]
+            >`
+                SELECT votes, status FROM ops_governance_proposals WHERE id = ${row.id}
+            `;
+
+            const afterVotes =
+                after?.votes && typeof after.votes === 'object' ?
+                    Object.keys(after.votes).length
+                :   0;
+
+            votesAdded += Math.max(0, afterVotes - beforeVotes);
+            if (before?.status === 'voting' && after?.status !== 'voting') {
+                resolved++;
+            } else if (after?.status === 'voting') {
+                await sql`
+                    UPDATE ops_governance_proposals
+                    SET status = 'proposed',
+                        debate_session_id = NULL,
+                        votes = '{}'::jsonb
+                    WHERE id = ${row.id}
+                      AND status = 'voting'
+                `;
+
+                await emitEventAndCheckReactions({
+                    agent_id: 'system',
+                    kind: 'governance_debate_requeued',
+                    title: 'Governance debate requeued after incomplete vote collection',
+                    summary: `Proposal ${row.id} still lacked a decision after debate vote extraction`,
+                    tags: ['governance', 'debate', 'requeued'],
+                    metadata: {
+                        proposalId: row.id,
+                        previousVotes: afterVotes,
+                    },
+                });
+
+                requeued++;
+            }
+            processed++;
+        } catch (err) {
+            failed++;
+            log.error('Governance vote backfill failed', {
+                proposalId: row.id,
+                sessionId: row.debate_session_id,
+                error: (err as Error).message,
+            });
+        }
+    }
+
+    return { processed, resolved, requeued, votesAdded, failed };
+}
+
 /** Extract approve/reject from text using keyword matching. */
 function extractVoteFromText(text: string): 'approve' | 'reject' | null {
     const upper = text.toUpperCase();
@@ -419,6 +589,24 @@ function extractVoteFromText(text: string): 'approve' | 'reject' | null {
         !upper.includes('NOT APPROVE') &&
         !upper.includes("DON'T APPROVE");
     const hasReject = upper.includes('REJECT');
+    const hasVeto = upper.includes('VETO');
+
+    if (hasVeto && !hasApprove) return 'reject';
+
+    const rejectSignals = [
+        'I OPPOSE',
+        'DO NOT SUPPORT',
+        'NO-GO',
+        'BLOCK THIS',
+        'VETO STANDS',
+    ];
+    const approveSignals = [
+        'I SUPPORT',
+        'I BACK',
+        'I ENDORSE',
+        'GO AHEAD',
+        'SHIP IT',
+    ];
 
     if (hasApprove && hasReject) {
         const lastApprove = upper.lastIndexOf('APPROVE');
@@ -428,5 +616,68 @@ function extractVoteFromText(text: string): 'approve' | 'reject' | null {
 
     if (hasApprove) return 'approve';
     if (hasReject) return 'reject';
+
+    if (rejectSignals.some(signal => upper.includes(signal))) return 'reject';
+    if (approveSignals.some(signal => upper.includes(signal))) return 'approve';
+
     return null;
+}
+
+async function inferVoteFromDebateTurn(
+    agentId: string,
+    proposal: GovernanceProposal,
+    finalTurn: string,
+    debateHistory: ConversationTurnEntry[],
+): Promise<GovernanceVoteChoice | null> {
+    const debateSnippet = debateHistory
+        .slice(-8)
+        .map(t => `${t.speaker}: ${t.dialogue}`)
+        .join('\n');
+
+    try {
+        const result = await llmGenerate({
+            messages: [
+                {
+                    role: 'system',
+                    content:
+                        'Classify the voter stance as approve, reject, or abstain. ' +
+                        'Return strict JSON only: {"vote":"approve"|"reject"|"abstain"}.',
+                },
+                {
+                    role: 'user',
+                    content:
+                        `Governance proposal: ${proposal.policy_key}\n` +
+                        `Rationale: ${proposal.rationale}\n\n` +
+                        `Agent: ${agentId}\n` +
+                        `Agent final turn:\n${finalTurn}\n\n` +
+                        `Recent debate context:\n${debateSnippet}\n\n` +
+                        `Classify this agent's vote now.`,
+                },
+            ],
+            temperature: 0,
+            maxTokens: 80,
+            trackingContext: {
+                agentId,
+                context: 'governance_vote_inference',
+            },
+        });
+
+        const jsonMatch = result.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) return null;
+        const parsed = JSON.parse(jsonMatch[0]) as {
+            vote?: 'approve' | 'reject' | 'abstain';
+        };
+
+        if (parsed.vote === 'approve' || parsed.vote === 'reject') {
+            return parsed.vote;
+        }
+        return null;
+    } catch (err) {
+        log.warn('LLM governance vote inference failed', {
+            error: (err as Error).message,
+            proposalId: proposal.id,
+            agentId,
+        });
+        return null;
+    }
 }

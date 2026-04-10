@@ -212,7 +212,7 @@ async function checkMissionFailed(
 
     const [{ count }] = await sql<[{ count: number }]>`
         SELECT COUNT(*)::int as count FROM ops_missions
-        WHERE status = 'failed' AND updated_at >= ${cutoff}
+        WHERE status IN ('failed', 'blocked') AND updated_at >= ${cutoff}
     `;
 
     if (count > 0) {
@@ -594,7 +594,7 @@ async function checkOpsReport(
         SELECT
             COUNT(*)::int as total_missions,
             COUNT(*) FILTER (WHERE status = 'succeeded')::int as succeeded,
-            COUNT(*) FILTER (WHERE status = 'failed')::int as failed,
+            COUNT(*) FILTER (WHERE status IN ('failed', 'blocked'))::int as failed,
             COUNT(DISTINCT created_by)::int as active_agents
         FROM ops_missions
         WHERE updated_at >= ${twentyFourHoursAgo}
@@ -637,10 +637,10 @@ async function checkStrategicDrift(
     const [missionStats] = await sql<[{ total: number; failed: number }]>`
         SELECT
             COUNT(*)::int as total,
-            COUNT(*) FILTER (WHERE status = 'failed')::int as failed
+            COUNT(*) FILTER (WHERE status IN ('failed', 'blocked'))::int as failed
         FROM ops_missions
         WHERE updated_at >= ${cutoff}
-        AND status IN ('succeeded', 'failed')
+        AND status IN ('succeeded', 'failed', 'blocked')
     `;
 
     const failureRate =
@@ -718,12 +718,9 @@ async function checkProactiveGeneric(
 }
 
 async function checkGovernanceProposalCreated(
-    conditions: Record<string, unknown>,
+    _conditions: Record<string, unknown>,
     targetAgent: string,
 ): Promise<TriggerCheckResult> {
-    const lookback = (conditions.lookback_minutes as number) ?? 60;
-    const cutoff = new Date(Date.now() - lookback * 60_000).toISOString();
-
     // Find proposals in 'proposed' status that don't yet have a debate session
     const proposals = await sql<
         {
@@ -739,7 +736,6 @@ async function checkGovernanceProposalCreated(
         FROM ops_governance_proposals
         WHERE status = 'proposed'
           AND debate_session_id IS NULL
-          AND created_at >= ${cutoff}
         ORDER BY created_at ASC
         LIMIT 1
     `;
@@ -1030,7 +1026,7 @@ async function checkCodeSprintReady(
         SELECT COUNT(DISTINCT m.id)::int as count
         FROM ops_missions m
         JOIN ops_mission_steps s ON s.mission_id = m.id
-        WHERE m.status IN ('approved', 'running')
+        WHERE m.status IN ('approved', 'running', 'blocked')
           AND s.kind = 'patch_code'
     `;
 
@@ -1176,7 +1172,7 @@ async function checkSelfEvolutionNeeded(
     // Signal 2: 3+ mission failures
     const [{ count: failureCount }] = await sql<[{ count: number }]>`
         SELECT COUNT(*)::int as count FROM ops_missions
-        WHERE status = 'failed'
+        WHERE status IN ('failed', 'blocked')
           AND updated_at >= ${cutoff}
     `;
     if (failureCount >= 3) {

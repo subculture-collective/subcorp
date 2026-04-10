@@ -1,7 +1,7 @@
 // /api/ops/newsletter/[week]/pdf — Serve newsletter PDF from DB
 import { NextRequest, NextResponse } from 'next/server';
 import { getNewsletterPdf } from '@/lib/ops/newsletter';
-import { withRequestContext } from '@/middleware';
+import { withRequestContext } from '@/lib/with-request-context';
 
 export const dynamic = 'force-dynamic';
 
