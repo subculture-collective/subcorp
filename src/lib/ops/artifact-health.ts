@@ -17,6 +17,7 @@ export interface ArtifactHealthResult {
     artifacts_by_type: Record<string, number>;
     synthesis_sessions_today: number;
     synthesis_success_rate: number;
+    synthesis_blocked_today: number;
     output_dirs: Record<string, number>;
 }
 
@@ -35,10 +36,12 @@ export async function checkArtifactFreshness(): Promise<ArtifactHealthResult> {
     const [synthCounts] = await sql<[{
         total: number;
         succeeded: number;
+        blocked: number;
     }]>`
         SELECT
             COUNT(*)::int as total,
-            COUNT(*) FILTER (WHERE status IN ('succeeded', 'blocked'))::int as succeeded
+            COUNT(*) FILTER (WHERE status = 'succeeded')::int as succeeded,
+            COUNT(*) FILTER (WHERE status = 'blocked')::int as blocked
         FROM ops_agent_sessions
         WHERE source = 'conversation'
         AND created_at >= ${todayISO}
@@ -106,6 +109,7 @@ export async function checkArtifactFreshness(): Promise<ArtifactHealthResult> {
                 roundtables_completed: roundtableCounts.total,
                 synthesis_sessions: synthCounts.total,
                 synthesis_succeeded: synthCounts.succeeded,
+                synthesis_blocked: synthCounts.blocked,
                 manifest_entries: manifestEntriesToday,
             },
         });
@@ -116,6 +120,7 @@ export async function checkArtifactFreshness(): Promise<ArtifactHealthResult> {
         artifacts_by_type: artifactsByType,
         synthesis_sessions_today: synthCounts.total,
         synthesis_success_rate: Math.round(successRate * 100),
+        synthesis_blocked_today: synthCounts.blocked,
         output_dirs: outputDirs,
     };
 }

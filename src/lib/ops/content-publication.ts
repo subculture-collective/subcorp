@@ -9,6 +9,8 @@ const log = logger.child({ module: 'content-publication' });
 
 const DEFAULT_BLOG_DIR = 'output/blog';
 const MAX_BACKFILL_BATCH = 20;
+/** Container/workspace root used for constructing relative output paths. */
+const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT?.trim() || '/workspace';
 
 interface ContentDraftRow {
     id: string;
@@ -159,10 +161,9 @@ async function resolveBlogOutputDir(): Promise<string> {
         return explicit;
     }
 
-    const workspaceDir = '/workspace';
     try {
-        await fs.access(workspaceDir);
-        const outputDir = path.join(workspaceDir, DEFAULT_BLOG_DIR);
+        await fs.access(WORKSPACE_ROOT);
+        const outputDir = path.join(WORKSPACE_ROOT, DEFAULT_BLOG_DIR);
         await fs.mkdir(outputDir, { recursive: true });
         return outputDir;
     } catch {
@@ -212,10 +213,26 @@ async function publishLocally(
 
     await fs.writeFile(filePath, markdown, 'utf-8');
 
+    // Derive relative_path from the actual output directory so that it
+    // stays consistent with where the file was written, even when
+    // BLOG_OUTPUT_DIR overrides the default location.
+    let relativePath: string;
+    const normalizedFilePath = filePath.replace(/\\/g, '/');
+    const normalizedWorkspace = WORKSPACE_ROOT.replace(/\\/g, '/');
+    const normalizedCwd = process.cwd().replace(/\\/g, '/');
+    if (normalizedFilePath.startsWith(normalizedWorkspace + '/')) {
+        relativePath = path.posix.relative(normalizedWorkspace, normalizedFilePath);
+    } else if (normalizedFilePath.startsWith(normalizedCwd + '/')) {
+        relativePath = path.posix.relative(normalizedCwd, normalizedFilePath);
+    } else {
+        // Custom BLOG_OUTPUT_DIR outside known roots — store the absolute path.
+        relativePath = normalizedFilePath;
+    }
+
     return {
         status: 'published',
         slug,
-        relative_path: path.posix.join(DEFAULT_BLOG_DIR, filename),
+        relative_path: relativePath,
         published_at: publishedAt,
     };
 }
@@ -343,6 +360,8 @@ function computeNextRetryIso(attempts: number): string {
     return new Date(Date.now() + backoffMinutes * 60_000).toISOString();
 }
 
+const GHOST_REQUEST_TIMEOUT_MS = 15_000;
+
 async function mirrorToGhost(
     draft: ContentDraftRow,
     local: LocalPublicationState,
@@ -370,25 +389,34 @@ async function mirrorToGhost(
         const endpoint = `${config.adminApiUrl}/posts/?source=html`;
         const html = markdownToGhostHtml(draft.body);
 
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-                Authorization: `Ghost ${jwt}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                posts: [
-                    {
-                        title: draft.title,
-                        slug: local.slug,
-                        html,
-                        status: 'published',
-                        published_at: local.published_at,
-                        tags: ['subcorp', draft.content_type, draft.author_agent],
-                    },
-                ],
-            }),
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), GHOST_REQUEST_TIMEOUT_MS);
+
+        let response: Response;
+        try {
+            response = await fetch(endpoint, {
+                method: 'POST',
+                signal: controller.signal,
+                headers: {
+                    Authorization: `Ghost ${jwt}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    posts: [
+                        {
+                            title: draft.title,
+                            slug: local.slug,
+                            html,
+                            status: 'published',
+                            published_at: local.published_at,
+                            tags: ['subcorp', draft.content_type, draft.author_agent],
+                        },
+                    ],
+                }),
+            });
+        } finally {
+            clearTimeout(timeoutId);
+        }
 
         if (!response.ok) {
             const text = await response.text();
@@ -411,7 +439,10 @@ async function mirrorToGhost(
             published_at: new Date().toISOString(),
         };
     } catch (err) {
-        const message = (err as Error).message;
+        const isTimeout = (err as Error).name === 'AbortError';
+        const message = isTimeout
+            ? `Ghost API request timed out after ${GHOST_REQUEST_TIMEOUT_MS}ms`
+            : (err as Error).message;
         return {
             status: 'failed',
             attempts: attempt,

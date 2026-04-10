@@ -70,16 +70,19 @@ function truncateToFirstSentences(text: string, maxLen: number): string {
 const BLOCKER_SUMMARY_PATTERNS: RegExp[] = [
     /\bcritical blocker\b/i,
     /\bdata dependency blocked\b/i,
-    /\bblocked by\b/i,
+    // Negative lookbehind guards against "not blocked by", "never blocked by", "wasn't blocked by", etc.
+    /(?<!(?:not|never|no longer|isn't|aren't|wasn't|weren't) )\bblocked by\b/i,
     /\bmission is, by definition, stalled\b/i,
     /\bcannot proceed\b/i,
     /\bcannot continue\b/i,
     /\bcannot be completed\b/i,
     /\bno further (procedural )?steps? (i )?can take\b/i,
     /\bawait(?:ing)? (?:instruction|input|external|data|provisioning)\b/i,
-    /\bwaiting for\b/i,
+    // Negative lookbehind guards against "not waiting for", "never waiting for", etc.
+    /(?<!(?:not|never) )\bwaiting for\b/i,
     /\bhands are tied\b/i,
-    /\bstalled by\b/i,
+    // Negative lookbehind guards against "not stalled by", "never stalled by", etc.
+    /(?<!(?:not|never) )\bstalled by\b/i,
     /\bpaused pending\b/i,
 ];
 
