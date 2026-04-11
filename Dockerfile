@@ -47,7 +47,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Copy unified worker bundle + sanctum bundle + workspace data + migrations
 COPY --from=builder /app/scripts/unified-worker/dist ./scripts/unified-worker/dist
 COPY --from=builder /app/scripts/sanctum-server/dist ./scripts/sanctum-server/dist
-COPY --from=builder /app/workspace ./workspace
+COPY --from=builder --chown=nextjs:nodejs /app/workspace ./workspace
 COPY --from=builder /app/db ./db
 
 # Entrypoint runs migrations before starting the app/worker
