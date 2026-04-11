@@ -6,16 +6,27 @@ import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'cron-scheduler' });
 
+const timeFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getTimeFormatter(timezone: string): Intl.DateTimeFormat {
+    let formatter = timeFormatterCache.get(timezone);
+    if (!formatter) {
+        formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: timezone,
+            hour: 'numeric',
+            minute: 'numeric',
+            weekday: 'short',
+            day: 'numeric',
+            month: 'numeric',
+            hour12: false,
+        });
+        timeFormatterCache.set(timezone, formatter);
+    }
+    return formatter;
+}
+
 function getTimeParts(date: Date, timezone: string) {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: timezone,
-        hour: 'numeric',
-        minute: 'numeric',
-        weekday: 'short',
-        day: 'numeric',
-        month: 'numeric',
-        hour12: false,
-    });
+    const formatter = getTimeFormatter(timezone);
     return Object.fromEntries(formatter.formatToParts(date).map(p => [p.type, p.value]));
 }
 
