@@ -6,14 +6,7 @@ import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'cron-scheduler' });
 
-/**
- * Parse a cron expression and check if it should have fired between lastFired and now.
- * Simple cron check: compare current minute against cron fields.
- * Uses a basic parser to avoid adding cron-parser as a dependency.
- */
-function shouldFire(cronExpr: string, timezone: string, lastFiredAt: string | null): boolean {
-    // Get current time in the schedule's timezone
-    const now = new Date();
+function getTimeParts(date: Date, timezone: string) {
     const formatter = new Intl.DateTimeFormat('en-US', {
         timeZone: timezone,
         hour: 'numeric',
@@ -23,37 +16,67 @@ function shouldFire(cronExpr: string, timezone: string, lastFiredAt: string | nu
         month: 'numeric',
         hour12: false,
     });
-    const parts = Object.fromEntries(
-        formatter.formatToParts(now).map(p => [p.type, p.value])
-    );
+    return Object.fromEntries(formatter.formatToParts(date).map(p => [p.type, p.value]));
+}
 
-    const currentMinute = parseInt(parts.minute ?? '0');
-    const currentHour = parseInt(parts.hour ?? '0');
-    const currentDow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-        .indexOf(parts.weekday ?? 'Mon');
-    const currentDom = parseInt(parts.day ?? '1');
-    const currentMonth = parseInt(parts.month ?? '1');
-
-    // Parse cron: minute hour dom month dow
+function matchesCronAt(cronExpr: string, timezone: string, date: Date): boolean {
     const fields = cronExpr.trim().split(/\s+/);
     if (fields.length < 5) return false;
-
     const [minField, hourField, domField, monthField, dowField] = fields;
 
-    if (!matchField(minField, currentMinute, 0, 59)) return false;
-    if (!matchField(hourField, currentHour, 0, 23)) return false;
-    if (!matchField(domField, currentDom, 1, 31)) return false;
-    if (!matchField(monthField, currentMonth, 1, 12)) return false;
-    if (!matchField(dowField, currentDow, 0, 6)) return false;
+    const parts = getTimeParts(date, timezone);
+    const minute = parseInt(parts.minute ?? '0');
+    const hour = parseInt(parts.hour ?? '0');
+    const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.weekday ?? 'Mon');
+    const dom = parseInt(parts.day ?? '1');
+    const month = parseInt(parts.month ?? '1');
 
-    // Prevent double-firing: check if we already fired in this minute
-    if (lastFiredAt) {
-        const lastFired = new Date(lastFiredAt);
-        const msSinceFired = now.getTime() - lastFired.getTime();
-        if (msSinceFired < 60_000) return false; // fired less than 1 min ago
+    return (
+        matchField(minField, minute, 0, 59) &&
+        matchField(hourField, hour, 0, 23) &&
+        matchField(domField, dom, 1, 31) &&
+        matchField(monthField, month, 1, 12) &&
+        matchField(dowField, dow, 0, 6)
+    );
+}
+
+/**
+ * Check if the cron schedule should fire between lastFiredAt and now.
+ * This avoids misses when heartbeat starts on-time but reaches cron phase 1-2 minutes later.
+ */
+function shouldFire(cronExpr: string, timezone: string, lastFiredAt: string | null): boolean {
+    const now = new Date();
+    const nowMinute = new Date(now);
+    nowMinute.setSeconds(0, 0);
+
+    const fallbackWindowMinutes = 5;
+    const maxScanMinutes = 24 * 60;
+
+    let windowStart =
+        lastFiredAt ?
+            new Date(new Date(lastFiredAt).getTime() + 60_000)
+        :   new Date(nowMinute.getTime() - fallbackWindowMinutes * 60_000);
+
+    windowStart.setSeconds(0, 0);
+
+    const maxWindowStart = new Date(nowMinute.getTime() - maxScanMinutes * 60_000);
+    if (windowStart < maxWindowStart) {
+        windowStart = maxWindowStart;
     }
 
-    return true;
+    if (windowStart > nowMinute) return false;
+
+    for (
+        let ts = windowStart.getTime();
+        ts <= nowMinute.getTime();
+        ts += 60_000
+    ) {
+        if (matchesCronAt(cronExpr, timezone, new Date(ts))) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /** Match a single cron field against a value */
@@ -90,18 +113,7 @@ function computeNextFireAt(cronExpr: string, timezone: string): Date {
 
     for (let i = 1; i <= maxIterations; i++) {
         const candidate = new Date(now.getTime() + i * 60_000);
-        const formatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: timezone,
-            hour: 'numeric',
-            minute: 'numeric',
-            weekday: 'short',
-            day: 'numeric',
-            month: 'numeric',
-            hour12: false,
-        });
-        const parts = Object.fromEntries(
-            formatter.formatToParts(candidate).map(p => [p.type, p.value])
-        );
+        const parts = getTimeParts(candidate, timezone);
 
         const min = parseInt(parts.minute ?? '0');
         const hour = parseInt(parts.hour ?? '0');
