@@ -273,15 +273,6 @@ async function main() {
     log.info('Starting cron jobs migration', { count: JOBS.length });
 
     for (const job of JOBS) {
-        const [existing] = await sql`
-            SELECT id FROM ops_cron_schedules WHERE name = ${job.name}
-        `;
-
-        if (existing) {
-            log.debug('Skipping existing job', { name: job.name });
-            continue;
-        }
-
         const nextFireAt = computeNextFireAt(
             job.cron_expression,
             'America/Chicago',
@@ -300,9 +291,20 @@ async function main() {
                 enabled: true,
                 next_fire_at: nextFireAt.toISOString(),
             })}
+            ON CONFLICT (name) DO UPDATE SET
+                agent_id = EXCLUDED.agent_id,
+                cron_expression = EXCLUDED.cron_expression,
+                timezone = EXCLUDED.timezone,
+                prompt = EXCLUDED.prompt,
+                timeout_seconds = EXCLUDED.timeout_seconds,
+                max_tool_rounds = EXCLUDED.max_tool_rounds,
+                model = EXCLUDED.model,
+                enabled = EXCLUDED.enabled,
+                next_fire_at = EXCLUDED.next_fire_at,
+                updated_at = NOW()
         `;
 
-        log.info('Created cron job', {
+        log.info('Upserted cron job', {
             name: job.name,
             agent_id: job.agent_id,
             schedule: job.cron_expression,

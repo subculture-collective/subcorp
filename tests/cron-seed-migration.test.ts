@@ -42,6 +42,17 @@ describe('017_seed_cron_schedules.sql', () => {
     expect(guardMatches.length).toBe(12);
   });
 
+  test('migration 021 enforces unique schedule names', () => {
+    const sql021 = fs.readFileSync(
+      path.join(WORKSPACE_ROOT, 'db/migrations/021_enforce_unique_cron_schedule_names.sql'),
+      'utf8',
+    );
+
+    expect(sql021).toContain('CREATE UNIQUE INDEX IF NOT EXISTS uq_ops_cron_schedules_name');
+    expect(sql021).toContain('ON ops_cron_schedules (name);');
+    expect(sql021).toContain('ROW_NUMBER() OVER');
+  });
+
   test('job names match the source of truth list', () => {
     const sql = readSql();
     const nameMatches = sql.match(/SELECT '([^']+)', '[^']+', '[^']+'/g) ?? [];
