@@ -14,7 +14,7 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-CRON_SECRET="$(grep '^CRON_SECRET=' "$ENV_FILE" | tail -n 1 | cut -d= -f2-)"
+CRON_SECRET="$(grep '^CRON_SECRET=' "$ENV_FILE" | tail -n 1 | cut -d= -f2- || true)"
 if [ -z "$CRON_SECRET" ]; then
     echo "$(date -Iseconds) ERROR: CRON_SECRET missing in $ENV_FILE"
     exit 1
