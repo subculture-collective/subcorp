@@ -23,11 +23,14 @@ fi
 cd "$PROJECT_ROOT"
 
 echo "$(date -Iseconds) Calling heartbeat via docker compose service $SERVICE..."
-if ! RESPONSE="$(docker compose exec -T "$SERVICE" wget -qO- \
-    --header="Authorization: Bearer $CRON_SECRET" \
-    "http://127.0.0.1:3000/api/ops/heartbeat")"; then
+if ! STATUS_CODE="$(docker compose exec -T "$SERVICE" sh -c '
+    wget -S -q -O /dev/null \
+        --header="Authorization: Bearer '"'"$1"'"'" \
+        "http://127.0.0.1:3000/api/ops/heartbeat" 2>&1 |
+    awk "/^  HTTP\\// { code = \$2 } END { if (code != \"\") print code; else exit 1 }"
+' sh "$CRON_SECRET")"; then
     echo "$(date -Iseconds) ERROR: heartbeat request failed"
     exit 1
 fi
 
-echo "$(date -Iseconds) Heartbeat response body: $RESPONSE"
+echo "$(date -Iseconds) Heartbeat status: $STATUS_CODE"
