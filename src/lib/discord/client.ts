@@ -14,6 +14,7 @@ const AUTO_ARCHIVE_24H_MINUTES = 1440;
 
 // In-memory webhook cache: channelId -> webhookUrl
 const webhookCache = new Map<string, string>();
+const webhookProvisioning = new Map<string, Promise<string | null>>();
 
 interface WebhookPostOptions {
     webhookUrl: string;
@@ -292,61 +293,71 @@ export async function getOrCreateWebhook(
     const cached = webhookCache.get(channelId);
     if (cached) return cached;
 
-    try {
-        // List existing webhooks for the channel
-        const listRes = await discordFetch(`/channels/${channelId}/webhooks`);
-        if (!listRes.ok) {
-            log.warn('Failed to list webhooks', {
-                status: listRes.status,
-                channelId,
-            });
-            return null;
-        }
+    const inFlight = webhookProvisioning.get(channelId);
+    if (inFlight) return await inFlight;
 
-        const webhooks = (await listRes.json()) as {
-            id: string;
-            name: string;
-            url: string;
-        }[];
+    const provisioningPromise = (async (): Promise<string | null> => {
+        try {
+            // List existing webhooks for the channel
+            const listRes = await discordFetch(`/channels/${channelId}/webhooks`);
+            if (!listRes.ok) {
+                log.warn('Failed to list webhooks', {
+                    status: listRes.status,
+                    channelId,
+                });
+                return null;
+            }
 
-        // Reuse existing webhook with our name
-        const existing = webhooks.find(w => w.name === name);
-        if (existing) {
-            const url = `https://discord.com/api/webhooks/${existing.id}/${(existing as Record<string, string>).token}`;
+            const webhooks = (await listRes.json()) as {
+                id: string;
+                name: string;
+                url: string;
+            }[];
+
+            // Reuse existing webhook with our name
+            const existing = webhooks.find(w => w.name === name);
+            if (existing) {
+                const url = `https://discord.com/api/webhooks/${existing.id}/${(existing as Record<string, string>).token}`;
+                webhookCache.set(channelId, url);
+                return url;
+            }
+
+            // Create new webhook
+            const createRes = await discordFetch(
+                `/channels/${channelId}/webhooks`,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({ name }),
+                },
+            );
+            if (!createRes.ok) {
+                log.warn('Failed to create webhook', {
+                    status: createRes.status,
+                    channelId,
+                });
+                return null;
+            }
+
+            const created = (await createRes.json()) as {
+                id: string;
+                token: string;
+            };
+            const url = `https://discord.com/api/webhooks/${created.id}/${created.token}`;
             webhookCache.set(channelId, url);
             return url;
-        }
-
-        // Create new webhook
-        const createRes = await discordFetch(
-            `/channels/${channelId}/webhooks`,
-            {
-                method: 'POST',
-                body: JSON.stringify({ name }),
-            },
-        );
-        if (!createRes.ok) {
-            log.warn('Failed to create webhook', {
-                status: createRes.status,
+        } catch (err) {
+            log.warn('Webhook provisioning error', {
+                error: (err as Error).message,
                 channelId,
             });
             return null;
+        } finally {
+            webhookProvisioning.delete(channelId);
         }
+    })();
 
-        const created = (await createRes.json()) as {
-            id: string;
-            token: string;
-        };
-        const url = `https://discord.com/api/webhooks/${created.id}/${created.token}`;
-        webhookCache.set(channelId, url);
-        return url;
-    } catch (err) {
-        log.warn('Webhook provisioning error', {
-            error: (err as Error).message,
-            channelId,
-        });
-        return null;
-    }
+    webhookProvisioning.set(channelId, provisioningPromise);
+    return await provisioningPromise;
 }
 
 // ─── Multipart webhook (file attachments) ───

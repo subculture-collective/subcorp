@@ -14,12 +14,12 @@ import path from 'node:path';
  * All agents can read all of /workspace.
  */
 export const WRITE_ACLS: Record<AgentId, string[]> = {
-    chora:   ['agents/chora/', 'output/reports/', 'output/briefings/', 'output/digests/'],
-    subrosa: ['agents/subrosa/', 'output/reviews/', 'output/reports/'],
-    thaum:   ['agents/thaum/', 'output/'],
-    praxis:  ['agents/praxis/', 'output/', 'projects/subcult-corp/'],
-    mux:     ['agents/mux/', 'output/', 'projects/subcult-corp/'],
-    primus:  ['agents/primus/', 'shared/', 'output/'],
+    chora:   ['agents/chora/', 'output/', 'shared/'],
+    subrosa: ['agents/subrosa/', 'output/', 'shared/'],
+    thaum:   ['agents/thaum/', 'output/', 'shared/'],
+    praxis:  ['agents/praxis/', 'output/', 'shared/'],
+    mux:     ['agents/mux/', 'output/', 'shared/'],
+    primus:  ['agents/primus/', 'output/', 'shared/'],
 };
 
 /** Droids write to their own scratch directory only */

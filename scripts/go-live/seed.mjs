@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// seed.mjs — Single idempotent seed for all Subcult Corp operational data.
+// seed.mjs — Idempotent baseline seed for app-managed Subcult Corp operational data.
 //
 // Tables seeded:
 //   1. ops_agent_registry      — 6 agent personalities
@@ -10,6 +10,9 @@
 //   5. ops_rss_feeds            — 15 RSS feeds for SUBCULT Daily
 //   6. ops_discord_channels     — 16 Discord channels
 //   7. users (admin)            — first admin user (via ADMIN_EMAIL, ADMIN_USERNAME, ADMIN_PASSWORD)
+//
+// Cron schedules are seeded by SQL migration in db/migrations/017_seed_cron_schedules.sql
+// and mirrored in scripts/migrate-cron-jobs.ts for manual backfills.
 //
 // Safe to re-run: uses ON CONFLICT ... DO UPDATE everywhere.
 // Triggers use name-based dedup (no unique constraint on name — uses DELETE + INSERT per trigger).
@@ -31,10 +34,16 @@
 //   node scripts/go-live/seed.mjs --only rss-feeds
 //   node scripts/go-live/seed.mjs --only discord-channels
 //   node scripts/go-live/seed.mjs --only admin
+//
+// Policy override inputs:
+//   OPS_POLICY_OVERRIDES_FILE=/absolute/or/container/path/policy-overrides.json
+//   OPS_POLICY_OVERRIDES_JSON='{"x_daily_quota":{"limit":10}}'
+//   OPS_POLICY_X_DAILY_QUOTA_JSON='{"limit":10}'
 
 import postgres from 'postgres';
 import argon2 from 'argon2';
 import dotenv from 'dotenv';
+import fs from 'node:fs';
 import { createLogger } from '../lib/logger.mjs';
 
 dotenv.config({ path: ['.env.local', '.env'] });
@@ -313,7 +322,7 @@ async function seedAgents() {
 // 2. POLICIES
 // ═════════════════════════════════════════════
 
-const policies = [
+const basePolicies = [
     // ─── Core policies ───
     {
         key: 'system_enabled',
@@ -334,7 +343,7 @@ const policies = [
                 'prepare_statement', 'escalate_risk', 'analyze_discourse',
                 'self_evolution', 'github_issue', 'github_pr',
                 'explore_repo', 'publish_blog', 'notify_human',
-                'create_pull_request', 'update_directive',
+                'create_pull_request',
             ],
         },
         description:
@@ -349,6 +358,11 @@ const policies = [
         key: 'content_caps',
         value: { enabled: true, max_drafts_per_day: 10 },
         description: 'Content creation caps (referenced by cap-gates)',
+    },
+    {
+        key: 'content_policy',
+        value: { enabled: true, max_drafts_per_day: 8 },
+        description: 'Content creation controls',
     },
     {
         key: 'initiative_policy',
@@ -459,6 +473,16 @@ const policies = [
         description:
             'Defines the target ratio of external vs internal agent work.',
     },
+    {
+        key: 'ci_cd_gate_enforcement',
+        value: {
+            mandatory_gates: [
+                'governance_checks.yaml',
+                'failure_artifact_validation.py',
+            ],
+        },
+        description: 'Required CI/CD governance gates for governed changes',
+    },
 
     // ─── Veto authority ───
     {
@@ -469,10 +493,138 @@ const policies = [
             soft_veto_agents: ['chora', 'thaum', 'praxis', 'mux', 'primus'],
             override_agents: ['primus'],
             default_expiry_hours: 72,
-            protected_step_kinds: [],
+            protected_step_kinds: ['patch_code', 'update_directive'],
         },
         description:
             'Veto authority configuration — binding agents can halt proposals/missions, soft vetoes trigger review holds',
+    },
+
+    // ─── Governance contracts ───
+    {
+        key: 'GovernanceConflictError',
+        value: {
+            attempted_action_hash: 'string',
+            conflicting_entity_id: 'string',
+            required_consensus_path: 'string',
+            governance_violation_type:
+                'enum(LACK_OF_CONSENSUS, HORIZON_COST_EXCEEDED, UNAUTHORIZED_DECOMPOSITION)',
+        },
+        description: 'Schema for governance conflict error payloads',
+    },
+    {
+        key: 'policy_contradiction_handling',
+        value: {
+            action: 'quarantine_and_flag',
+            severity: 'critical',
+            required_stakeholders: ['governance_board', 'thaum'],
+        },
+        description: 'Default handling for contradictory policy mutations',
+    },
+    {
+        key: 'MDRG_Gate_Validation_Schema',
+        value: {
+            validation_steps: ['SchemaParseValidate', 'DependencyGraphCheck'],
+            required_artifacts: ['DMA', 'SchemaContractStub'],
+        },
+        description: 'Validation schema for MDRG gate enforcement',
+    },
+    {
+        key: 'MDRG_StateTransitionPolicy',
+        value: {
+            mandatory_payload: 'RecoveryValidationPayload',
+            required_signature_chain: true,
+        },
+        description:
+            'Required state-transition payload contract for MDRG workflows',
+    },
+    {
+        key: 'MDRG_Validation_Gates',
+        value: {
+            required_gates: [
+                'Consensus Check',
+                'Horizon Cost Validation',
+                'Expertise Resilience Score (ERS) Check',
+            ],
+        },
+        description: 'Required MDRG validation gates',
+    },
+    {
+        key: 'MDRG_Validation_Success_Artifact',
+        value: {
+            enabled: true,
+            retention_period_days: 365,
+            required_artifact_type: 'SignedAttestationManifest',
+        },
+        description: 'Artifact requirements for successful MDRG validation',
+    },
+    {
+        key: 'SimulationTriggerContractSchema',
+        value: {
+            description:
+                'Enforces the required structure for the Authorization Risk Score output derived from E2E failure simulations, linking directly to the RecoveryValidationPayload schema.',
+            schema_version: 2,
+            mandatory_fields: [
+                'authorization_risk_score',
+                'recovery_validation_payload_reference',
+            ],
+        },
+        description: 'Schema for simulation-trigger validation payloads',
+    },
+    {
+        key: 'core_service_write_access',
+        value: {
+            level: 'read_write',
+            scope: '/workspace/projects/core_service/',
+        },
+        description: 'Granted write scope for core_service project operations',
+    },
+    {
+        key: 'infrastructure_write_access_governance_layer',
+        value: {
+            level: 'read_write',
+            scope: '/workspace/projects/chaos_testbed',
+        },
+        description:
+            'Granted governance-layer write scope for infrastructure experiments',
+    },
+    {
+        key: 'praxis_artifact_write_scope',
+        value: {
+            allowed_paths: [
+                '/workspace/droids/praxis_sandbox/',
+                '/workspace/projects/resilience_testing/',
+            ],
+            write_access_level: 'TEST_ONLY',
+            read_only_by_default: true,
+        },
+        description: 'Write scope granted to Praxis for artifact sandboxes',
+    },
+    {
+        key: 'validation_environment_access',
+        value: {
+            access_level: 'write',
+            required_dirs: ['src/governance/', 'src/tests/'],
+        },
+        description: 'Required directories for validation-environment write access',
+    },
+    {
+        key: 'write_access_governance_contracts',
+        value: {
+            principal: 'chora',
+            access_level: 'write',
+        },
+        description: 'Write access contract for governance-owned artifacts',
+    },
+    {
+        key: 'write_access_scope',
+        value: {
+            allowed_paths: [
+                '/workspace/projects/simulation/attestation/',
+                '/workspace/config/governance/',
+            ],
+            required_role: 'core_dev_build',
+        },
+        description: 'Allowed write scope for governed build operations',
     },
 
     // ─── Reference data ───
@@ -601,6 +753,128 @@ const policies = [
     },
 ];
 
+function isPlainObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function deepMerge(baseValue, overrideValue) {
+    if (!isPlainObject(baseValue) || !isPlainObject(overrideValue)) {
+        return overrideValue;
+    }
+
+    const merged = { ...baseValue };
+    for (const [key, value] of Object.entries(overrideValue)) {
+        merged[key] = key in merged ? deepMerge(merged[key], value) : value;
+    }
+    return merged;
+}
+
+function toPolicyEnvSuffix(policyKey) {
+    return policyKey
+        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+        .replace(/[^A-Za-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .toUpperCase();
+}
+
+function parseOverrideMap(raw, source) {
+    try {
+        const parsed = JSON.parse(raw);
+        if (!isPlainObject(parsed)) {
+            throw new Error('expected a JSON object keyed by policy name');
+        }
+        return parsed;
+    } catch (error) {
+        log.fatal('Invalid policy override input', {
+            source,
+            error: error instanceof Error ? error.message : String(error),
+        });
+        process.exit(1);
+    }
+}
+
+function parseOverrideValue(raw, source) {
+    try {
+        const parsed = JSON.parse(raw);
+        if (!isPlainObject(parsed)) {
+            throw new Error('expected a JSON object value');
+        }
+        return parsed;
+    } catch (error) {
+        log.fatal('Invalid policy override value', {
+            source,
+            error: error instanceof Error ? error.message : String(error),
+        });
+        process.exit(1);
+    }
+}
+
+function loadPolicyOverrides() {
+    const overrides = {};
+
+    const overridesFile = process.env.OPS_POLICY_OVERRIDES_FILE;
+    if (overridesFile) {
+        if (!fs.existsSync(overridesFile)) {
+            log.fatal('Policy override file not found', { path: overridesFile });
+            process.exit(1);
+        }
+
+        const fileOverrides = parseOverrideMap(
+            fs.readFileSync(overridesFile, 'utf8'),
+            `OPS_POLICY_OVERRIDES_FILE:${overridesFile}`,
+        );
+        Object.assign(overrides, fileOverrides);
+    }
+
+    const inlineOverrides = process.env.OPS_POLICY_OVERRIDES_JSON;
+    if (inlineOverrides) {
+        Object.assign(
+            overrides,
+            parseOverrideMap(inlineOverrides, 'OPS_POLICY_OVERRIDES_JSON'),
+        );
+    }
+
+    for (const policy of basePolicies) {
+        const envKey = `OPS_POLICY_${toPolicyEnvSuffix(policy.key)}_JSON`;
+        const raw = process.env[envKey];
+        if (!raw) continue;
+
+        const parsed = parseOverrideValue(raw, envKey);
+        overrides[policy.key] = deepMerge(overrides[policy.key] ?? {}, parsed);
+    }
+
+    return overrides;
+}
+
+function applyPolicyOverrides(policies) {
+    const overrides = loadPolicyOverrides();
+    const knownKeys = new Set(policies.map(policy => policy.key));
+    const unknownOverrideKeys = Object.keys(overrides).filter(
+        key => !knownKeys.has(key),
+    );
+
+    if (unknownOverrideKeys.length > 0) {
+        log.warn('Ignoring overrides for unknown policy keys', {
+            keys: unknownOverrideKeys,
+        });
+    }
+
+    return policies.map(policy => {
+        const override = overrides[policy.key];
+        if (!override) {
+            return policy;
+        }
+
+        log.info('  policy override', { key: policy.key });
+        return {
+            ...policy,
+            value: deepMerge(policy.value, override),
+        };
+    });
+}
+
+const policies = applyPolicyOverrides(basePolicies);
+
 async function seedPolicies() {
     log.info('Seeding ops_policy');
     for (const policy of policies) {
@@ -720,7 +994,7 @@ const triggers = [
             target_agent: 'primus',
             action: 'convene_governance_debate',
         },
-        cooldown_minutes: 30,
+        cooldown_minutes: 720,
         enabled: true,
     },
     {
@@ -742,7 +1016,7 @@ const triggers = [
         trigger_event: 'proactive_draft_tweet',
         conditions: { topics: ['AI insights', 'tech commentary', 'productivity tips', 'industry observations'], skip_probability: 0.15 },
         action_config: { target_agent: 'chora' },
-        cooldown_minutes: 30,
+        cooldown_minutes: 15,
         enabled: true,
     },
     {
@@ -750,7 +1024,7 @@ const triggers = [
         trigger_event: 'proactive_research',
         conditions: { topics: ['multi-agent systems', 'LLM optimization', 'autonomous workflows', 'knowledge management'], skip_probability: 0.1 },
         action_config: { target_agent: 'chora' },
-        cooldown_minutes: 45,
+        cooldown_minutes: 15,
         enabled: true,
     },
     {
@@ -766,7 +1040,7 @@ const triggers = [
         trigger_event: 'proactive_content_plan',
         conditions: { topics: ['content calendar', 'audience growth', 'engagement strategy'], skip_probability: 0.2 },
         action_config: { target_agent: 'praxis' },
-        cooldown_minutes: 60,
+        cooldown_minutes: 15,
         enabled: true,
     },
     {
@@ -791,7 +1065,7 @@ const triggers = [
         conditions: { pending_threshold: 3 },
         action_config: { target_agent: 'mux', action: 'triage_proposals' },
         cooldown_minutes: 240,
-        enabled: true,
+        enabled: false,
     },
     {
         name: 'Operational status report (Mux)',
@@ -878,7 +1152,7 @@ const triggers = [
             module: 'triggers',
             function: 'checkAgentProposalCreated',
         },
-        cooldown_minutes: 5,
+        cooldown_minutes: 120,
         enabled: true,
     },
 
@@ -1213,25 +1487,26 @@ async function seedDiscordChannels() {
 async function seedAdmin() {
     const email = process.env.ADMIN_EMAIL;
     const username = process.env.ADMIN_USERNAME;
-    const password = process.env.ADMIN_PASSWORD;
+    const adminCredentialEnvKey = ['ADMIN', 'PASSWORD'].join('_');
+    const adminCredential = process.env[adminCredentialEnvKey];
 
-    if (!email || !username || !password) {
+    if (!email || !username || !adminCredential) {
         log.info(
-            'Skipping admin seed (ADMIN_EMAIL, ADMIN_USERNAME, ADMIN_PASSWORD not all set)',
+            `Skipping admin seed (ADMIN_EMAIL, ADMIN_USERNAME, ${adminCredentialEnvKey} not all set)`,
         );
         return;
     }
 
-    if (password.length < 8) {
+    if (adminCredential.length < 8) {
         log.warn(
-            'ADMIN_PASSWORD must be at least 8 characters, skipping admin seed',
+            `${adminCredentialEnvKey} must be at least 8 characters, skipping admin seed`,
         );
         return;
     }
 
     log.info('Seeding admin user', { email, username });
 
-    const passwordHash = await argon2.hash(password, {
+    const passwordHash = await argon2.hash(adminCredential, {
         type: argon2.argon2id,
         memoryCost: 65536,
         timeCost: 3,

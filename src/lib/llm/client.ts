@@ -54,6 +54,26 @@ const OPENROUTER_CHAT_TIMEOUT_MS = 30_000;
 const OPENROUTER_TOOL_TIMEOUT_MS = 120_000;
 
 /**
+ * Local Ollama fallback chain used when a context resolves only cloud models
+ * and OpenRouter is disabled. Adjustable via OLLAMA_FALLBACK_MODELS.
+ */
+const DEFAULT_OLLAMA_FALLBACK_MODELS = [
+    'qwen3:14b',
+    'gemma4:latest',
+    'qwen2.5-coder:14b',
+    'qwen3.5:latest',
+    
+];
+
+const OLLAMA_FALLBACK_MODELS = (
+    process.env.OLLAMA_FALLBACK_MODELS ??
+    DEFAULT_OLLAMA_FALLBACK_MODELS.join(',')
+)
+    .split(',')
+    .map(model => model.trim())
+    .filter(Boolean);
+
+/**
  * Best-effort repair of truncated JSON from LLM tool call arguments.
  * Models sometimes run out of output tokens mid-JSON, producing unterminated
  * strings or missing closing braces/brackets. This tries to close them.
@@ -238,6 +258,24 @@ interface OllamaModelSpec {
  * (skips the hardcoded fallback list).
  */
 function getOllamaModels(): OllamaModelSpec[] {
+    return getOllamaModelsWithFallback();
+}
+
+function dedupeModelSpecs(models: OllamaModelSpec[]): OllamaModelSpec[] {
+    const seen = new Set<string>();
+    const deduped: OllamaModelSpec[] = [];
+
+    for (const model of models) {
+        const key = `${model.baseUrl}::${model.model}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        deduped.push(model);
+    }
+
+    return deduped;
+}
+
+function getOllamaModelsWithFallback(preferredModel?: string): OllamaModelSpec[] {
     const models: OllamaModelSpec[] = [];
 
     // Cloud models via ollama.com (fast, capable, free)
@@ -263,19 +301,18 @@ function getOllamaModels(): OllamaModelSpec[] {
 
     // Local/network models via OLLAMA_BASE_URL
     if (OLLAMA_LOCAL_URL) {
-        if (OLLAMA_MODEL) {
-            // Env-specified model — single entry, no hardcoded fallback list
-            models.push({ model: OLLAMA_MODEL, baseUrl: OLLAMA_LOCAL_URL });
-        } else {
-            // Default fallback list when no model is pinned
-            models.push(
-                { model: 'qwen3-coder:30b', baseUrl: OLLAMA_LOCAL_URL },
-                { model: 'llama3.2:latest', baseUrl: OLLAMA_LOCAL_URL },
-            );
+        const localModels = [
+            ...(preferredModel ? [preferredModel] : []),
+            ...OLLAMA_FALLBACK_MODELS,
+            ...(OLLAMA_MODEL ? [OLLAMA_MODEL] : []),
+        ];
+
+        for (const model of localModels) {
+            models.push({ model, baseUrl: OLLAMA_LOCAL_URL });
         }
     }
 
-    return models;
+    return dedupeModelSpecs(models);
 }
 
 /** Strip thinking blocks from reasoning model output.
@@ -505,17 +542,9 @@ async function ollamaChat(
         model?: string;
     },
 ): Promise<OllamaChatResult | null> {
-    // If a specific model is requested (Ollama format with colon), use it directly
-    if (options?.model && options.model.includes(':')) {
-        const baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-        const spec = { model: options.model, baseUrl, apiKey: '' };
-        const maxTokens = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
-        const tools = options?.tools;
-        const maxToolRounds = options?.maxToolRounds ?? 10;
-        const openaiTools = tools && tools.length > 0 ? tools.map(t => ({ type: 'function' as const, function: { name: t.name, description: t.description, parameters: t.parameters } })) : undefined;
-        return ollamaChatWithModel({ spec, messages, temperature, maxTokens, tools, openaiTools, maxToolRounds });
-    }
-    const models = getOllamaModels();
+    const preferredModel =
+        options?.model && options.model.includes(':') ? options.model : undefined;
+    const models = getOllamaModelsWithFallback(preferredModel);
     if (models.length === 0) return null;
 
     const maxTokens = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
@@ -663,6 +692,7 @@ async function ollamaChatWithModel(
             const rawData = (await response.json()) as {
                 message?: {
                     content?: string;
+                    thinking?: string;
                     reasoning?: string;
                     tool_calls?: Array<{
                         function: { name: string; arguments: string | Record<string, unknown> };
@@ -692,6 +722,7 @@ async function ollamaChatWithModel(
                 round,
                 finishReason,
                 contentLength: (msg?.content ?? '').length,
+                thinkingLength: (msg?.thinking ?? '').length,
                 reasoningLength: (msg?.reasoning ?? '').length,
                 contentPreview: (msg?.content ?? '').slice(0, 80) || '(empty)',
                 hasToolCalls: !!(msg?.tool_calls?.length),
@@ -721,6 +752,7 @@ async function ollamaChatWithModel(
                 ollamaPendingToolCalls.length === 0
             ) {
                 const raw = msg.content ?? '';
+                const thinking = msg.thinking ?? msg.reasoning ?? '';
                 const stripped = extractFromXml(stripThinking(raw)).trim();
                 // If stripping thinking blocks produces empty content but raw wasn't empty,
                 // the model put useful output inside thinking tags — preserve it.
@@ -728,8 +760,10 @@ async function ollamaChatWithModel(
                 if (text.length === 0 && toolCallRecords.length === 0) {
                     log.warn('Ollama model returned empty text', {
                         model,
+                        doneReason: rawData.done_reason,
                         rawContentLength: raw.length,
-                        rawPreview: raw.slice(0, 100) || '(empty)',
+                        thinkingLength: thinking.length,
+                        rawPreview: (raw || thinking).slice(0, 100) || '(empty)',
                     });
                     return null;
                 }

@@ -1,5 +1,5 @@
 /**
- * Next.js middleware — attaches request correlation IDs.
+ * Next.js proxy — attaches request correlation IDs.
  *
  * For each incoming request:
  * 1. Reads x-request-id header (if exists) or generates a new one
@@ -11,9 +11,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { generateRequestId } from '@/lib/request-context';
+import { generateRequestId } from '@/lib/request-id';
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
     const requestId =
         request.headers.get('x-request-id') ?? generateRequestId();
 

@@ -535,12 +535,38 @@ export async function publishApprovedDrafts(
     let failed = 0;
 
     for (const draft of drafts) {
+        // ── Step 1: Publish locally ──
+        let local: LocalPublicationState;
         try {
             const publication = getPublicationState(draft.metadata);
-            const local = await publishLocally(draft, publication.local);
+            local = await publishLocally(draft, publication.local);
+        } catch (err) {
+            failed++;
+            const reason = err instanceof Error ? err.message : String(err);
+            log.error('publishLocally failed', {
+                draftId: draft.id,
+                title: draft.title,
+                error: reason,
+            });
+            // Record failure in metadata without changing status
+            await sql`
+                UPDATE ops_content_drafts
+                SET metadata = jsonb_set(
+                    COALESCE(metadata, '{}'::jsonb),
+                    '{publication_error}',
+                    ${jsonb({ step: 'publishLocally', error: reason, at: new Date().toISOString() })}::jsonb
+                ),
+                updated_at = NOW()
+                WHERE id = ${draft.id}
+            `;
+            continue;
+        }
+
+        // ── Step 2: Update draft status to published ──
+        try {
             const metadataWithLocal = mergePublicationState(draft.metadata, {
                 local,
-                ghost: publication.ghost,
+                ghost: getPublicationState(draft.metadata).ghost,
             });
 
             const result = await sql<{ id: string }[]>`
@@ -558,11 +584,6 @@ export async function publishApprovedDrafts(
                 continue;
             }
 
-            published++;
-            draft.status = 'published';
-            draft.published_at = local.published_at;
-            draft.metadata = metadataWithLocal;
-
             await emitEvent({
                 agent_id: draft.author_agent,
                 kind: 'content_published',
@@ -576,12 +597,31 @@ export async function publishApprovedDrafts(
                 },
             });
 
-            await mirrorPublishedDraft(draft);
+            published++;
+            draft.status = 'published';
+            draft.published_at = local.published_at;
+            draft.metadata = metadataWithLocal;
         } catch (err) {
             failed++;
-            log.error('Failed to auto-publish approved draft', {
+            const reason = err instanceof Error ? err.message : String(err);
+            log.error('Draft status update failed after local publish', {
                 draftId: draft.id,
-                error: err,
+                title: draft.title,
+                localSlug: local.slug,
+                error: reason,
+            });
+            continue;
+        }
+
+        // ── Step 3: Mirror to Ghost (non-fatal) ──
+        try {
+            await mirrorPublishedDraft(draft);
+        } catch (err) {
+            const reason = err instanceof Error ? err.message : String(err);
+            log.warn('Ghost mirror threw unexpectedly', {
+                draftId: draft.id,
+                title: draft.title,
+                error: reason,
             });
         }
     }

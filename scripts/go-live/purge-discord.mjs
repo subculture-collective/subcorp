@@ -3,7 +3,8 @@
 // purge-discord.mjs — Delete all bot messages from Discord channels.
 //
 // Queries ops_discord_channels for enabled channels, then paginates through
-// each channel's messages and deletes them:
+// each channel's messages and deletes only messages owned by this bot or
+// posted via webhooks:
 //   - Messages < 14 days old: bulk-delete (2-100 per call)
 //   - Messages >= 14 days old: individual DELETE
 //
@@ -24,6 +25,7 @@ const DISCORD_API = 'https://discord.com/api/v10';
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const MAX_RETRIES = 3;
 const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+let cachedBotUserId = null;
 
 if (!BOT_TOKEN) {
     log.warn('DISCORD_BOT_TOKEN not set, skipping purge');
@@ -66,9 +68,40 @@ async function discordFetch(path, options = {}) {
             }
         }
 
+        const remaining = res.headers.get('X-RateLimit-Remaining');
+        const resetAfter = res.headers.get('X-RateLimit-Reset-After');
+        if (remaining === '0' && resetAfter) {
+            const waitMs = Math.ceil(parseFloat(resetAfter) * 1000);
+            log.info('Discord bucket exhausted, pacing next request', {
+                waitMs,
+                path,
+            });
+            await sleep(waitMs);
+        }
+
         return res;
     }
     throw new Error(`discordFetch: exhausted retries for ${path}`);
+}
+
+async function getBotUserId() {
+    if (cachedBotUserId) return cachedBotUserId;
+
+    const res = await discordFetch('/users/@me');
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(
+            `Failed to resolve bot identity: ${res.status} ${text.slice(0, 200)}`,
+        );
+    }
+
+    const data = await res.json();
+    cachedBotUserId = data.id;
+    return cachedBotUserId;
+}
+
+function isOwnedByBot(message, botUserId) {
+    return Boolean(message.webhook_id) || message.author?.id === botUserId;
 }
 
 // ─── Message fetching ───
@@ -147,7 +180,10 @@ async function deleteMessage(channelId, messageId) {
 }
 
 async function purgeChannel(channelId, channelName) {
-    const messages = await fetchAllMessages(channelId);
+    const botUserId = await getBotUserId();
+    const messages = (await fetchAllMessages(channelId)).filter(message =>
+        isOwnedByBot(message, botUserId),
+    );
     if (messages.length === 0) {
         log.info('No messages', { channel: channelName });
         return 0;
@@ -223,6 +259,7 @@ async function main() {
             log.info('Purging channel', { channel: ch.name, id: ch.discord_channel_id, category: ch.category });
             const count = await purgeChannel(ch.discord_channel_id, ch.name);
             totalDeleted += count;
+            await sleep(750);
         }
 
         log.info('Purge complete', { totalDeleted, channels: channels.length });

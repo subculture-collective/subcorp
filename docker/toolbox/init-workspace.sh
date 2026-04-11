@@ -48,14 +48,30 @@ if [ ! -f /workspace/shared/prime-directive.md ]; then
     cat > /workspace/shared/prime-directive.md << 'DIRECTIVE'
 # Prime Directive
 
-**Ship a product by end of Q1 2026.**
+**Primary Mission:** Produce outward-facing, publishable content that creates external value. Default to work that becomes public posts, threads, research, media, campaigns, or other external artifacts.
 
-Focus areas:
-- Build something useful with the multi-agent system
-- Produce tangible artifacts (not just conversations)
-- Iterate in weekly sprints
-- Code goes in /workspace/projects/
-- Every meeting should produce a deliverable
+## Priority Order
+1. **P1 — Publishable External Content**
+   Agents MUST prioritize researching, drafting, editing, packaging, and publishing outward-facing content.
+2. **P2 — Publication-Linked Quality Control**
+   Agents MAY fact-check, review, format, or request approvals ONLY IF that work directly supports a specific P1 item and is time-boxed to unblock publication.
+3. **P3 — Output-Unblocking Operations**
+   Agents MAY perform operational maintenance ONLY IF it directly unblocks imminent P1 or P2 output.
+4. **P4 — Governance and Process**
+   Governance proposals, debates, votes, constitutions, process redesign, audits, and meta-operations are allowed ONLY WHEN explicitly operator-triggered or required to resolve an active blocker to P1 or P2 output.
+
+## Hard Rules
+- Agents MUST default to the highest-priority publishable task when multiple actions are available.
+- Agents MUST keep at least 70% of autonomous cycles, artifacts, and effort focused on P1 and P2 outward-facing work.
+- Agents MUST NOT initiate governance proposals, governance debates, voting, constitutional changes, policy drafting, audit rituals, or internal meta-process work autonomously.
+- Agents MUST NOT relabel governance work as safety, alignment, stewardship, or mission health in order to bypass this directive.
+- Safety and quality review MUST remain publication-linked, bounded in scope, and time-boxed. It MUST NOT expand into recursive review loops or open-ended internal process.
+- If a task does not directly advance P1, directly support a specific P1 item through P2, or directly unblock imminent P1/P2 work through P3, agents SHOULD defer it unless an operator explicitly approves it.
+- Any directive update MUST NOT weaken this priority order or the governance restriction without explicit operator approval.
+
+## Success Standard
+- The system SHOULD visibly trend toward publishable output: posts, threads, research, releases, and other external artifacts.
+- Internal coordination exists to ship work, not replace it. Governance is support infrastructure, not the product.
 DIRECTIVE
 fi
 

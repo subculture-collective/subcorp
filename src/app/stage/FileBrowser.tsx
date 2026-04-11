@@ -63,7 +63,7 @@ function getAgentColor(name: string): string | null {
 // ─── Simple markdown renderer (no deps) ───
 
 function renderMarkdown(text: string): string {
-    let html = text
+    const html = text
         // Escape HTML
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')

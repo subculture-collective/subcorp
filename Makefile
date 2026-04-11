@@ -97,7 +97,7 @@ logs-db: ## Tail Postgres logs (external container)
 # Database
 # ──────────────────────────────────────────
 
-db-migrate: ## Run all SQL migrations against the Postgres container
+db-migrate: ## Run all SQL migrations against the Postgres container (includes cron seeds)
 	@for f in db/migrations/*.sql; do \
 		echo "Running $$f..."; \
 		docker exec -i $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB) < "$$f" 2>&1 | tail -1; \
@@ -125,7 +125,7 @@ define RUN_SEED
 		node
 endef
 
-seed: ## Seed everything (agents, policies, triggers, relationships)
+seed: ## Seed app-managed ops data (agents, policies, triggers, relationships, RSS, Discord, admin)
 	$(RUN_SEED) scripts/go-live/seed.mjs
 
 seed-agents: ## Seed agent registry only
@@ -167,7 +167,7 @@ nuke: ## Wipe everything: containers, volumes, images, DB — full reset (includ
 	@docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c "DROP DATABASE IF EXISTS $(PG_DB);" 2>/dev/null || true
 	@echo "Nuked. All containers, volumes, local images, and database removed."
 
-fresh: ## Fresh start: stop → nuke DB → rebuild app → migrate → seed (preserves toolbox image)
+fresh: ## Fresh start: stop → nuke DB → rebuild → migrate → seed → purge Discord → init workspace
 	docker compose down -v --remove-orphans
 	@echo "Nuking database $(PG_DB)..."
 	@docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c \

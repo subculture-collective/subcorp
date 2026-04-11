@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
-import { generateRequestId, requestContext } from '@/lib/request-context';
+import { requestContext } from '@/lib/request-context';
+import { generateRequestId } from '@/lib/request-id';
 
 export function withRequestContext<T>(
     req: NextRequest,

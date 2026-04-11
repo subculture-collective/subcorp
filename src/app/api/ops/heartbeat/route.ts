@@ -31,6 +31,112 @@ const log = logger.child({ route: 'heartbeat' });
 
 export const dynamic = 'force-dynamic';
 
+const CONTENT_STEP_KINDS = new Set([
+    'analyze_discourse',
+    'scan_signals',
+    'research_topic',
+    'distill_insight',
+    'draft_thread',
+    'draft_essay',
+    'critique_content',
+    'refine_narrative',
+    'prepare_statement',
+    'content_revision',
+    'publish_blog',
+]);
+
+const GOVERNANCE_STEP_KINDS = new Set([
+    'audit_system',
+    'review_policy',
+    'convene_roundtable',
+    'propose_workflow',
+    'update_directive',
+    'self_evolution',
+]);
+
+const CONTENT_RATIO_LOOKBACK_DAYS = 7;
+
+type StepCategory = 'content' | 'governance' | 'other';
+
+interface StepKindCount {
+    kind: string;
+    count: number;
+    category: StepCategory;
+}
+
+interface ContentRatioMetric {
+    lookback_days: number;
+    total_active_steps: number;
+    classified_steps: number;
+    content_steps: number;
+    governance_steps: number;
+    other_steps: number;
+    content_share: number | null;
+    governance_share: number | null;
+    content_to_governance_ratio: number | null;
+    meets_target: boolean | null;
+    by_kind: StepKindCount[];
+}
+
+function classifyStepKind(kind: string): StepCategory {
+    if (CONTENT_STEP_KINDS.has(kind)) return 'content';
+    if (GOVERNANCE_STEP_KINDS.has(kind)) return 'governance';
+    return 'other';
+}
+
+async function getRecentContentRatioMetric(): Promise<ContentRatioMetric> {
+    const stepCounts = await sql<{ kind: string | null; count: string }[]>`
+        SELECT kind, COUNT(*)::text AS count
+        FROM ops_mission_steps
+        WHERE status <> 'queued'
+          AND COALESCE(completed_at, started_at, updated_at, created_at) >= NOW() - INTERVAL '7 days'
+        GROUP BY kind
+        ORDER BY COUNT(*) DESC, kind ASC
+    `;
+
+    const byKind: StepKindCount[] = [];
+    let totalActiveSteps = 0;
+    let contentSteps = 0;
+    let governanceSteps = 0;
+    let otherSteps = 0;
+
+    for (const row of stepCounts) {
+        const count = parseInt(row.count, 10);
+        const kind = row.kind ?? 'unknown';
+        const category = classifyStepKind(kind);
+
+        byKind.push({ kind, count, category });
+        totalActiveSteps += count;
+
+        if (category === 'content') contentSteps += count;
+        else if (category === 'governance') governanceSteps += count;
+        else otherSteps += count;
+    }
+
+    const classifiedSteps = contentSteps + governanceSteps + otherSteps;
+    const contentShare =
+        classifiedSteps > 0 ? contentSteps / classifiedSteps : null;
+    const governanceShare =
+        classifiedSteps > 0 ? governanceSteps / classifiedSteps : null;
+    const contentToGovernanceRatio =
+        governanceSteps > 0 ? contentSteps / governanceSteps : null;
+
+    return {
+        lookback_days: CONTENT_RATIO_LOOKBACK_DAYS,
+        total_active_steps: totalActiveSteps,
+        classified_steps: classifiedSteps,
+        content_steps: contentSteps,
+        governance_steps: governanceSteps,
+        other_steps: otherSteps,
+        content_share: contentShare,
+        governance_share: governanceShare,
+        content_to_governance_ratio: contentToGovernanceRatio,
+        meets_target:
+            contentShare === null ? null : contentShare >= 0.7,
+        by_kind: byKind,
+    };
+}
+
 export async function GET(req: NextRequest) {
     return withRequestContext(req, async () => {
         const startTime = Date.now();
@@ -375,6 +481,14 @@ export async function GET(req: NextRequest) {
         } catch (err) {
             results.newsletter = { error: (err as Error).message };
             log.error('Weekly newsletter generation failed', { error: err });
+        }
+
+        // ── Phase 19: Content-vs-governance activity ratio (last 7 days) ──
+        try {
+            results.content_ratio = await getRecentContentRatioMetric();
+        } catch (err) {
+            results.content_ratio = { error: (err as Error).message };
+            log.error('Content ratio metric failed', { error: err });
         }
 
         const durationMs = Date.now() - startTime;

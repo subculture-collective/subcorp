@@ -12,6 +12,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { generateRequestId } from './request-id';
 
 export interface RequestContextData {
     requestId: string;
@@ -39,10 +40,4 @@ class RequestContext {
 /** Singleton request context instance. */
 export const requestContext = new RequestContext();
 
-/** Generate a short request ID (collision-safe for reasonable RPS). */
-export function generateRequestId(): string {
-    // 12 hex chars = 48 bits of entropy ≈ 281 trillion possible IDs
-    const bytes = new Uint8Array(6);
-    crypto.getRandomValues(bytes);
-    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-}
+export { generateRequestId };

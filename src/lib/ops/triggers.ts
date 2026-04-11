@@ -193,6 +193,10 @@ async function checkTrigger(
             return checkProactiveBuild(conditions, targetAgent);
         case 'proactive_explore_org':
             return checkProactiveBuild(conditions, targetAgent);
+        case 'proactive_content_plan':
+            return checkProactiveContentPlan(rule, targetAgent);
+        case 'proactive_draft_tweet':
+            return checkProactiveDraftTweet(rule, targetAgent);
         default:
             if (rule.trigger_event.startsWith('proactive_')) {
                 return checkProactiveGeneric(rule, targetAgent);
@@ -712,6 +716,54 @@ async function checkProactiveGeneric(
             agent_id: targetAgent,
             title: rule.name.substring(0, 100),
             proposed_steps: [{ kind: 'research_topic', payload: { topic } }],
+            source: 'trigger',
+        },
+    };
+}
+
+async function checkProactiveContentPlan(
+    rule: TriggerRule,
+    targetAgent: string,
+): Promise<TriggerCheckResult> {
+    const conditions = rule.conditions as Record<string, unknown>;
+    const skipProb = (conditions.skip_probability as number) ?? 0.1;
+    if (Math.random() < skipProb)
+        return { fired: false, reason: 'skipped by probability' };
+
+    const topics = (conditions.topics as string[]) ?? ['SUBCULT product launches', 'agent operations insights', 'tech culture commentary'];
+    const topic = topics[Math.floor(Math.random() * topics.length)];
+
+    return {
+        fired: true,
+        reason: `Proactive content plan: ${topic}`,
+        proposal: {
+            agent_id: 'chora',
+            title: `Content plan: ${topic}`,
+            proposed_steps: [{ kind: 'draft_essay', payload: { topic } }],
+            source: 'trigger',
+        },
+    };
+}
+
+async function checkProactiveDraftTweet(
+    rule: TriggerRule,
+    targetAgent: string,
+): Promise<TriggerCheckResult> {
+    const conditions = rule.conditions as Record<string, unknown>;
+    const skipProb = (conditions.skip_probability as number) ?? 0.1;
+    if (Math.random() < skipProb)
+        return { fired: false, reason: 'skipped by probability' };
+
+    const topics = (conditions.topics as string[]) ?? ['tech commentary', 'AI insights'];
+    const topic = topics[Math.floor(Math.random() * topics.length)];
+
+    return {
+        fired: true,
+        reason: `Proactive tweet draft: ${topic}`,
+        proposal: {
+            agent_id: 'chora',
+            title: `Tweet draft: ${topic}`,
+            proposed_steps: [{ kind: 'draft_thread', payload: { topic } }],
             source: 'trigger',
         },
     };

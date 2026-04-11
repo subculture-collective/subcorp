@@ -1,8 +1,9 @@
-// Migrate OpenClaw cron jobs to native ops_cron_schedules table
-// One-time script: npx tsx scripts/migrate-cron-jobs.ts
+// Legacy/manual backfill for cron schedules in ops_cron_schedules.
+// Current baseline cron seeds live in db/migrations/017_seed_cron_schedules.sql.
+// One-time/manual use: npx tsx scripts/migrate-cron-jobs.ts
 //
 // Inserts predefined cron schedules based on the plan's job list.
-// Run after migration 018 has been applied.
+// Keep this file in sync with the SQL migration when schedules change.
 
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });

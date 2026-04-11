@@ -42,7 +42,7 @@ export async function loadStepTemplate(
         return cached.template;
     }
 
-    const [row] = await sql<[StepTemplate?]>`
+    const [row] = await sql<StepTemplate[]>`
         SELECT kind, template, tools_hint, output_hint, version
         FROM ops_step_templates WHERE kind = ${kind}
     `;
@@ -243,17 +243,31 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `Write the spec to output/reports/${today}__product__spec__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n`,
 
     update_directive: (ctx, today) =>
-        `Read the current prime directive from shared/prime-directive.md using file_read.\n` +
-        `Read any recent product specs from output/reports/ using file_read (look for product__spec files).\n` +
-        `Read recent strategy roundtable artifacts from output/ using file_read.\n` +
-        `Based on the current state of the project, write an updated prime directive.\n` +
-        `The directive should:\n` +
-        `  - Reflect the current product direction\n` +
-        `  - Set clear priorities and focus areas\n` +
-        `  - Define success criteria for the current period\n` +
-        `  - Be concise and actionable (under 500 words)\n` +
-        `Write the updated directive to shared/prime-directive.md using file_write.\n` +
-        `Also write a changelog entry to agents/primus/notes/${today}__directive__update__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md.\n`,
+        [
+            `Read the current prime directive from shared/prime-directive.md using file_read.`,
+            `Read any recent product specs from output/reports/ using file_read (look for product__spec files).`,
+            `Read recent strategy roundtable artifacts from output/ using file_read.`,
+            `Based on the current state of the project, draft an updated prime directive proposal.`,
+            `You MUST preserve the directive hierarchy and guardrails:`,
+            `  - P1 = outward-facing publishable content`,
+            `  - P2 = publication-linked quality/fact-check/review only for a specific P1 item`,
+            `  - P3 = operational work only when directly unblocking imminent P1/P2 output`,
+            `  - P4 = governance/process only when operator-triggered`,
+            `  - Keep at least 70% of autonomous effort focused on P1/P2 work`,
+            `  - Do not relabel governance as safety/alignment/stewardship/mission health to bypass the hierarchy`,
+            `  - Keep review publication-linked, bounded, and time-boxed`,
+            `  - Do not weaken these structural rules without explicit operator approval`,
+            `The directive should:`,
+            `  - Reflect the current product direction`,
+            `  - Set clear priorities and focus areas`,
+            `  - Define success criteria for the current period`,
+            `  - Be concise and actionable (under 500 words)`,
+            `Write the proposed directive to agents/primus/notes/${today}__directive__proposal__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.`,
+            `Use notify_human to request operator review and explicit approval of the staged proposal before any live directive change.`,
+            `You MUST NOT write directly to shared/prime-directive.md without explicit operator approval.`,
+            `Also write a changelog entry to agents/primus/notes/${today}__directive__update__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md.`,
+            '',
+        ].join('\n'),
 
     create_pull_request: (ctx, today, outputDir) =>
         `You are creating a pull request from the agents/workspace branch.\n` +

@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { getBlogPosts } from '@/data/blog';
 
+export const dynamic = 'force-dynamic';
+
 const blogListJsonLd = (posts: { slug: string; title: string; date: string }[]) => ({
     '@context': 'https://schema.org',
     '@type': 'ItemList',

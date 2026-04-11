@@ -1,0 +1,160 @@
+{
+  "schema_version": "1.0.0",
+  "title": "Autonomous Ops Alignment Remediation",
+  "swarm": "default",
+  "current_phase": 1,
+  "phases": [
+    {
+      "id": 1,
+      "name": "Restore runtime publication and scheduling foundations",
+      "status": "complete",
+      "tasks": [
+        {
+          "id": "1.1",
+          "phase": 1,
+          "status": "completed",
+          "size": "small",
+          "description": "Seed 12 recurring cron schedules into ops_cron_schedules via guarded SQL inserts using INSERT INTO ... SELECT ... WHERE NOT EXISTS (SELECT 1 FROM ops_cron_schedules WHERE name=...) for each row, since the table has no unique constraint on name. Definitions sourced from scripts/migrate-cron-jobs.ts.",
+          "depends": [],
+          "acceptance": "FR-001; SC-001. Verification: SELECT count(*) FROM ops_cron_schedules WHERE enabled=true returns 12; SELECT DISTINCT name FROM ops_cron_schedules returns 12 unique names. Rollback: DELETE FROM ops_cron_schedules WHERE name IN (list of 12 seeded names).",
+          "files_touched": []
+        },
+        {
+          "id": "1.2",
+          "phase": 1,
+          "status": "completed",
+          "size": "small",
+          "description": "Fix blog reader path in src/data/blog.ts: change BLOG_DIR from path.join(process.cwd(), 'workspace/output/blog') to use /workspace/output/blog/ so it reads from the same shared-volume directory that the publication writer in content-publication.ts writes to via WORKSPACE_ROOT",
+          "depends": [
+            "1.1"
+          ],
+          "acceptance": "FR-002; SC-002. Verification: blog.ts BLOG_DIR resolves to /workspace/output/blog/; npm run build succeeds; make typecheck passes. Rollback: revert blog.ts to previous path.join(process.cwd(), 'workspace/output/blog').",
+          "files_touched": []
+        },
+        {
+          "id": "1.3",
+          "phase": 1,
+          "status": "completed",
+          "size": "small",
+          "description": "Copy the 7 existing hand-written blog posts from the image-baked path /app/workspace/output/blog/ into the shared-volume path /workspace/output/blog/ so they remain visible after the blog.ts path change from task 1.2",
+          "depends": [
+            "1.2"
+          ],
+          "acceptance": "Verification: docker exec subcult-corp-worker ls /workspace/output/blog/ shows the 7 original posts. Rollback: re-copy from /app/workspace/output/blog/.",
+          "files_touched": []
+        },
+        {
+          "id": "1.4",
+          "phase": 1,
+          "status": "completed",
+          "size": "small",
+          "description": "Add structured error logging to publication functions in src/lib/ops/content-publication.ts: wrap publishLocally and mirrorPublishedDraft call sites inside publishApprovedDrafts with try/catch that logs errors via createLogger and records failure reason in the draft metadata JSON column",
+          "depends": [
+            "1.2"
+          ],
+          "acceptance": "FR-003, FR-004. Verification: publishApprovedDrafts catches errors from publishLocally and mirrorPublishedDraft; errors logged with createLogger; failed drafts get error reason in metadata JSON column; make typecheck passes.",
+          "files_touched": []
+        },
+        {
+          "id": "1.5",
+          "phase": 1,
+          "status": "completed",
+          "size": "small",
+          "description": "Repair corrupted model routing row in ops_model_routing: snapshot current row for context=agent_proposal_vote via SELECT, then UPDATE models array to remove the env-var fragment contamination (the literal MODEL_ROUTING_AGENT_DESIGN= string concatenated into a model identifier)",
+          "depends": [],
+          "acceptance": "FR-005, FR-006; SC-004. Pre-repair: SELECT context, models::text FROM ops_model_routing WHERE context='agent_proposal_vote' saved as evidence. Post-repair: same query returns clean model identifiers with no env-var fragments. Rollback: UPDATE back to snapshot value.",
+          "files_touched": []
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Rebalance autonomous behavior toward outward-facing output",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "2.1",
+          "phase": 2,
+          "status": "pending",
+          "size": "small",
+          "description": "Expire stale governance proposals in ops_governance_proposals: snapshot current status distribution, then UPDATE rows with status='proposed' older than 7 days to status='rejected' with resolved_at=now() (schema CHECK allows proposed/voting/accepted/rejected)",
+          "depends": [
+            "1.5"
+          ],
+          "acceptance": "FR-007; SC-005. Pre-repair: SELECT status, count(*) FROM ops_governance_proposals GROUP BY status saved as evidence. Post-repair: SELECT count(*) FROM ops_governance_proposals WHERE status='proposed' AND created_at < now()-interval '7 days' returns 0; affected rows have resolved_at set. Rollback: UPDATE ops_governance_proposals SET status='proposed', resolved_at=NULL WHERE id IN (snapshot IDs).",
+          "files_touched": []
+        },
+        {
+          "id": "2.2",
+          "phase": 2,
+          "status": "pending",
+          "size": "medium",
+          "description": "Rewrite the prime directive file at workspace/shared/prime-directive.md (verified to exist on host and in worker container at /workspace/shared/prime-directive.md, loaded by src/lib/ops/prime-directive.ts) to explicitly prioritize outward-facing content production over internal governance and deprioritize audit/proposal generation unless operator-triggered",
+          "depends": [
+            "2.1"
+          ],
+          "acceptance": "FR-009, FR-010. Verification: cat workspace/shared/prime-directive.md confirms content-creation priority listed above governance; docker exec subcult-corp-worker cat /workspace/shared/prime-directive.md shows updated directive loaded from shared volume; src/lib/ops/prime-directive.ts loads updated file (verified by npm run build succeeding).",
+          "files_touched": []
+        },
+        {
+          "id": "2.3",
+          "phase": 2,
+          "status": "pending",
+          "size": "medium",
+          "description": "Update ops_trigger_rules via SQL to rebalance governance vs content triggers. Specifically: disable or raise cooldown_minutes for governance-oriented rows (name='Governance debate (All agents)' cooldown 30->720, name='Agent proposal voting trigger' cooldown 5->120, name='Proposal backlog monitor (Mux)' enabled=false) and lower cooldowns for content-producing rows (name='Proactive content planning' cooldown 60->15, name='Proactive tweet drafting' cooldown 30->15, name='Proactive deep research' cooldown 45->15)",
+          "depends": [
+            "2.2"
+          ],
+          "acceptance": "FR-008, FR-010. Pre-repair: SELECT name, trigger_event, enabled, cooldown_minutes FROM ops_trigger_rules ORDER BY name saved as full snapshot. Post-repair: governance triggers (Governance debate, Agent proposal voting, Proposal backlog monitor) show enabled=false or cooldown raised to 720+; content triggers (Proactive content planning, Proactive tweet drafting, Proactive deep research) show cooldown lowered to 15-30min. Rollback: restore from snapshot.",
+          "files_touched": []
+        },
+        {
+          "id": "2.4",
+          "phase": 2,
+          "status": "pending",
+          "size": "small",
+          "description": "Add a content-vs-governance activity ratio query to the heartbeat response in src/app/api/ops/heartbeat/route.ts that reports recent mission step type distribution so operators can observe alignment drift",
+          "depends": [
+            "2.3"
+          ],
+          "acceptance": "FR-011; SC-006, SC-007, SC-008. Verification: npm run build succeeds; make typecheck passes; heartbeat response JSON includes content_ratio object with step type counts from last 24h.",
+          "files_touched": []
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Deploy and clear backlog",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "3.1",
+          "phase": 3,
+          "status": "pending",
+          "size": "medium",
+          "description": "Deploy all code changes by running docker compose up -d --build subcult-corp-app subcult-corp-worker subcult-sanctum to rebuild images AND recreate running containers with new code (blog.ts path fix, publication error logging, heartbeat metrics, refreshed sanctum image)",
+          "depends": [
+            "2.4"
+          ],
+          "acceptance": "FR-014; SC-008. Verification: docker compose up -d --build completes without errors for subcult-corp-app subcult-corp-worker subcult-sanctum; docker ps shows all three running with updated image timestamps; docker exec subcult-corp-worker ls /workspace/output/blog confirms blog directory accessible; curl heartbeat returns content_ratio field.",
+          "files_touched": []
+        },
+        {
+          "id": "3.2",
+          "phase": 3,
+          "status": "pending",
+          "size": "medium",
+          "description": "Clear the approved-but-unpublished content backlog: publishApprovedDrafts runs at worker startup (line 1552) and every poll cycle (line 1599) in scripts/unified-worker/index.ts, processing MAX_BACKFILL_BATCH=20 drafts per invocation. With 85 drafts, the worker will need approximately 5 poll cycles to clear the full backlog. Monitor progress by querying SELECT count(*) FROM ops_content_drafts WHERE status='approved' AND published_at IS NULL after each cycle until count reaches 0 or stalls. Record any remaining blockers with explicit reasons in draft metadata.",
+          "depends": [
+            "1.2",
+            "1.4",
+            "3.1"
+          ],
+          "acceptance": "FR-012, FR-013; SC-003. Verification: SELECT count(*) FROM ops_content_drafts WHERE status='approved' AND published_at IS NULL returns 0 or every remaining row has a recorded blocking reason in metadata. ls /workspace/output/blog/ shows newly published markdown files beyond the original 7.",
+          "files_touched": []
+        }
+      ]
+    }
+  ],
+  "migration_status": "native"
+}

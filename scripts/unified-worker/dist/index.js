@@ -640,12 +640,20 @@ var init_speaker_selection = __esm({
   }
 });
 
+// src/lib/request-id.ts
+var init_request_id = __esm({
+  "src/lib/request-id.ts"() {
+    "use strict";
+  }
+});
+
 // src/lib/request-context.ts
 var import_node_async_hooks, RequestContext, requestContext;
 var init_request_context = __esm({
   "src/lib/request-context.ts"() {
     "use strict";
     import_node_async_hooks = require("node:async_hooks");
+    init_request_id();
     RequestContext = class {
       constructor() {
         this.storage = new import_node_async_hooks.AsyncLocalStorage();
@@ -991,6 +999,20 @@ function getClient() {
   return _client;
 }
 function getOllamaModels() {
+  return getOllamaModelsWithFallback();
+}
+function dedupeModelSpecs(models) {
+  const seen = /* @__PURE__ */ new Set();
+  const deduped = [];
+  for (const model of models) {
+    const key = `${model.baseUrl}::${model.model}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(model);
+  }
+  return deduped;
+}
+function getOllamaModelsWithFallback(preferredModel) {
   const models = [];
   if (OLLAMA_API_KEY) {
     models.push(
@@ -1012,16 +1034,16 @@ function getOllamaModels() {
     );
   }
   if (OLLAMA_LOCAL_URL) {
-    if (OLLAMA_MODEL) {
-      models.push({ model: OLLAMA_MODEL, baseUrl: OLLAMA_LOCAL_URL });
-    } else {
-      models.push(
-        { model: "qwen3-coder:30b", baseUrl: OLLAMA_LOCAL_URL },
-        { model: "llama3.2:latest", baseUrl: OLLAMA_LOCAL_URL }
-      );
+    const localModels = [
+      ...preferredModel ? [preferredModel] : [],
+      ...OLLAMA_FALLBACK_MODELS,
+      ...OLLAMA_MODEL ? [OLLAMA_MODEL] : []
+    ];
+    for (const model of localModels) {
+      models.push({ model, baseUrl: OLLAMA_LOCAL_URL });
     }
   }
-  return models;
+  return dedupeModelSpecs(models);
 }
 function stripThinking(text) {
   return text.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/<\|channel>thought\n[\s\S]*?<channel\|>/g, "").trim();
@@ -1149,16 +1171,8 @@ function filterPhantomToolCalls(toolCalls, context) {
   return toolCalls;
 }
 async function ollamaChat(messages, temperature, options) {
-  if (options?.model && options.model.includes(":")) {
-    const baseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
-    const spec = { model: options.model, baseUrl, apiKey: "" };
-    const maxTokens2 = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
-    const tools2 = options?.tools;
-    const maxToolRounds2 = options?.maxToolRounds ?? 10;
-    const openaiTools2 = tools2 && tools2.length > 0 ? tools2.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })) : void 0;
-    return ollamaChatWithModel({ spec, messages, temperature, maxTokens: maxTokens2, tools: tools2, openaiTools: openaiTools2, maxToolRounds: maxToolRounds2 });
-  }
-  const models = getOllamaModels();
+  const preferredModel = options?.model && options.model.includes(":") ? options.model : void 0;
+  const models = getOllamaModelsWithFallback(preferredModel);
   if (models.length === 0) return null;
   const maxTokens = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
   const tools = options?.tools;
@@ -1267,6 +1281,7 @@ async function ollamaChatWithModel(input) {
         round,
         finishReason,
         contentLength: (msg?.content ?? "").length,
+        thinkingLength: (msg?.thinking ?? "").length,
         reasoningLength: (msg?.reasoning ?? "").length,
         contentPreview: (msg?.content ?? "").slice(0, 80) || "(empty)",
         hasToolCalls: !!msg?.tool_calls?.length,
@@ -1289,13 +1304,16 @@ async function ollamaChatWithModel(input) {
       );
       if (!ollamaPendingToolCalls || ollamaPendingToolCalls.length === 0) {
         const raw = msg.content ?? "";
+        const thinking = msg.thinking ?? msg.reasoning ?? "";
         const stripped = extractFromXml(stripThinking(raw)).trim();
         const text = stripped.length > 0 ? stripped : extractFromXml(raw).trim();
         if (text.length === 0 && toolCallRecords.length === 0) {
           log.warn("Ollama model returned empty text", {
             model,
+            doneReason: rawData.done_reason,
             rawContentLength: raw.length,
-            rawPreview: raw.slice(0, 100) || "(empty)"
+            thinkingLength: thinking.length,
+            rawPreview: (raw || thinking).slice(0, 100) || "(empty)"
           });
           return null;
         }
@@ -2128,7 +2146,7 @@ function promptSection(title, content) {
 ${content}
 `;
 }
-var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TOOL_TIMEOUT_MS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_CLOUD_URL, OLLAMA_API_KEY, OLLAMA_TIMEOUT_MS, OLLAMA_MODEL;
+var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TOOL_TIMEOUT_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_CLOUD_URL, OLLAMA_API_KEY, OLLAMA_TIMEOUT_MS, OLLAMA_MODEL;
 var init_client = __esm({
   "src/lib/llm/client.ts"() {
     "use strict";
@@ -2144,6 +2162,13 @@ var init_client = __esm({
     OLLAMA_DEFAULT_MAX_TOKENS = 16384;
     OPENROUTER_CHAT_TIMEOUT_MS = 3e4;
     OPENROUTER_TOOL_TIMEOUT_MS = 12e4;
+    DEFAULT_OLLAMA_FALLBACK_MODELS = [
+      "qwen3:14b",
+      "gemma4:latest",
+      "qwen2.5-coder:14b",
+      "qwen3.5:latest"
+    ];
+    OLLAMA_FALLBACK_MODELS = (process.env.OLLAMA_FALLBACK_MODELS ?? DEFAULT_OLLAMA_FALLBACK_MODELS.join(",")).split(",").map((model) => model.trim()).filter(Boolean);
     TOOL_PARAM_ALIASES = {
       file_write: {
         file_path: "path",
@@ -2441,47 +2466,55 @@ async function getOrCreateWebhook(channelId, name = "Subcult") {
   }
   const cached = webhookCache.get(channelId);
   if (cached) return cached;
-  try {
-    const listRes = await discordFetch(`/channels/${channelId}/webhooks`);
-    if (!listRes.ok) {
-      log3.warn("Failed to list webhooks", {
-        status: listRes.status,
-        channelId
-      });
-      return null;
-    }
-    const webhooks = await listRes.json();
-    const existing = webhooks.find((w) => w.name === name);
-    if (existing) {
-      const url2 = `https://discord.com/api/webhooks/${existing.id}/${existing.token}`;
-      webhookCache.set(channelId, url2);
-      return url2;
-    }
-    const createRes = await discordFetch(
-      `/channels/${channelId}/webhooks`,
-      {
-        method: "POST",
-        body: JSON.stringify({ name })
+  const inFlight = webhookProvisioning.get(channelId);
+  if (inFlight) return await inFlight;
+  const provisioningPromise = (async () => {
+    try {
+      const listRes = await discordFetch(`/channels/${channelId}/webhooks`);
+      if (!listRes.ok) {
+        log3.warn("Failed to list webhooks", {
+          status: listRes.status,
+          channelId
+        });
+        return null;
       }
-    );
-    if (!createRes.ok) {
-      log3.warn("Failed to create webhook", {
-        status: createRes.status,
+      const webhooks = await listRes.json();
+      const existing = webhooks.find((w) => w.name === name);
+      if (existing) {
+        const url2 = `https://discord.com/api/webhooks/${existing.id}/${existing.token}`;
+        webhookCache.set(channelId, url2);
+        return url2;
+      }
+      const createRes = await discordFetch(
+        `/channels/${channelId}/webhooks`,
+        {
+          method: "POST",
+          body: JSON.stringify({ name })
+        }
+      );
+      if (!createRes.ok) {
+        log3.warn("Failed to create webhook", {
+          status: createRes.status,
+          channelId
+        });
+        return null;
+      }
+      const created = await createRes.json();
+      const url = `https://discord.com/api/webhooks/${created.id}/${created.token}`;
+      webhookCache.set(channelId, url);
+      return url;
+    } catch (err) {
+      log3.warn("Webhook provisioning error", {
+        error: err.message,
         channelId
       });
       return null;
+    } finally {
+      webhookProvisioning.delete(channelId);
     }
-    const created = await createRes.json();
-    const url = `https://discord.com/api/webhooks/${created.id}/${created.token}`;
-    webhookCache.set(channelId, url);
-    return url;
-  } catch (err) {
-    log3.warn("Webhook provisioning error", {
-      error: err.message,
-      channelId
-    });
-    return null;
-  }
+  })();
+  webhookProvisioning.set(channelId, provisioningPromise);
+  return await provisioningPromise;
 }
 async function postToWebhookWithFiles(options) {
   if (!options.files || options.files.length === 0) {
@@ -2524,7 +2557,7 @@ async function postToWebhookWithFiles(options) {
     drainQueue(key);
   });
 }
-var log3, DISCORD_API, BOT_TOKEN, webhookCache, WEBHOOK_MIN_INTERVAL_MS, MAX_RETRIES, webhookQueues, processingWebhooks;
+var log3, DISCORD_API, BOT_TOKEN, webhookCache, webhookProvisioning, WEBHOOK_MIN_INTERVAL_MS, MAX_RETRIES, webhookQueues, processingWebhooks;
 var init_client2 = __esm({
   "src/lib/discord/client.ts"() {
     "use strict";
@@ -2533,6 +2566,7 @@ var init_client2 = __esm({
     DISCORD_API = "https://discord.com/api/v10";
     BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
     webhookCache = /* @__PURE__ */ new Map();
+    webhookProvisioning = /* @__PURE__ */ new Map();
     WEBHOOK_MIN_INTERVAL_MS = 600;
     MAX_RETRIES = 3;
     webhookQueues = /* @__PURE__ */ new Map();
@@ -6319,6 +6353,16 @@ ${briefing}
       prompt += `${name}: ${turn.dialogue}
 `;
     }
+    if (format === "debate" && history.length > 0) {
+      const lastTurn = history[history.length - 1];
+      const lastVoice = getVoice(lastTurn.speaker);
+      const lastName = lastVoice ? lastVoice.displayName : lastTurn.speaker;
+      prompt += `
+PREVIOUS SPEAKER SAID: "${lastName} argued: ${lastTurn.dialogue}"
+`;
+      prompt += `You MUST respond directly to what ${lastName} just said \u2014 agree, contest, or extend with a new angle. Do not pivot to a different point.
+`;
+    }
   }
   if (userQuestionContext) {
     prompt += `
@@ -6354,6 +6398,8 @@ ${briefing}
 `;
   prompt += `- Respond to what was actually said \u2014 push it forward, challenge it, or build on it. Don't restate, don't summarize, don't monologue.
 `;
+  prompt += `- Never repeat a point that has already been made in this conversation. Build on it or challenge it instead.
+`;
   prompt += `- One idea per turn. If you have two points, pick the sharper one.
 `;
   prompt += `- Do NOT prefix your response with your name or symbol
@@ -6361,7 +6407,7 @@ ${briefing}
   prompt += `- If this format doesn't need you or you have nothing to add, keep it to one sentence or pass
 `;
   const FORMAT_RULES = {
-    debate: "- Take a clear position. Disagreement is expected. Name what you contest and why.",
+    debate: '- Take a clear position. Disagreement is expected. Name what you contest and why.\n- You MUST directly address the last claim made by the previous speaker \u2014 quote it or paraphrase it, then explain why you disagree or push it further.\n- Do NOT repeat a claim that has already been made in this conversation. If you agree with something said, build on it with a new angle instead of restating it.\n- Each turn must introduce or challenge at least one specific claim. Vague agreement ("I agree with that") is not a turn.',
     brainstorm: `- Go wide, not deep. Quantity over quality. Build on others' ideas with "yes, and..."`,
     retro: "- Be honest about what failed. Attribution is fine \u2014 blame is not.",
     writing_room: "- Write actual prose, not meta-discussion about writing. Draft in your voice.",
@@ -6434,13 +6480,13 @@ function buildUserPrompt(topic, turn, maxTurns, speakerName, format) {
     return penultimates[format] ?? `Respond to what was just said on "${topic}". We're nearing the end \u2014 start tightening toward a conclusion or clear takeaway.`;
   }
   const midPrompts = {
-    debate: `Respond to what was just said on "${topic}". Contest or defend \u2014 don't agree politely.`,
+    debate: `Take a turn in the debate on "${topic}". The previous speaker just made a claim \u2014 engage with it directly: defend it, challenge it, or extend it with a new dimension. Do not restate it or pivot to a different point. One sharp move, then stop.`,
     brainstorm: `Build on what was said about "${topic}" or throw a new idea in. Keep it rapid.`,
     retro: `Reflect on "${topic}". What else happened that hasn't been named yet?`,
     planning: `What's the next concrete step for "${topic}"? Name who owns it.`,
     risk_review: `What risk hasn't been named yet for "${topic}"? Or challenge a risk that was overstated.`,
     writing_room: `Continue drafting on "${topic}". Build on what was written or propose an edit.`,
-    cross_exam: `Press harder on "${topic}". What hasn't been addressed? What's being assumed?`,
+    cross_exam: `Interrogate what was just said on "${topic}". What assumption is hiding in that argument? What would make it fall apart? Be specific \u2014 name the weak point, then press on it.`,
     strategy: `Push the strategy forward on "${topic}". What tradeoff hasn't been named?`,
     deep_dive: `Go deeper on "${topic}". What structural cause hasn't been traced yet?`,
     watercooler: `Keep chatting about "${topic}". No pressure \u2014 say what comes to mind.`
@@ -8110,13 +8156,13 @@ Payload: ${payloadStr}
 function slugify(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30);
 }
-var WORKSPACE_ROOT, TEMPLATE_CACHE_TTL_MS, templateCache, STEP_INSTRUCTIONS;
+var WORKSPACE_ROOT2, TEMPLATE_CACHE_TTL_MS, templateCache, STEP_INSTRUCTIONS;
 var init_step_prompts = __esm({
   "src/lib/ops/step-prompts.ts"() {
     "use strict";
     init_db();
     init_voices();
-    WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? "/workspace/projects/subcult-corp";
+    WORKSPACE_ROOT2 = process.env.WORKSPACE_ROOT ?? "/workspace/projects/subcult-corp";
     TEMPLATE_CACHE_TTL_MS = 6e4;
     templateCache = /* @__PURE__ */ new Map();
     STEP_INSTRUCTIONS = {
@@ -8214,31 +8260,44 @@ Draft a structured product specification document with:
   - Open questions
 Write the spec to output/reports/${today}__product__spec__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
 `,
-      update_directive: (ctx, today) => `Read the current prime directive from shared/prime-directive.md using file_read.
-Read any recent product specs from output/reports/ using file_read (look for product__spec files).
-Read recent strategy roundtable artifacts from output/ using file_read.
-Based on the current state of the project, write an updated prime directive.
-The directive should:
-  - Reflect the current product direction
-  - Set clear priorities and focus areas
-  - Define success criteria for the current period
-  - Be concise and actionable (under 500 words)
-Write the updated directive to shared/prime-directive.md using file_write.
-Also write a changelog entry to agents/primus/notes/${today}__directive__update__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md.
-`,
+      update_directive: (ctx, today) => [
+        `Read the current prime directive from shared/prime-directive.md using file_read.`,
+        `Read any recent product specs from output/reports/ using file_read (look for product__spec files).`,
+        `Read recent strategy roundtable artifacts from output/ using file_read.`,
+        `Based on the current state of the project, draft an updated prime directive proposal.`,
+        `You MUST preserve the directive hierarchy and guardrails:`,
+        `  - P1 = outward-facing publishable content`,
+        `  - P2 = publication-linked quality/fact-check/review only for a specific P1 item`,
+        `  - P3 = operational work only when directly unblocking imminent P1/P2 output`,
+        `  - P4 = governance/process only when operator-triggered`,
+        `  - Keep at least 70% of autonomous effort focused on P1/P2 work`,
+        `  - Do not relabel governance as safety/alignment/stewardship/mission health to bypass the hierarchy`,
+        `  - Keep review publication-linked, bounded, and time-boxed`,
+        `  - Do not weaken these structural rules without explicit operator approval`,
+        `The directive should:`,
+        `  - Reflect the current product direction`,
+        `  - Set clear priorities and focus areas`,
+        `  - Define success criteria for the current period`,
+        `  - Be concise and actionable (under 500 words)`,
+        `Write the proposed directive to agents/primus/notes/${today}__directive__proposal__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.`,
+        `Use notify_human to request operator review and explicit approval of the staged proposal before any live directive change.`,
+        `You MUST NOT write directly to shared/prime-directive.md without explicit operator approval.`,
+        `Also write a changelog entry to agents/primus/notes/${today}__directive__update__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md.`,
+        ""
+      ].join("\n"),
       create_pull_request: (ctx, today, outputDir) => `You are creating a pull request from the agents/workspace branch.
 Use bash to check the diff:
-  cd ${WORKSPACE_ROOT} && git diff --stat HEAD~5
-  cd ${WORKSPACE_ROOT} && git log --oneline -10
+  cd ${WORKSPACE_ROOT2} && git diff --stat HEAD~5
+  cd ${WORKSPACE_ROOT2} && git log --oneline -10
 If GITHUB_TOKEN is set, push and create a PR:
-  cd ${WORKSPACE_ROOT} && git push -u origin agents/workspace 2>&1
-  cd ${WORKSPACE_ROOT} && gh pr create --base main --head agents/workspace --title "${ctx.missionTitle}" --body "Auto-generated by agent workflow" 2>&1
+  cd ${WORKSPACE_ROOT2} && git push -u origin agents/workspace 2>&1
+  cd ${WORKSPACE_ROOT2} && gh pr create --base main --head agents/workspace --title "${ctx.missionTitle}" --body "Auto-generated by agent workflow" 2>&1
 If GITHUB_TOKEN is NOT set or push fails, write a PR summary to ${outputDir}/${today}__pr__summary__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
 The summary should include: branch name, commit list, diff stats, and a description of all changes.
 Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "create_pull_request", status: "complete".
 `,
       self_evolution: (ctx, today, outputDir) => `You are improving your own system. You are an AI agent in the SUBCULT collective.
-Your source code is at ${WORKSPACE_ROOT}/.
+Your source code is at ${WORKSPACE_ROOT2}/.
 
 \u2550\u2550\u2550 CONTEXT \u2550\u2550\u2550
 You belong to the subculture-collective GitHub organization (https://github.com/subculture-collective).
@@ -8253,12 +8312,12 @@ INSTRUCTIONS:
 1. Use file_read to read the relevant source files described in the payload.
 2. Identify a specific, concrete improvement (not vague "make it better").
 3. Use bash to create a feature branch:
-   cd ${WORKSPACE_ROOT} && git checkout -b evolution/${ctx.agentId}/${today}/${slugify(ctx.missionTitle).slice(0, 30)}
+   cd ${WORKSPACE_ROOT2} && git checkout -b evolution/${ctx.agentId}/${today}/${slugify(ctx.missionTitle).slice(0, 30)}
 4. Use file_write to make your changes.
 5. Use bash to commit and push:
-   cd ${WORKSPACE_ROOT} && git add -A && git commit -m "${ctx.missionTitle}" && git push -u origin HEAD
+   cd ${WORKSPACE_ROOT2} && git add -A && git commit -m "${ctx.missionTitle}" && git push -u origin HEAD
 6. Use bash to create a PR:
-   cd ${WORKSPACE_ROOT} && gh pr create --title "${ctx.missionTitle}" --body "Proposed by ${ctx.agentId}. ${ctx.payload.description || ""}"
+   cd ${WORKSPACE_ROOT2} && gh pr create --title "${ctx.missionTitle}" --body "Proposed by ${ctx.agentId}. ${ctx.payload.description || ""}"
 7. Write a summary to ${outputDir}/${today}__evolution__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md
 
 Your output is a MERGED PULL REQUEST with real code changes. Do not just describe what you would change.
@@ -8286,7 +8345,7 @@ You have FULL ACCESS.
 Task: ${ctx.payload.description || ctx.missionTitle}
 
 INSTRUCTIONS:
-1. Use bash to check current branch and status: cd ${WORKSPACE_ROOT} && git status
+1. Use bash to check current branch and status: cd ${WORKSPACE_ROOT2} && git status
 2. Create a branch, make changes via file_write, commit, push, and create a PR.
 3. PR should have a clear title, description of changes, and context for reviewers.
 4. Use: gh pr create --repo subculture-collective/subcorp --title "..." --body "..."
@@ -8700,9 +8759,10 @@ init_logger();
 var log23 = logger.child({ module: "web-search" });
 var BRAVE_API_KEY = process.env.BRAVE_API_KEY ?? "";
 var BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search";
+var DDG_SEARCH_URL = "https://api.duckduckgo.com/";
 var webSearchTool = {
   name: "web_search",
-  description: "Search the web using Brave Search. Returns titles, URLs, and descriptions of matching results.",
+  description: "Search the web using Brave Search (primary) with DuckDuckGo fallback. Returns titles, URLs, and descriptions of matching results.",
   agents: [...ALL_AGENTS],
   parameters: {
     type: "object",
@@ -8721,33 +8781,74 @@ var webSearchTool = {
   execute: async (params) => {
     const query = params.query;
     const count = Math.min(params.count || 5, 20);
-    if (!BRAVE_API_KEY) {
-      return { error: "BRAVE_API_KEY not configured. Unable to search." };
+    if (BRAVE_API_KEY) {
+      try {
+        const url = new URL(BRAVE_SEARCH_URL);
+        url.searchParams.set("q", query);
+        url.searchParams.set("count", String(count));
+        const response = await fetch(url.toString(), {
+          headers: {
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
+            "X-Subscription-Token": BRAVE_API_KEY
+          },
+          signal: AbortSignal.timeout(15e3)
+        });
+        if (response.status === 429) {
+          log23.warn("Brave Search rate-limited, falling back to DuckDuckGo", { query });
+        } else if (response.ok) {
+          const data = await response.json();
+          const results = (data.web?.results ?? []).map((r) => ({
+            title: r.title,
+            url: r.url,
+            description: r.description
+          }));
+          return { results, query, count: results.length, source: "brave" };
+        } else {
+          log23.warn("Brave Search error, falling back to DuckDuckGo", {
+            status: response.status,
+            query
+          });
+        }
+      } catch (err) {
+        log23.warn("Brave Search failed, falling back to DuckDuckGo", {
+          error: err.message,
+          query
+        });
+      }
     }
     try {
-      const url = new URL(BRAVE_SEARCH_URL);
+      const url = new URL(DDG_SEARCH_URL);
       url.searchParams.set("q", query);
-      url.searchParams.set("count", String(count));
+      url.searchParams.set("format", "json");
+      url.searchParams.set("no_redirect", "1");
+      url.searchParams.set("t", "subcult");
       const response = await fetch(url.toString(), {
-        headers: {
-          "Accept": "application/json",
-          "Accept-Encoding": "gzip",
-          "X-Subscription-Token": BRAVE_API_KEY
-        },
+        headers: { "Accept": "application/json" },
         signal: AbortSignal.timeout(15e3)
       });
       if (!response.ok) {
-        return { error: `Brave Search returned ${response.status}: ${await response.text()}` };
+        return { error: `Both Brave and DuckDuckGo search failed. DuckDuckGo returned ${response.status}.` };
       }
       const data = await response.json();
-      const results = (data.web?.results ?? []).map((r) => ({
-        title: r.title,
-        url: r.url,
-        description: r.description
-      }));
-      return { results, query, count: results.length };
+      const rawResults = [
+        ...data.Results ?? [],
+        ...(data.RelatedTopics ?? []).filter((t) => t.FirstURL)
+      ];
+      const results = rawResults.slice(0, count).map((r) => {
+        const description = r.Text ?? "";
+        return {
+          title: description.replace(/^https?:\/\/\S+\s*/i, "").trim() || description,
+          url: r.FirstURL ?? "",
+          description
+        };
+      });
+      if (results.length === 0) {
+        return { results: [], query, count: 0, source: "ddg" };
+      }
+      return { results, query, count: results.length, source: "ddg" };
     } catch (err) {
-      log23.error("Brave Search failed", { error: err, query });
+      log23.error("DuckDuckGo fallback also failed", { error: err, query });
       return { error: `Search failed: ${err.message}` };
     }
   }
@@ -8862,12 +8963,12 @@ var import_node_crypto = require("node:crypto");
 init_db();
 var import_node_path = __toESM(require("node:path"));
 var WRITE_ACLS = {
-  chora: ["agents/chora/", "output/reports/", "output/briefings/", "output/digests/"],
-  subrosa: ["agents/subrosa/", "output/reviews/", "output/reports/"],
-  thaum: ["agents/thaum/", "output/"],
-  praxis: ["agents/praxis/", "output/", "projects/subcult-corp/"],
-  mux: ["agents/mux/", "output/", "projects/subcult-corp/"],
-  primus: ["agents/primus/", "shared/", "output/"]
+  chora: ["agents/chora/", "output/", "shared/"],
+  subrosa: ["agents/subrosa/", "output/", "shared/"],
+  thaum: ["agents/thaum/", "output/", "shared/"],
+  praxis: ["agents/praxis/", "output/", "shared/"],
+  mux: ["agents/mux/", "output/", "shared/"],
+  primus: ["agents/primus/", "output/", "shared/"]
 };
 var DROID_PREFIX = "droids/";
 function isPathAllowed(agentId, relativePath) {
@@ -9756,16 +9857,19 @@ function truncateToFirstSentences(text, maxLen) {
 var BLOCKER_SUMMARY_PATTERNS = [
   /\bcritical blocker\b/i,
   /\bdata dependency blocked\b/i,
-  /\bblocked by\b/i,
+  // Negative lookbehind guards against "not blocked by", "never blocked by", "wasn't blocked by", etc.
+  /(?<!(?:not|never|no longer|isn't|aren't|wasn't|weren't) )\bblocked by\b/i,
   /\bmission is, by definition, stalled\b/i,
   /\bcannot proceed\b/i,
   /\bcannot continue\b/i,
   /\bcannot be completed\b/i,
   /\bno further (procedural )?steps? (i )?can take\b/i,
   /\bawait(?:ing)? (?:instruction|input|external|data|provisioning)\b/i,
-  /\bwaiting for\b/i,
+  // Negative lookbehind guards against "not waiting for", "never waiting for", etc.
+  /(?<!(?:not|never) )\bwaiting for\b/i,
   /\bhands are tied\b/i,
-  /\bstalled by\b/i,
+  // Negative lookbehind guards against "not stalled by", "never stalled by", etc.
+  /(?<!(?:not|never) )\bstalled by\b/i,
   /\bpaused pending\b/i
 ];
 var TOOL_ERROR_PATTERNS = [
@@ -10161,6 +10265,7 @@ init_events2();
 var log29 = logger.child({ module: "content-publication" });
 var DEFAULT_BLOG_DIR = "output/blog";
 var MAX_BACKFILL_BATCH = 20;
+var WORKSPACE_ROOT = process.env.WORKSPACE_ROOT?.trim() || "/workspace";
 function isRecord(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -10231,10 +10336,9 @@ async function resolveBlogOutputDir() {
     await import_promises.default.mkdir(explicit, { recursive: true });
     return explicit;
   }
-  const workspaceDir = "/workspace";
   try {
-    await import_promises.default.access(workspaceDir);
-    const outputDir = import_path.default.join(workspaceDir, DEFAULT_BLOG_DIR);
+    await import_promises.default.access(WORKSPACE_ROOT);
+    const outputDir = import_path.default.join(WORKSPACE_ROOT, DEFAULT_BLOG_DIR);
     await import_promises.default.mkdir(outputDir, { recursive: true });
     return outputDir;
   } catch {
@@ -10275,10 +10379,21 @@ async function publishLocally(draft, existingLocal) {
   const filePath = import_path.default.join(outputDir, filename);
   const markdown = renderLocalMarkdown(draft.title, draft.body, publishedAt);
   await import_promises.default.writeFile(filePath, markdown, "utf-8");
+  let relativePath;
+  const normalizedFilePath = filePath.replace(/\\/g, "/");
+  const normalizedWorkspace = WORKSPACE_ROOT.replace(/\\/g, "/");
+  const normalizedCwd = process.cwd().replace(/\\/g, "/");
+  if (normalizedFilePath.startsWith(normalizedWorkspace + "/")) {
+    relativePath = import_path.default.posix.relative(normalizedWorkspace, normalizedFilePath);
+  } else if (normalizedFilePath.startsWith(normalizedCwd + "/")) {
+    relativePath = import_path.default.posix.relative(normalizedCwd, normalizedFilePath);
+  } else {
+    relativePath = normalizedFilePath;
+  }
   return {
     status: "published",
     slug,
-    relative_path: import_path.default.posix.join(DEFAULT_BLOG_DIR, filename),
+    relative_path: relativePath,
     published_at: publishedAt
   };
 }
@@ -10366,6 +10481,7 @@ function computeNextRetryIso(attempts) {
   const backoffMinutes = Math.min(240, 5 * Math.pow(2, Math.max(0, attempts - 1)));
   return new Date(Date.now() + backoffMinutes * 6e4).toISOString();
 }
+var GHOST_REQUEST_TIMEOUT_MS = 15e3;
 async function mirrorToGhost(draft, local, previousGhost) {
   const config = getGhostConfig();
   if (!config) {
@@ -10386,25 +10502,33 @@ async function mirrorToGhost(draft, local, previousGhost) {
     const jwt = createGhostJwt(config.adminApiKey);
     const endpoint = `${config.adminApiUrl}/posts/?source=html`;
     const html = markdownToGhostHtml(draft.body);
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Ghost ${jwt}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        posts: [
-          {
-            title: draft.title,
-            slug: local.slug,
-            html,
-            status: "published",
-            published_at: local.published_at,
-            tags: ["subcorp", draft.content_type, draft.author_agent]
-          }
-        ]
-      })
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), GHOST_REQUEST_TIMEOUT_MS);
+    let response;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          Authorization: `Ghost ${jwt}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          posts: [
+            {
+              title: draft.title,
+              slug: local.slug,
+              html,
+              status: "published",
+              published_at: local.published_at,
+              tags: ["subcorp", draft.content_type, draft.author_agent]
+            }
+          ]
+        })
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`Ghost API ${response.status}: ${text.slice(0, 500)}`);
@@ -10422,7 +10546,8 @@ async function mirrorToGhost(draft, local, previousGhost) {
       published_at: (/* @__PURE__ */ new Date()).toISOString()
     };
   } catch (err) {
-    const message = err.message;
+    const isTimeout = err.name === "AbortError";
+    const message = isTimeout ? `Ghost API request timed out after ${GHOST_REQUEST_TIMEOUT_MS}ms` : err.message;
     return {
       status: "failed",
       attempts: attempt,
@@ -10499,12 +10624,34 @@ async function publishApprovedDrafts(limit = MAX_BACKFILL_BATCH) {
   let published = 0;
   let failed = 0;
   for (const draft of drafts) {
+    let local;
     try {
       const publication = getPublicationState(draft.metadata);
-      const local = await publishLocally(draft, publication.local);
+      local = await publishLocally(draft, publication.local);
+    } catch (err) {
+      failed++;
+      const reason = err instanceof Error ? err.message : String(err);
+      log29.error("publishLocally failed", {
+        draftId: draft.id,
+        title: draft.title,
+        error: reason
+      });
+      await sql`
+                UPDATE ops_content_drafts
+                SET metadata = jsonb_set(
+                    COALESCE(metadata, '{}'::jsonb),
+                    '{publication_error}',
+                    ${jsonb({ step: "publishLocally", error: reason, at: (/* @__PURE__ */ new Date()).toISOString() })}::jsonb
+                ),
+                updated_at = NOW()
+                WHERE id = ${draft.id}
+            `;
+      continue;
+    }
+    try {
       const metadataWithLocal = mergePublicationState(draft.metadata, {
         local,
-        ghost: publication.ghost
+        ghost: getPublicationState(draft.metadata).ghost
       });
       const result = await sql`
                 UPDATE ops_content_drafts
@@ -10519,10 +10666,6 @@ async function publishApprovedDrafts(limit = MAX_BACKFILL_BATCH) {
       if (result.length === 0) {
         continue;
       }
-      published++;
-      draft.status = "published";
-      draft.published_at = local.published_at;
-      draft.metadata = metadataWithLocal;
       await emitEvent({
         agent_id: draft.author_agent,
         kind: "content_published",
@@ -10535,12 +10678,29 @@ async function publishApprovedDrafts(limit = MAX_BACKFILL_BATCH) {
           localSlug: local.slug
         }
       });
-      await mirrorPublishedDraft(draft);
+      published++;
+      draft.status = "published";
+      draft.published_at = local.published_at;
+      draft.metadata = metadataWithLocal;
     } catch (err) {
       failed++;
-      log29.error("Failed to auto-publish approved draft", {
+      const reason = err instanceof Error ? err.message : String(err);
+      log29.error("Draft status update failed after local publish", {
         draftId: draft.id,
-        error: err
+        title: draft.title,
+        localSlug: local.slug,
+        error: reason
+      });
+      continue;
+    }
+    try {
+      await mirrorPublishedDraft(draft);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      log29.warn("Ghost mirror threw unexpectedly", {
+        draftId: draft.id,
+        title: draft.title,
+        error: reason
       });
     }
   }

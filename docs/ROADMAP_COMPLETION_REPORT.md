@@ -29,14 +29,14 @@ All **15 phases** of the SubCult development roadmap have been successfully impl
 
 **Implementation:**
 - ✅ `src/lib/logger.ts` — Zero-dependency structured logger with JSON (prod) and pretty (dev) output
-- ✅ `src/middleware.ts` — Request correlation middleware with `x-request-id` headers
+- ✅ `src/proxy.ts` — Request correlation proxy with `x-request-id` headers
 - ✅ `src/lib/request-context.ts` — Async-local request context for API routes
 - ✅ `eslint.config.mjs` — Enforces `no-console` rule across `src/**` and `scripts/**`
 - ✅ Logger usage throughout 45+ files (API routes, core libs, workers, scripts)
 
 **Key Files:**
 - `src/lib/logger.ts`
-- `src/middleware.ts`
+- `src/proxy.ts`
 - `eslint.config.mjs`
 
 ---
