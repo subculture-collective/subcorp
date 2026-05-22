@@ -1,5 +1,6 @@
 // Discord REST API v10 client — raw fetch, no dependencies
 import { logger } from '@/lib/logger';
+import { fetchWithRetry } from '@/lib/net/fetch-with-retry';
 
 const log = logger.child({ module: 'discord' });
 
@@ -39,6 +40,7 @@ export interface DiscordEmbed {
 
 const WEBHOOK_MIN_INTERVAL_MS = 600; // ~1.7 req/s — safe headroom under 5/2s burst
 const MAX_RETRIES = 3;
+const DISCORD_TIMEOUT_MS = 15_000;
 
 type WebhookResult = { id: string; channel_id: string } | null;
 interface QueueEntry {
@@ -80,7 +82,7 @@ async function drainQueue(key: string): Promise<void> {
     }
 }
 
-/** POST with retry on 429. */
+/** POST with retry on rate limits, transient server errors, and fetch failures. */
 async function sendWithRetry(
     url: string,
     body: Record<string, unknown>,
@@ -108,60 +110,32 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Generic fetch with 429 retry and exponential backoff.
- * Parses Retry-After header on 429; falls back to 2s * (attempt+1).
- * Returns the Response on success, null on non-OK status, and retries on 429/network errors.
+ * Generic Discord fetch with timeout + retry for transient failures.
  */
 async function fetchWithRetry429(
     url: string,
     init: RequestInit,
     label: string,
 ): Promise<Response | null> {
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-        try {
-            const res = await fetch(url, init);
-
-            if (res.status === 429) {
-                const retryAfterHeader = res.headers.get('Retry-After');
-                const retryMs =
-                    retryAfterHeader ?
-                        Math.ceil(parseFloat(retryAfterHeader) * 1000)
-                    :   2000 * (attempt + 1);
-                log.warn(`${label} rate limited, backing off`, {
-                    retryMs,
-                    attempt,
-                });
-                if (attempt < MAX_RETRIES) {
-                    await sleep(retryMs);
-                    continue;
-                }
-                return null;
-            }
-
-            // Retry on server errors (5xx)
-            if (res.status >= 500 && attempt < MAX_RETRIES) {
-                log.warn(`${label} server error ${res.status}, retrying`, {
-                    status: res.status,
-                    attempt,
-                });
-                await sleep(1000 * (attempt + 1));
-                continue;
-            }
-
-            return res;
-        } catch (err) {
-            log.warn(`${label} fetch error`, {
-                error: (err as Error).message,
-                attempt,
-                retriesLeft: MAX_RETRIES - attempt,
-            });
-            if (attempt < MAX_RETRIES) {
-                await sleep(1000 * (attempt + 1));
-            }
-        }
+    try {
+        return await fetchWithRetry(url, {
+            ...init,
+            timeoutMs: DISCORD_TIMEOUT_MS,
+            totalTimeoutMs: 20_000,
+            maxRetries: MAX_RETRIES,
+            baseDelayMs: 2_000,
+            label,
+            retryOnStatuses: [429, 500, 502, 503, 504],
+            retryOnTimeout: false,
+        });
+    } catch (err) {
+        log.warn(`${label} fetch error`, {
+            error: (err as Error).message,
+            retriesLeft: 0,
+        });
+        log.error(`${label} all retries exhausted`);
+        return null;
     }
-    log.error(`${label} all retries exhausted`);
-    return null;
 }
 
 /** Build the webhook URL (with wait=true, optional thread_id) and JSON payload from options. */

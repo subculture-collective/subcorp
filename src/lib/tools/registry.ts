@@ -5,7 +5,7 @@ import { bashTool } from './tools/bash';
 import { webSearchTool } from './tools/web-search';
 import { webFetchTool } from './tools/web-fetch';
 import { fileReadTool } from './tools/file-read';
-import { fileWriteTool, createFileWriteExecute } from './tools/file-write';
+import { fileWriteTool, createFileWriteExecute, WRITE_ACLS } from './tools/file-write';
 import { sendToAgentTool } from './tools/send-to-agent';
 import { spawnDroidTool } from './tools/spawn-droid';
 import { checkDroidTool } from './tools/check-droid';
@@ -126,6 +126,14 @@ export function getAgentToolNames(agentId: AgentId): string[] {
     return ALL_TOOLS
         .filter(tool => tool.agents.includes(agentId))
         .map(tool => tool.name);
+}
+
+/**
+ * Get write-path prefixes for an agent, or empty array if file_write is not available.
+ */
+export function getAgentWritePaths(agentId: AgentId): string[] {
+    if (!fileWriteTool.agents.includes(agentId)) return [];
+    return WRITE_ACLS[agentId] ?? [];
 }
 
 /**

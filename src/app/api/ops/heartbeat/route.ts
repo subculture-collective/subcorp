@@ -30,6 +30,62 @@ import { withRequestContext } from '@/lib/with-request-context';
 const log = logger.child({ route: 'heartbeat' });
 
 export const dynamic = 'force-dynamic';
+export const HEARTBEAT_CONTENT_TIMEZONE = 'America/Chicago';
+
+const heartbeatTimeFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: HEARTBEAT_CONTENT_TIMEZONE,
+    hour: 'numeric',
+    weekday: 'short',
+    hourCycle: 'h23',
+});
+
+const WEEKDAY_TO_INDEX: Record<string, number> = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+};
+
+export interface HeartbeatContentWindowState {
+    chicagoHour: number;
+    chicagoDayOfWeek: number;
+    isDailyDigestWindow: boolean;
+    isDreamWindow: boolean;
+    isWatercoolerWindow: boolean;
+    newsDigestSlot: 'morning' | 'evening' | null;
+    isNewspaperWindow: boolean;
+    isWeeklyNewsletterWindow: boolean;
+}
+
+export function getHeartbeatContentWindowState(
+    now: Date = new Date(),
+): HeartbeatContentWindowState {
+    const parts = Object.fromEntries(
+        heartbeatTimeFormatter
+            .formatToParts(now)
+            .map(part => [part.type, part.value]),
+    );
+    const chicagoHour = parseInt(parts.hour ?? '0', 10);
+    const chicagoDayOfWeek = WEEKDAY_TO_INDEX[parts.weekday ?? 'Sun'] ?? 0;
+
+    return {
+        chicagoHour,
+        chicagoDayOfWeek,
+        isDailyDigestWindow: chicagoHour >= 22 || chicagoHour <= 1,
+        isDreamWindow: chicagoHour >= 0 && chicagoHour < 6,
+        isWatercoolerWindow: chicagoHour >= 8 && chicagoHour < 22,
+        newsDigestSlot:
+            chicagoHour >= 8 && chicagoHour < 9 ? 'morning'
+            : chicagoHour >= 19 && chicagoHour < 20 ? 'evening'
+            : null,
+        isNewspaperWindow: chicagoHour >= 7 && chicagoHour < 9,
+        isWeeklyNewsletterWindow:
+            chicagoDayOfWeek === 1 && chicagoHour >= 8 && chicagoHour < 10,
+    };
+}
 
 const CONTENT_STEP_KINDS = new Set([
     'analyze_discourse',
@@ -163,6 +219,7 @@ export async function GET(req: NextRequest) {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const results: Record<string, any> = {};
+        const contentWindowState = getHeartbeatContentWindowState();
 
         // ── Phase 1: Evaluate triggers ──
         try {
@@ -253,12 +310,10 @@ export async function GET(req: NextRequest) {
             log.error('Template health check failed', { error: err });
         }
 
-        // ── Phase 11: Daily digest (once per day, ~11PM CST / 5AM UTC) ──
+        // ── Phase 11: Daily digest (once per day, ~11PM Chicago local) ──
         try {
-            const nowUtc = new Date();
-            const cstHour = (nowUtc.getUTCHours() - 6 + 24) % 24; // UTC → CST offset
-            if (cstHour >= 22 || cstHour <= 1) {
-                // Window around 11PM CST — generateDailyDigest deduplicates internally
+            if (contentWindowState.isDailyDigestWindow) {
+                // Window around 11PM Chicago local — generateDailyDigest deduplicates internally
                 const digestId = await generateDailyDigest();
                 results.digest =
                     digestId ?
@@ -272,11 +327,9 @@ export async function GET(req: NextRequest) {
             log.error('Daily digest generation failed', { error: err });
         }
 
-        // ── Phase 12: Dream cycles (midnight–6AM CST / 6AM–12PM UTC) ──
+        // ── Phase 12: Dream cycles (midnight–6AM Chicago local) ──
         try {
-            const nowUtc = new Date();
-            const cstHour = (nowUtc.getUTCHours() - 6 + 24) % 24;
-            if (cstHour >= 0 && cstHour < 6) {
+            if (contentWindowState.isDreamWindow) {
                 // Select 1-2 random agents who haven't dreamed today
                 const candidates: string[] = [];
                 for (const agentId of AGENT_IDS) {
@@ -389,9 +442,7 @@ export async function GET(req: NextRequest) {
 
         // ── Phase 14: Watercooler drops (waking hours, 15% probability) ──
         try {
-            const nowUtc = new Date();
-            const cstHour = (nowUtc.getUTCHours() - 6 + 24) % 24;
-            if (cstHour >= 8 && cstHour < 22) {
+            if (contentWindowState.isWatercoolerWindow) {
                 if (Math.random() < 0.15) {
                     const { runWatercoolerDrop } = await import(
                         '@/lib/discord/watercooler-drop'
@@ -426,16 +477,14 @@ export async function GET(req: NextRequest) {
             log.error('RSS fetch failed', { error: err });
         }
 
-        // ── Phase 16: Generate news digest (2x daily — morning 8-9AM, evening 7-8PM CST) ──
+        // ── Phase 16: Generate news digest (2x daily — morning 8-9AM, evening 7-8PM Chicago local) ──
         try {
-            const nowUtc = new Date();
-            const cstHour = (nowUtc.getUTCHours() - 6 + 24) % 24;
-            if (cstHour >= 8 && cstHour < 9) {
+            if (contentWindowState.newsDigestSlot === 'morning') {
                 const digestId = await generateNewsDigest('morning');
                 results.news_digest = digestId
                     ? { generated: true, slot: 'morning', id: digestId }
                     : { generated: false, reason: 'already_exists_or_insufficient' };
-            } else if (cstHour >= 19 && cstHour < 20) {
+            } else if (contentWindowState.newsDigestSlot === 'evening') {
                 const digestId = await generateNewsDigest('evening');
                 results.news_digest = digestId
                     ? { generated: true, slot: 'evening', id: digestId }
@@ -448,11 +497,9 @@ export async function GET(req: NextRequest) {
             log.error('News digest generation failed', { error: err });
         }
 
-        // ── Phase 17: Daily newspaper (morning ~7-9 AM CST) ──
+        // ── Phase 17: Daily newspaper (morning ~7-9 AM Chicago local) ──
         try {
-            const nowUtc = new Date();
-            const cstHour = (nowUtc.getUTCHours() - 6 + 24) % 24;
-            if (cstHour >= 7 && cstHour < 9) {
+            if (contentWindowState.isNewspaperWindow) {
                 const editionId = await generateDailyNewspaper();
                 results.newspaper = editionId
                     ? { generated: true, id: editionId }
@@ -465,11 +512,9 @@ export async function GET(req: NextRequest) {
             log.error('Daily newspaper generation failed', { error: err });
         }
 
-        // ── Phase 18: Weekly newsletter (Monday 8-10AM CST) ──
+        // ── Phase 18: Weekly newsletter (Monday 8-10AM Chicago local) ──
         try {
-            const cstHour = (new Date().getUTCHours() - 6 + 24) % 24;
-            const dayOfWeek = new Date().getUTCDay(); // 0=Sun, 1=Mon
-            if (dayOfWeek === 1 && cstHour >= 8 && cstHour < 10) {
+            if (contentWindowState.isWeeklyNewsletterWindow) {
                 const { generateWeeklyNewsletter } = await import('@/lib/ops/newsletter');
                 const editionId = await generateWeeklyNewsletter();
                 results.newsletter = editionId

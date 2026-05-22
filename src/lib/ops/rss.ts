@@ -7,6 +7,7 @@ import { emitEvent } from '@/lib/ops/events';
 import { postToWebhook } from '@/lib/discord/client';
 import { getWebhookUrl } from '@/lib/discord/channels';
 import { getAgentAvatarUrl } from '@/lib/discord/avatars';
+import { fetchWithRetry } from '@/lib/net/fetch-with-retry';
 import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'rss' });
@@ -59,6 +60,30 @@ const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
 });
+
+const RSS_FAILURE_COOLDOWN_MS = 5 * 60_000;
+
+const rssFeedCooldowns = new Map<string, number>();
+
+function isRssTimeoutLikeError(error: unknown): boolean {
+    return error instanceof Error && (
+        error.name === 'AbortError' ||
+        error.name === 'TimeoutError' ||
+        error.message === 'The operation was aborted due to timeout' ||
+        error.message.includes('total timeout exceeded')
+    );
+}
+
+export function shouldLogRssFeedError(error: unknown): boolean {
+    return !isRssTimeoutLikeError(error);
+}
+
+export function shouldSkipRssFeedDuringCooldown(
+    cooldownUntilMs: number | undefined,
+    nowMs: number,
+): boolean {
+    return typeof cooldownUntilMs === 'number' && cooldownUntilMs > nowMs;
+}
 
 /** Parse RSS/Atom feed XML into items. */
 function parseRssFeed(xml: string): RssItem[] {
@@ -116,12 +141,28 @@ export async function fetchAllFeeds(): Promise<number> {
     if (feeds.length === 0) return 0;
 
     let totalNew = 0;
+    const nowMs = Date.now();
 
     for (const feed of feeds) {
+        const cooldownUntilMs = rssFeedCooldowns.get(feed.id);
+        if (shouldSkipRssFeedDuringCooldown(cooldownUntilMs, nowMs)) {
+            log.debug('Skipping RSS fetch because feed was fetched recently', {
+                feed: feed.name,
+                cooldownUntil: new Date(cooldownUntilMs!).toISOString(),
+                cooldownMsRemaining: cooldownUntilMs! - nowMs,
+            });
+            continue;
+        }
+
         try {
-            const response = await fetch(feed.url, {
+            const response = await fetchWithRetry(feed.url, {
                 headers: { 'User-Agent': 'SubcultCorp/1.0 RSS Fetcher' },
-                signal: AbortSignal.timeout(15_000),
+                timeoutMs: 15_000,
+                totalTimeoutMs: 30_000,
+                maxRetries: 2,
+                baseDelayMs: 2_000,
+                label: `RSS fetch ${feed.name}`,
+                retryOnTimeout: true,
             });
 
             if (!response.ok) {
@@ -155,8 +196,22 @@ export async function fetchAllFeeds(): Promise<number> {
             await sql`
                 UPDATE ops_rss_feeds SET last_fetched_at = NOW() WHERE id = ${feed.id}
             `;
+            rssFeedCooldowns.delete(feed.id);
         } catch (err) {
-            log.warn('RSS feed error', { feed: feed.name, error: (err as Error).message });
+            if (isRssTimeoutLikeError(err)) {
+                const cooldownUntil = nowMs + RSS_FAILURE_COOLDOWN_MS;
+                rssFeedCooldowns.set(feed.id, cooldownUntil);
+                log.warn('RSS feed cooling down after timeout-like failure', {
+                    feed: feed.name,
+                    error: (err as Error).message,
+                    cooldownMs: RSS_FAILURE_COOLDOWN_MS,
+                    cooldownUntil: new Date(cooldownUntil).toISOString(),
+                });
+                continue;
+            }
+            if (shouldLogRssFeedError(err)) {
+                log.warn('RSS feed error', { feed: feed.name, error: (err as Error).message });
+            }
         }
     }
 

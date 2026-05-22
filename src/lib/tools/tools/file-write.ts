@@ -7,6 +7,7 @@ import { execInToolbox } from '../executor';
 import { randomUUID } from 'node:crypto';
 import { sql } from '@/lib/db';
 import path from 'node:path';
+import { createLogger } from '@/lib/logger';
 
 /**
  * Per-agent write ACLs.
@@ -14,13 +15,15 @@ import path from 'node:path';
  * All agents can read all of /workspace.
  */
 export const WRITE_ACLS: Record<AgentId, string[]> = {
-    chora:   ['agents/chora/', 'output/', 'shared/'],
-    subrosa: ['agents/subrosa/', 'output/', 'shared/'],
-    thaum:   ['agents/thaum/', 'output/', 'shared/'],
-    praxis:  ['agents/praxis/', 'output/', 'shared/'],
-    mux:     ['agents/mux/', 'output/', 'shared/'],
-    primus:  ['agents/primus/', 'output/', 'shared/'],
+    chora: [],
+    subrosa: [],
+    thaum: [],
+    praxis: ['agents/praxis/', 'output/', 'shared/'],
+    mux: ['agents/mux/', 'output/', 'shared/'],
+    primus: ['agents/primus/', 'output/', 'shared/'],
 };
+
+const log = createLogger({ service: 'file_write' });
 
 /** Droids write to their own scratch directory only */
 const DROID_PREFIX = 'droids/';
@@ -67,8 +70,13 @@ async function isPathAllowedWithGrants(agentId: string, relativePath: string): P
     try {
         const grants = await getActiveGrants(agentId);
         return grants.some(prefix => relativePath.startsWith(prefix));
-    } catch {
+    } catch (grantErr) {
         // DB unavailable — deny
+        log.warn('ACL grant lookup failed (non-fatal)', {
+            error: grantErr,
+            agentId,
+            relativePath,
+        });
         return false;
     }
 }
@@ -166,8 +174,14 @@ export function createFileWriteExecute(agentId: string) {
             const artifactId = randomUUID();
             try {
                 await appendManifest(artifactId, fullPath, agentId, content.length);
-            } catch {
+            } catch (manifestErr) {
                 // Non-fatal — don't fail the write because manifest append failed
+                log.warn('Manifest append failed (non-fatal)', {
+                    error: manifestErr,
+                    agentId,
+                    path: fullPath,
+                    artifactId,
+                });
             }
             return { path: fullPath, bytes: content.length, appended: append, artifact_id: artifactId };
         }
@@ -179,7 +193,7 @@ export function createFileWriteExecute(agentId: string) {
 export const fileWriteTool: NativeTool = {
     name: 'file_write',
     description: 'Write content to a file in the shared workspace. Creates parent directories if needed. Path access is restricted by agent role.',
-    agents: ['chora', 'subrosa', 'thaum', 'praxis', 'mux', 'primus'],
+    agents: ['praxis', 'mux', 'primus'],
     parameters: {
         type: 'object',
         properties: {

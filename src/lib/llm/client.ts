@@ -50,8 +50,26 @@ function isGemma4Model(model: string): boolean {
 /** Timeout for direct /chat/completions fallback calls (text-only, last resort). */
 const OPENROUTER_CHAT_TIMEOUT_MS = 30_000;
 
+/** Hard timeout for a single OpenRouter text attempt. */
+const OPENROUTER_TEXT_TIMEOUT_MS = 20_000;
+
+/** Total budget for the OpenRouter text fallback chain. */
+const OPENROUTER_TEXT_BUDGET_MS = 45_000;
+
 /** Timeout for OpenRouter tool-calling rounds (higher — tools need execution time). */
-const OPENROUTER_TOOL_TIMEOUT_MS = 120_000;
+const OPENROUTER_TOOL_TIMEOUT_MS = 30_000;
+
+/** Total budget for the OpenRouter tool loop across all rounds. */
+const OPENROUTER_TOOL_BUDGET_MS = 75_000;
+
+/** Cap individual OpenRouter fallback retries after the array attempt. */
+const OPENROUTER_MAX_INDIVIDUAL_FALLBACKS = 2;
+
+/** Hard cap for a full text-generation request across all providers. */
+const LLM_TEXT_TOTAL_BUDGET_MS = 75_000;
+
+/** Hard cap for a full tool-calling request across all providers. */
+const LLM_TOOL_TOTAL_BUDGET_MS = 90_000;
 
 /**
  * Local Ollama fallback chain used when a context resolves only cloud models
@@ -239,7 +257,13 @@ const OLLAMA_LOCAL_URL =
     OLLAMA_ENABLED ? (process.env.OLLAMA_BASE_URL ?? '') : '';
 const OLLAMA_CLOUD_URL = 'https://ollama.com';
 const OLLAMA_API_KEY = OLLAMA_ENABLED ? (process.env.OLLAMA_API_KEY ?? '') : '';
-const OLLAMA_TIMEOUT_MS = 120_000;
+const OLLAMA_TEXT_TIMEOUT_MS = 20_000;
+const OLLAMA_PREFERRED_TEXT_TIMEOUT_MS = 30_000;
+const OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS = 45_000;
+const OLLAMA_TOOL_TIMEOUT_MS = 45_000;
+const OLLAMA_BUDGET_MS = 60_000;
+const OLLAMA_TAGS_TIMEOUT_MS = 2_500;
+const OLLAMA_MODEL_CACHE_TTL_MS = 30_000;
 /** Model override via env — when set, ONLY this model is used for local Ollama. */
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? '';
 
@@ -247,6 +271,168 @@ interface OllamaModelSpec {
     model: string;
     baseUrl: string;
     apiKey?: string;
+}
+
+function isAbortLikeError(error: unknown): boolean {
+    return error instanceof Error && (
+        error.name === 'AbortError' ||
+        error.name === 'TimeoutError' ||
+        error.message === 'This operation was aborted' ||
+        error.message === 'The operation was aborted due to timeout'
+    );
+}
+
+export function shouldStopOllamaLocalFallback(
+    spec: Pick<OllamaModelSpec, 'apiKey'>,
+    error: unknown,
+): boolean {
+    return !spec.apiKey && isAbortLikeError(error);
+}
+
+let ollamaModelCatalogCache:
+    | {
+          baseUrl: string;
+          models: Set<string>;
+          ts: number;
+      }
+    | null = null;
+
+function isLocalModelId(model?: string): boolean {
+    if (!model) return false;
+    const normalized = normalizeModel(model);
+    return normalized.includes(':') && !normalized.includes('/');
+}
+
+function canUseOpenRouter(): boolean {
+    return OPENROUTER_ENABLED && !!OPENROUTER_API_KEY;
+}
+
+function shouldTryOllamaFirst(model?: string): boolean {
+    return !canUseOpenRouter() || isLocalModelId(model);
+}
+
+function getRemainingBudget(deadlineAt: number): number {
+    return Math.max(0, deadlineAt - Date.now());
+}
+
+export function getOllamaAttemptTimeoutMs(opts: {
+    hasTools: boolean;
+    remainingBudgetMs: number;
+    model: string;
+    preferredModel?: string;
+    isFirstLocalAttempt?: boolean;
+}): number {
+    const isPreferredTextAttempt =
+        !opts.hasTools && !!opts.preferredModel && opts.model === opts.preferredModel;
+    const isImplicitFirstLocalTextAttempt =
+        !opts.hasTools && !opts.preferredModel && !!opts.isFirstLocalAttempt;
+    const baseTimeoutMs =
+        opts.hasTools ? OLLAMA_TOOL_TIMEOUT_MS
+        : isImplicitFirstLocalTextAttempt ? OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS
+        : isPreferredTextAttempt ? OLLAMA_PREFERRED_TEXT_TIMEOUT_MS
+        : OLLAMA_TEXT_TIMEOUT_MS;
+
+    return Math.min(baseTimeoutMs, opts.remainingBudgetMs);
+}
+
+async function withTimeout<T>(
+    label: string,
+    timeoutMs: number,
+    fn: () => Promise<T>,
+): Promise<T> {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    try {
+        return await Promise.race([
+            fn(),
+            new Promise<T>((_, reject) => {
+                timeoutId = setTimeout(() => {
+                    reject(
+                        Object.assign(new Error(`${label} timed out after ${timeoutMs}ms`), {
+                            statusCode: 504,
+                        }),
+                    );
+                }, timeoutMs);
+            }),
+        ]);
+    } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+    }
+}
+
+async function getReachableLocalOllamaModels(): Promise<Set<string> | null> {
+    if (!OLLAMA_LOCAL_URL) return null;
+
+    const cached = ollamaModelCatalogCache;
+    if (
+        cached &&
+        cached.baseUrl === OLLAMA_LOCAL_URL &&
+        Date.now() - cached.ts < OLLAMA_MODEL_CACHE_TTL_MS
+    ) {
+        return cached.models;
+    }
+
+    try {
+        const response = await fetch(`${OLLAMA_LOCAL_URL}/api/tags`, {
+            signal: AbortSignal.timeout(OLLAMA_TAGS_TIMEOUT_MS),
+        });
+        if (!response.ok) {
+            log.warn('Ollama model catalog probe failed', {
+                baseUrl: OLLAMA_LOCAL_URL,
+                status: response.status,
+            });
+            return null;
+        }
+
+        const data = (await response.json()) as {
+            models?: Array<{ name?: string }>;
+        };
+        const models = new Set(
+            (data.models ?? [])
+                .map(entry => entry.name?.trim())
+                .filter((name): name is string => Boolean(name)),
+        );
+        ollamaModelCatalogCache = {
+            baseUrl: OLLAMA_LOCAL_URL,
+            models,
+            ts: Date.now(),
+        };
+        return models;
+    } catch (error) {
+        log.warn('Ollama model catalog probe exception', {
+            baseUrl: OLLAMA_LOCAL_URL,
+            error: (error as Error).message?.slice(0, 200),
+        });
+        return null;
+    }
+}
+
+async function filterReachableLocalOllamaModels(
+    models: OllamaModelSpec[],
+): Promise<OllamaModelSpec[]> {
+    if (!OLLAMA_LOCAL_URL || models.length === 0) return [];
+
+    const reachableModels = await getReachableLocalOllamaModels();
+    if (!reachableModels) {
+        log.warn('Skipping local Ollama fallback because catalog probe failed', {
+            baseUrl: OLLAMA_LOCAL_URL,
+            requestedModels: models.map(spec => spec.model),
+        });
+        return [];
+    }
+
+    const filtered = models.filter(spec => reachableModels.has(spec.model));
+    const skipped = models
+        .filter(spec => !reachableModels.has(spec.model))
+        .map(spec => spec.model);
+
+    if (skipped.length > 0) {
+        log.info('Skipping unavailable local Ollama models', {
+            baseUrl: OLLAMA_LOCAL_URL,
+            skipped,
+        });
+    }
+
+    return filtered;
 }
 
 /**
@@ -276,11 +462,13 @@ function dedupeModelSpecs(models: OllamaModelSpec[]): OllamaModelSpec[] {
 }
 
 function getOllamaModelsWithFallback(preferredModel?: string): OllamaModelSpec[] {
-    const models: OllamaModelSpec[] = [];
+    const cloudModels: OllamaModelSpec[] = [];
+    const localModels: OllamaModelSpec[] = [];
+    const preferLocalFirst = isLocalModelId(preferredModel) || !canUseOpenRouter();
 
     // Cloud models via ollama.com (fast, capable, free)
     if (OLLAMA_API_KEY) {
-        models.push(
+        cloudModels.push(
             {
                 model: 'deepseek-v3.2:cloud',
                 baseUrl: OLLAMA_CLOUD_URL,
@@ -301,18 +489,20 @@ function getOllamaModelsWithFallback(preferredModel?: string): OllamaModelSpec[]
 
     // Local/network models via OLLAMA_BASE_URL
     if (OLLAMA_LOCAL_URL) {
-        const localModels = [
+        const localModelIds = [
             ...(preferredModel ? [preferredModel] : []),
             ...OLLAMA_FALLBACK_MODELS,
             ...(OLLAMA_MODEL ? [OLLAMA_MODEL] : []),
         ];
 
-        for (const model of localModels) {
-            models.push({ model, baseUrl: OLLAMA_LOCAL_URL });
+        for (const model of localModelIds) {
+            localModels.push({ model, baseUrl: OLLAMA_LOCAL_URL });
         }
     }
 
-    return dedupeModelSpecs(models);
+    return dedupeModelSpecs(
+        preferLocalFirst ? [...localModels, ...cloudModels] : [...cloudModels, ...localModels],
+    );
 }
 
 /** Strip thinking blocks from reasoning model output.
@@ -346,6 +536,7 @@ async function tryOllamaFirst(
     startTime: number,
     trackingContext?: LLMGenerateOptions['trackingContext'],
     modelOverride?: string,
+    deadlineAt?: number,
 ): Promise<string | null> {
     if (!OLLAMA_API_KEY && !OLLAMA_LOCAL_URL) return null;
 
@@ -359,7 +550,11 @@ async function tryOllamaFirst(
         } catch { /* routing unavailable, use default */ }
     }
 
-    const ollamaResult = await ollamaChat(messages, temperature, { maxTokens, model: ollamaModel });
+    const ollamaResult = await ollamaChat(messages, temperature, {
+        maxTokens,
+        model: ollamaModel,
+        deadlineAt,
+    });
     if (ollamaResult?.text) {
         log.debug('Ollama succeeded', {
             model: ollamaResult.model,
@@ -392,10 +587,14 @@ async function tryOllamaLastResort(
     maxTokens: number,
     startTime: number,
     trackingContext?: LLMGenerateOptions['trackingContext'],
+    deadlineAt?: number,
 ): Promise<string | null> {
     if (!OLLAMA_API_KEY && !OLLAMA_LOCAL_URL) return null;
 
-    const retryResult = await ollamaChat(messages, temperature, { maxTokens });
+    const retryResult = await ollamaChat(messages, temperature, {
+        maxTokens,
+        deadlineAt,
+    });
     if (retryResult?.text) {
         void trackUsage(
             `ollama/${retryResult.model}`,
@@ -526,6 +725,11 @@ interface OllamaChatResult {
     usage?: OllamaUsage;
 }
 
+interface OllamaChatAttemptResult {
+    result: OllamaChatResult | null;
+    stopLocalFallback?: boolean;
+}
+
 /**
  * Full Ollama chat with tool calling support.
  * Uses the OpenAI-compatible /v1/chat/completions endpoint.
@@ -540,6 +744,7 @@ async function ollamaChat(
         tools?: ToolDefinition[];
         maxToolRounds?: number;
         model?: string;
+        deadlineAt?: number;
     },
 ): Promise<OllamaChatResult | null> {
     const preferredModel =
@@ -550,6 +755,7 @@ async function ollamaChat(
     const maxTokens = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
     const tools = options?.tools;
     const maxToolRounds = options?.maxToolRounds ?? 10;
+    const deadlineAt = options?.deadlineAt ?? Date.now() + OLLAMA_BUDGET_MS;
 
     // Convert tools to OpenAI function-calling format
     const openaiTools =
@@ -564,8 +770,39 @@ async function ollamaChat(
             }))
         :   undefined;
 
-    for (const spec of models) {
-        const result = await ollamaChatWithModel({
+    const cloudModels = models.filter(spec => !!spec.apiKey);
+    const localModels = await filterReachableLocalOllamaModels(
+        models.filter(spec => !spec.apiKey),
+    );
+    const candidateModels = [...cloudModels, ...localModels];
+    let stopLocalFallback = false;
+
+    if (candidateModels.length === 0) {
+        log.warn('No reachable Ollama chat models available', {
+            preferredModel,
+            hasLocalUrl: !!OLLAMA_LOCAL_URL,
+            hasCloudKey: !!OLLAMA_API_KEY,
+        });
+        return null;
+    }
+
+    for (const [index, spec] of candidateModels.entries()) {
+        if (stopLocalFallback && !spec.apiKey) {
+            log.warn('Skipping remaining local Ollama fallback models after abort-like failure', {
+                model: spec.model,
+                preferredModel,
+            });
+            continue;
+        }
+        if (getRemainingBudget(deadlineAt) <= 0) {
+            log.warn('Ollama fallback budget exhausted', {
+                attemptedModels: candidateModels.map(candidate => candidate.model),
+                maxToolRounds,
+                hasTools: !!tools?.length,
+            });
+            return null;
+        }
+        const attempt = await ollamaChatWithModel({
             spec,
             messages,
             temperature,
@@ -573,8 +810,18 @@ async function ollamaChat(
             tools,
             openaiTools,
             maxToolRounds,
+            deadlineAt,
+            preferredModel,
+            isFirstLocalAttempt: !spec.apiKey && index === 0,
         });
-        if (result) return result;
+        if (attempt.result) return attempt.result;
+        if (attempt.stopLocalFallback) {
+            stopLocalFallback = true;
+            log.warn('Stopping local Ollama fallback cascade after abort-like failure', {
+                model: spec.model,
+                preferredModel,
+            });
+        }
     }
 
     return null;
@@ -598,12 +845,15 @@ interface OllamaChatWithModelInput {
           }>
         | undefined;
     maxToolRounds: number;
+    deadlineAt: number;
+    preferredModel?: string;
+    isFirstLocalAttempt?: boolean;
 }
 
 /** Try a single Ollama model. Returns result or null on failure. */
 async function ollamaChatWithModel(
     input: OllamaChatWithModelInput,
-): Promise<OllamaChatResult | null> {
+): Promise<OllamaChatAttemptResult> {
     const {
         spec,
         messages,
@@ -612,6 +862,9 @@ async function ollamaChatWithModel(
         tools,
         openaiTools,
         maxToolRounds,
+        deadlineAt,
+        preferredModel,
+        isFirstLocalAttempt,
     } = input;
     const { model, baseUrl, apiKey } = spec;
     const toolCallRecords: ToolCallRecord[] = [];
@@ -629,10 +882,27 @@ async function ollamaChatWithModel(
 
     for (let round = 0; round <= maxToolRounds; round++) {
         try {
+            const remainingBudgetMs = getRemainingBudget(deadlineAt);
+            if (remainingBudgetMs <= 0) {
+                log.warn('Ollama attempt budget exhausted', {
+                    model,
+                    round,
+                    maxToolRounds,
+                });
+                return { result: null };
+            }
+
             const controller = new AbortController();
+            const attemptTimeoutMs = getOllamaAttemptTimeoutMs({
+                hasTools: !!openaiTools,
+                remainingBudgetMs,
+                model,
+                preferredModel,
+                isFirstLocalAttempt,
+            });
             const timeoutId = setTimeout(
                 () => controller.abort(),
-                OLLAMA_TIMEOUT_MS,
+                attemptTimeoutMs,
             );
 
             // Use Ollama's native /api/chat endpoint (not /v1/chat/completions)
@@ -685,7 +955,7 @@ async function ollamaChatWithModel(
                     status: response.status,
                     statusText: response.statusText,
                 });
-                return null;
+                return { result: null };
             }
 
             // Native /api/chat response format
@@ -733,7 +1003,7 @@ async function ollamaChatWithModel(
                     model,
                     hasMessage: !!msg,
                 });
-                return null;
+                return { result: null };
             }
 
             // Native /api/chat tool_calls may lack `id` — generate one
@@ -765,13 +1035,15 @@ async function ollamaChatWithModel(
                         thinkingLength: thinking.length,
                         rawPreview: (raw || thinking).slice(0, 100) || '(empty)',
                     });
-                    return null;
+                    return { result: null };
                 }
                 return {
-                    text,
-                    toolCalls: toolCallRecords,
-                    model,
-                    usage: data.usage,
+                    result: {
+                        text,
+                        toolCalls: toolCallRecords,
+                        model,
+                        usage: data.usage,
+                    },
                 };
             }
 
@@ -846,14 +1118,25 @@ async function ollamaChatWithModel(
         } catch (err) {
             log.warn('Ollama chat exception', {
                 model,
+                round,
                 error: (err as Error).message?.slice(0, 200),
             });
-            return null;
+            return {
+                result: null,
+                ...(shouldStopOllamaLocalFallback(spec, err) ? { stopLocalFallback: true } : {}),
+            };
         }
     }
 
     // Exhausted tool rounds — return what we have
-    return { text: '', toolCalls: toolCallRecords, model, usage: undefined };
+    return {
+        result: {
+            text: '',
+            toolCalls: toolCallRecords,
+            model,
+            usage: undefined,
+        },
+    };
 }
 
 /**
@@ -925,11 +1208,20 @@ async function openRouterChatCompletions(
     messages: { role: string; content: string }[],
     temperature: number,
     maxTokens: number,
+    deadlineAt?: number,
 ): Promise<string | null> {
+    const remainingBudgetMs = deadlineAt ? getRemainingBudget(deadlineAt) : OPENROUTER_CHAT_TIMEOUT_MS;
+    if (remainingBudgetMs <= 0) {
+        log.warn('Skipping direct /chat/completions fallback because request budget is exhausted', {
+            model,
+        });
+        return null;
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(
         () => controller.abort(),
-        OPENROUTER_CHAT_TIMEOUT_MS,
+        Math.min(OPENROUTER_CHAT_TIMEOUT_MS, remainingBudgetMs),
     );
 
     try {
@@ -1074,6 +1366,7 @@ export async function llmGenerate(
     } = options;
 
     const startTime = Date.now();
+    const totalDeadlineAt = startTime + LLM_TEXT_TOTAL_BUDGET_MS;
 
     log.debug('llmGenerate starting', {
         hasTools: !!(tools && tools.length > 0),
@@ -1089,13 +1382,30 @@ export async function llmGenerate(
     const systemMessage = messages.find(m => m.role === 'system');
     const conversationMessages = messages.filter(m => m.role !== 'system');
 
-    // ── Try Ollama first (always — text-only and tool calls alike) ──
+    const preferOllamaFirst = shouldTryOllamaFirst(model);
     const hasToolsDefined = tools && tools.length > 0;
-    const ollamaText = await tryOllamaFirst(messages, temperature, maxTokens, startTime, trackingContext);
-    if (ollamaText) return ollamaText;
+    if (preferOllamaFirst) {
+        const ollamaText = await tryOllamaFirst(
+            messages,
+            temperature,
+            maxTokens,
+            startTime,
+            trackingContext,
+            model,
+            totalDeadlineAt,
+        );
+        if (ollamaText) return ollamaText;
+        if (isLocalModelId(model)) {
+            log.warn('Explicit local model request failed; skipping cloud fallback', {
+                model,
+                context: trackingContext?.context,
+            });
+            return '';
+        }
+    }
 
     // ── OpenRouter fallback (only when enabled) ──
-    if (!OPENROUTER_ENABLED) {
+    if (!canUseOpenRouter()) {
         log.warn('Ollama returned empty and OpenRouter is disabled', {
             context: trackingContext?.context,
             agentId: trackingContext?.agentId,
@@ -1114,6 +1424,10 @@ export async function llmGenerate(
     if (modelList.length === 0) {
         throw new Error('No LLM models available after resolution');
     }
+    const openRouterDeadlineAt = Math.min(
+        totalDeadlineAt,
+        Date.now() + OPENROUTER_TEXT_BUDGET_MS,
+    );
 
     const buildCallOpts = (
         spec: string | string[],
@@ -1139,14 +1453,34 @@ export async function llmGenerate(
 
     /** Try a call (models array or single model), return trimmed text or null if empty */
     async function tryCall(spec: string | string[]): Promise<string | null> {
-        const result = client.callModel(
-            buildCallOpts(spec) as Parameters<typeof client.callModel>[0],
+        const remainingBudgetMs = getRemainingBudget(openRouterDeadlineAt);
+        if (remainingBudgetMs <= 0) {
+            throw Object.assign(new Error('OpenRouter text budget exhausted'), {
+                statusCode: 504,
+            });
+        }
+
+        const timeoutMs = Math.min(OPENROUTER_TEXT_TIMEOUT_MS, remainingBudgetMs);
+        const { rawText, response } = await withTimeout(
+            'OpenRouter text call',
+            timeoutMs,
+            async () => {
+                const result = client.callModel(
+                    buildCallOpts(spec) as Parameters<typeof client.callModel>[0],
+                );
+                const [textResult, responseResult] = await Promise.all([
+                    result.getText(),
+                    result.getResponse(),
+                ]);
+                return {
+                    rawText: textResult?.trim() ?? '',
+                    response: responseResult,
+                };
+            },
         );
-        const rawText = (await result.getText())?.trim() ?? '';
         const text = extractFromXml(rawText);
 
         const durationMs = Date.now() - startTime;
-        const response = await result.getResponse();
         const usedModel = response.model || 'unknown';
         const usage = response.usage;
 
@@ -1172,7 +1506,11 @@ export async function llmGenerate(
     // 2) Try remaining models individually
     if (!openRouterResult.text) {
         const individualText = await tryOpenRouterIndividual(
-            tryCall, resolved, openRouterResult.error, trackingContext?.context,
+            tryCall,
+            resolved,
+            openRouterResult.error,
+            openRouterDeadlineAt,
+            trackingContext?.context,
         );
         if (individualText) return individualText;
     } else {
@@ -1180,12 +1518,19 @@ export async function llmGenerate(
     }
 
     // 3) Ollama last resort (text-only)
-    if (openRouterResult.error && !hasToolsDefined) {
+    if (!preferOllamaFirst && openRouterResult.error && !hasToolsDefined) {
         log.debug('OpenRouter failed, retrying Ollama as last resort', {
             error: openRouterResult.error.message,
             statusCode: openRouterResult.error.statusCode,
         });
-        const ollamaText = await tryOllamaLastResort(messages, temperature, maxTokens, startTime, trackingContext);
+        const ollamaText = await tryOllamaLastResort(
+            messages,
+            temperature,
+            maxTokens,
+            startTime,
+            trackingContext,
+            totalDeadlineAt,
+        );
         if (ollamaText) return ollamaText;
     }
 
@@ -1193,9 +1538,15 @@ export async function llmGenerate(
     throwForOpenRouterStatus(openRouterResult.error?.statusCode);
 
     // 4) Last resort: direct /chat/completions (bypasses SDK Responses API)
-    if (OPENROUTER_API_KEY && !hasToolsDefined) {
+    if (canUseOpenRouter() && !hasToolsDefined) {
         const chatText = await tryDirectChatCompletions(
-            resolved, messages, temperature, maxTokens, startTime, trackingContext,
+            resolved,
+            messages,
+            temperature,
+            maxTokens,
+            startTime,
+            trackingContext,
+            totalDeadlineAt,
         );
         if (chatText) return chatText;
     }
@@ -1242,18 +1593,29 @@ async function tryOpenRouterArray(
  * Try remaining models individually after the array call fails or returns empty.
  * When the array call threw, try ALL models; otherwise try only overflow models.
  */
-async function tryOpenRouterIndividual(
+export async function tryOpenRouterIndividual(
     tryCall: (spec: string) => Promise<string | null>,
     resolved: string[],
     openRouterError: { statusCode?: number; message?: string } | null,
+    deadlineAt: number,
     context?: string,
 ): Promise<string | null> {
     if (openRouterError?.statusCode === 402 || openRouterError?.statusCode === 429) {
         return null;
     }
 
-    const fallbackModels = openRouterError ? resolved : resolved.slice(MAX_MODELS_ARRAY);
+    const fallbackModels = (openRouterError ? resolved : resolved.slice(MAX_MODELS_ARRAY)).slice(
+        0,
+        OPENROUTER_MAX_INDIVIDUAL_FALLBACKS,
+    );
     for (const fallback of fallbackModels) {
+        if (getRemainingBudget(deadlineAt) <= 0) {
+            log.warn('OpenRouter individual fallback budget exhausted', {
+                context,
+                attemptedModels: fallbackModels,
+            });
+            return null;
+        }
         try {
             const text = await tryCall(fallback);
             if (text) return text;
@@ -1276,10 +1638,17 @@ async function tryDirectChatCompletions(
     maxTokens: number,
     startTime: number,
     trackingContext?: LLMGenerateOptions['trackingContext'],
+    deadlineAt?: number,
 ): Promise<string | null> {
     const chatModel = resolved[0] ?? 'deepseek/deepseek-v3.2';
     try {
-        const chatResult = await openRouterChatCompletions(chatModel, messages, temperature, maxTokens);
+        const chatResult = await openRouterChatCompletions(
+            chatModel,
+            messages,
+            temperature,
+            maxTokens,
+            deadlineAt,
+        );
         if (chatResult) {
             log.info('Recovered via direct /chat/completions fallback', {
                 model: chatModel,
@@ -1424,6 +1793,7 @@ async function openRouterToolLoop(opts: {
     maxToolRounds: number;
     trackingContext?: LLMGenerateOptions['trackingContext'];
     startTime: number;
+    deadlineAt?: number;
 }): Promise<LLMToolResult> {
     const {
         messages: workingMessages,
@@ -1441,8 +1811,23 @@ async function openRouterToolLoop(opts: {
     let lastModel = 'unknown';
     let lastUsage: OpenResponsesUsage | null = null;
     let bestText = '';
+    const deadlineAt = Math.min(
+        opts.deadlineAt ?? Number.MAX_SAFE_INTEGER,
+        startTime + OPENROUTER_TOOL_BUDGET_MS,
+    );
 
     for (let round = 0; round <= maxToolRounds; round++) {
+        const remainingBudgetMs = getRemainingBudget(deadlineAt);
+        if (remainingBudgetMs <= 0) {
+            log.warn('OpenRouter tool loop budget exhausted', {
+                round,
+                maxToolRounds,
+                context: trackingContext?.context,
+                modelList,
+            });
+            break;
+        }
+
         log.debug('Tool round starting', {
             round,
             maxToolRounds,
@@ -1474,7 +1859,7 @@ async function openRouterToolLoop(opts: {
         const controller = new AbortController();
         const timeoutId = setTimeout(
             () => controller.abort(),
-            OPENROUTER_TOOL_TIMEOUT_MS,
+            Math.min(OPENROUTER_TOOL_TIMEOUT_MS, remainingBudgetMs),
         );
 
         const response = await fetch(
@@ -1649,6 +2034,7 @@ export async function llmGenerateWithTools(
 
     const startTime = Date.now();
     const hasTools = tools.length > 0;
+    const totalDeadlineAt = startTime + LLM_TOOL_TOTAL_BUDGET_MS;
 
     log.debug('llmGenerateWithTools starting', {
         hasTools,
@@ -1662,6 +2048,8 @@ export async function llmGenerateWithTools(
         agentId: trackingContext?.agentId,
     });
 
+    const preferOllamaFirst = shouldTryOllamaFirst(model);
+
     // ── Try Ollama first — WITH tool support ──
     // Resolve context-specific Ollama model if no explicit model given
     let resolvedModel = model;
@@ -1672,30 +2060,41 @@ export async function llmGenerateWithTools(
             if (ollamaCandidate) resolvedModel = ollamaCandidate;
         } catch { /* use default */ }
     }
-    const ollamaResult = await ollamaChat(messages, temperature, {
-        maxTokens,
-        tools: hasTools ? tools : undefined,
-        maxToolRounds,
-        model: resolvedModel,
-    });
-    if (ollamaResult?.text || (ollamaResult?.toolCalls && ollamaResult.toolCalls.length > 0)) {
-        log.debug('Ollama succeeded (with tools)', {
-            model: ollamaResult.model,
-            context: trackingContext?.context,
-            textLength: ollamaResult.text.length,
-            toolCallCount: ollamaResult.toolCalls.length,
+    if (preferOllamaFirst) {
+        const ollamaResult = await ollamaChat(messages, temperature, {
+            maxTokens,
+            tools: hasTools ? tools : undefined,
+            maxToolRounds,
+            model: resolvedModel,
+            deadlineAt: totalDeadlineAt,
         });
-        void trackUsage(
-            `ollama/${ollamaResult.model}`,
-            toOpenResponsesUsage(ollamaResult.usage),
-            Date.now() - startTime,
-            trackingContext,
-        );
-        return { text: ollamaResult.text, toolCalls: ollamaResult.toolCalls };
+        if (ollamaResult?.text || (ollamaResult?.toolCalls && ollamaResult.toolCalls.length > 0)) {
+            log.debug('Ollama succeeded (with tools)', {
+                model: ollamaResult.model,
+                context: trackingContext?.context,
+                textLength: ollamaResult.text.length,
+                toolCallCount: ollamaResult.toolCalls.length,
+            });
+            void trackUsage(
+                `ollama/${ollamaResult.model}`,
+                toOpenResponsesUsage(ollamaResult.usage),
+                Date.now() - startTime,
+                trackingContext,
+            );
+            return { text: ollamaResult.text, toolCalls: ollamaResult.toolCalls };
+        }
+
+        if (isLocalModelId(resolvedModel)) {
+            log.warn('Explicit local tool-call model failed; skipping cloud fallback', {
+                model: resolvedModel,
+                context: trackingContext?.context,
+            });
+            return { text: '', toolCalls: [] };
+        }
     }
 
     // ── OpenRouter fallback (only when enabled) ──
-    if (!OPENROUTER_ENABLED) {
+    if (!canUseOpenRouter()) {
         log.warn('Ollama returned empty and OpenRouter is disabled (tool call)', {
             context: trackingContext?.context,
             agentId: trackingContext?.agentId,
@@ -1737,6 +2136,7 @@ export async function llmGenerateWithTools(
             maxToolRounds,
             trackingContext,
             startTime,
+            deadlineAt: totalDeadlineAt,
         });
     } catch (error: unknown) {
         const err = error as { statusCode?: number; message?: string };
@@ -1747,7 +2147,14 @@ export async function llmGenerateWithTools(
             error: err.message,
             statusCode: err.statusCode,
         });
-        const ollamaText = await tryOllamaLastResort(messages, temperature, maxTokens, startTime, trackingContext);
+        const ollamaText = await tryOllamaLastResort(
+            messages,
+            temperature,
+            maxTokens,
+            startTime,
+            trackingContext,
+            totalDeadlineAt,
+        );
         if (ollamaText) return { text: ollamaText, toolCalls: [] };
 
         if (err.statusCode === 401) {

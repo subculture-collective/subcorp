@@ -19,6 +19,11 @@ import {
     publishApprovedDrafts,
 } from '../../src/lib/ops/content-publication';
 import { backfillGovernanceVotes } from '../../src/lib/ops/governance';
+import {
+    processCompletedReviewDrafts,
+    releaseStaleReviewDrafts,
+    type ReviewDraft,
+} from './review-recovery';
 import type { RoundtableSession } from '../../src/lib/types';
 import type { AgentSession } from '../../src/lib/tools/types';
 import type { ConversationFormat, StepKind } from '../../src/lib/types';
@@ -109,8 +114,13 @@ async function pollAgentSessions(): Promise<boolean> {
                         '',
                         artifactText,
                     );
-                } catch {
+                } catch (discordErr) {
                     // Non-fatal — Discord posting should never stall the worker
+                    log.warn('Discord posting failed (non-fatal)', {
+                        error: discordErr,
+                        sessionId: session.id,
+                        roundtableId: session.source_id,
+                    });
                 }
             }
 
@@ -321,8 +331,14 @@ async function pollAgentSessions(): Promise<boolean> {
                                         contentType,
                                     },
                                 });
-                            } catch {
+                            } catch (emitErr) {
                                 // Non-fatal — event emission should never stall the worker
+                                log.warn('Content draft event emission failed (non-fatal)', {
+                                    error: emitErr,
+                                    sessionId: session.id,
+                                    roundtableId: session.source_id,
+                                    draftId: draft.id,
+                                });
                             }
                         }
                     }
@@ -1032,10 +1048,6 @@ async function pollInitiatives(): Promise<boolean> {
             return true;
         }
 
-        const { llmGenerate } = await import('../../src/lib/llm/client');
-        const { getVoice } = await import('../../src/lib/roundtable/voices');
-
-        const voice = getVoice(entry.agent_id);
         const memories = entry.context?.memories ?? [];
 
         // ─── Template-based proposal generation ───
@@ -1432,7 +1444,12 @@ async function waitForDb(maxRetries = 30, intervalMs = 2000): Promise<void> {
             await sql`SELECT 1 FROM ops_roundtable_sessions LIMIT 0`;
             log.info('Database ready', { attempt });
             return;
-        } catch {
+        } catch (dbErr) {
+            log.warn('Database not ready yet', {
+                error: dbErr,
+                attempt,
+                maxRetries,
+            });
             if (attempt === maxRetries) {
                 throw new Error(
                     `Database not ready after ${maxRetries} attempts`,
@@ -1460,27 +1477,49 @@ async function catchUpStuckReviews(): Promise<void> {
           AND rs.status = 'completed'
     `;
 
-    if (stuck.length === 0) return;
-
-    log.info('Catching up stuck content reviews', { count: stuck.length });
-
     const { processReviewSession } =
         await import('../../src/lib/ops/content-pipeline');
 
-    for (const draft of stuck) {
-        try {
-            await processReviewSession(draft.review_session_id);
-            log.info('Stuck review processed', {
-                draftId: draft.id,
-                title: draft.title,
-            });
-        } catch (err) {
-            log.error('Failed to process stuck review', {
-                error: err,
-                draftId: draft.id,
-            });
-        }
-    }
+    await processCompletedReviewDrafts(
+        stuck,
+        (reviewSessionId) => processReviewSession(reviewSessionId),
+        log,
+    );
+}
+
+/** One-time: release stale review drafts whose review link is orphaned or unresolved. */
+async function catchUpOrphanedReviewDrafts(): Promise<void> {
+    const stale = await sql<ReviewDraft[]>`
+        SELECT d.id, d.title, d.review_session_id
+        FROM ops_content_drafts d
+        LEFT JOIN ops_roundtable_sessions rs ON rs.id = d.review_session_id
+        WHERE d.status = 'review'
+          AND d.created_at < NOW() - interval '24 hours'
+          AND (
+              d.review_session_id IS NULL
+              OR rs.id IS NULL
+              OR rs.status <> 'completed'
+          )
+    `;
+
+    await releaseStaleReviewDrafts(
+        stale,
+        async (draftId) => {
+            const result = await sql`
+                UPDATE ops_content_drafts
+                SET status = 'draft',
+                    review_session_id = NULL,
+                    updated_at = NOW()
+                WHERE id = ${draftId}
+                  AND status = 'review'
+                  AND created_at < NOW() - interval '24 hours'
+                RETURNING id
+            `;
+
+            return result.length > 0;
+        },
+        log,
+    );
 }
 
 /** One-time: finalize missions stuck in 'approved' with all steps completed */
@@ -1544,6 +1583,9 @@ async function pollLoop(): Promise<void> {
 
     // Catch up on any stuck reviews from before the fix
     await catchUpStuckReviews();
+
+    // Release review drafts that lost their path and have sat in limbo too long
+    await catchUpOrphanedReviewDrafts();
 
     // Finalize any orphaned missions stuck in 'approved' with all steps done
     await catchUpOrphanedMissions();

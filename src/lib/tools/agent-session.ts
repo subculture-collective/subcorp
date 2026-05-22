@@ -5,7 +5,7 @@
 import { sql, jsonb } from '@/lib/db';
 import { llmGenerateWithTools, extractFromXml, normalizeDsml } from '@/lib/llm/client';
 import { getVoice } from '@/lib/roundtable/voices';
-import { getAgentTools, getDroidTools } from './registry';
+import { getAgentTools, getDroidTools, getAgentWritePaths } from './registry';
 import { emitEvent } from '@/lib/ops/events';
 import { queryRelevantMemories } from '@/lib/ops/memory';
 import { getScratchpad } from '@/lib/ops/scratchpad';
@@ -67,7 +67,7 @@ function truncateToFirstSentences(text: string, maxLen: number): string {
     return truncated + '...';
 }
 
-const BLOCKER_SUMMARY_PATTERNS: RegExp[] = [
+const HARD_BLOCKER_SUMMARY_PATTERNS: RegExp[] = [
     /\bcritical blocker\b/i,
     /\bdata dependency blocked\b/i,
     // Negative lookbehind guards against "not blocked by", "never blocked by", "wasn't blocked by", etc.
@@ -77,13 +77,37 @@ const BLOCKER_SUMMARY_PATTERNS: RegExp[] = [
     /\bcannot continue\b/i,
     /\bcannot be completed\b/i,
     /\bno further (procedural )?steps? (i )?can take\b/i,
-    /\bawait(?:ing)? (?:instruction|input|external|data|provisioning)\b/i,
-    // Negative lookbehind guards against "not waiting for", "never waiting for", etc.
-    /(?<!(?:not|never) )\bwaiting for\b/i,
     /\bhands are tied\b/i,
     // Negative lookbehind guards against "not stalled by", "never stalled by", etc.
     /(?<!(?:not|never) )\bstalled by\b/i,
+];
+
+const SOFT_BLOCKER_SUMMARY_PATTERNS: RegExp[] = [
+    /\bawait(?:ing)? (?:instruction|input|external|data|provisioning)\b/i,
+    // Negative lookbehind guards against "not waiting for", "never waiting for", etc.
+    /(?<!(?:not|never) )\bwaiting for\b/i,
     /\bpaused pending\b/i,
+];
+
+const PROGRESS_SUMMARY_PATTERNS: RegExp[] = [
+    /\bcompleted\b/i,
+    /\bfinished\b/i,
+    /\bgenerated\b/i,
+    /\bproduced\b/i,
+    /\bcreated\b/i,
+    /\bdrafted\b/i,
+    /\bwrote\b/i,
+    /\bupdated\b/i,
+    /\bpublished\b/i,
+    /\bposted\b/i,
+    /\bsent\b/i,
+    /\bdelivered\b/i,
+    /\bfetched\b/i,
+    /\bprocessed\b/i,
+    /\bqueued\b/i,
+    /\bsaved\b/i,
+    /\bsucceeded\b/i,
+    /\bsuccessfully\b/i,
 ];
 
 const TOOL_ERROR_PATTERNS: RegExp[] = [
@@ -106,9 +130,28 @@ function toolErrorText(result: unknown): string {
     return [err, stderr].filter(Boolean).join('\n');
 }
 
-function detectBlockedOutcome(
+function isSuccessfulToolCall(toolCall: ToolCallRecord): boolean {
+    if (toolCall.result === undefined) return false;
+
+    const text = toolErrorText(toolCall.result);
+    if (text.length > 0) {
+        if (/not available/i.test(text)) return false;
+        if (TOOL_ERROR_PATTERNS.some(p => p.test(text))) return false;
+    }
+
+    if (typeof toolCall.result === 'object' && toolCall.result !== null) {
+        return !(typeof (toolCall.result as Record<string, unknown>).error === 'string');
+    }
+
+    return true;
+}
+
+export function detectBlockedOutcome(
     summary: string,
     toolCalls: ToolCallRecord[],
+    options?: {
+        ignoreSummaryBlockers?: boolean;
+    },
 ): {
     blocked: boolean;
     reason: string;
@@ -116,9 +159,25 @@ function detectBlockedOutcome(
 } {
     const evidence: string[] = [];
 
-    const blockerMatch = BLOCKER_SUMMARY_PATTERNS.find(p => p.test(summary));
-    if (blockerMatch) {
-        evidence.push(`summary matched pattern: ${blockerMatch.source}`);
+    const hardBlockerMatch =
+        options?.ignoreSummaryBlockers ?
+            undefined
+        :   HARD_BLOCKER_SUMMARY_PATTERNS.find(p => p.test(summary));
+    if (hardBlockerMatch) {
+        evidence.push(`summary matched hard-blocker pattern: ${hardBlockerMatch.source}`);
+    }
+
+    const softBlockerMatch =
+        options?.ignoreSummaryBlockers ?
+            undefined
+        :   SOFT_BLOCKER_SUMMARY_PATTERNS.find(p => p.test(summary));
+    const hasSuccessfulToolCall = toolCalls.some(isSuccessfulToolCall);
+    const hasProgressSignals =
+        hasSuccessfulToolCall ||
+        PROGRESS_SUMMARY_PATTERNS.some(p => p.test(summary));
+
+    if (softBlockerMatch && !hasProgressSignals) {
+        evidence.push(`summary matched unresolved soft-blocker pattern: ${softBlockerMatch.source}`);
     }
 
     const toolErrors = toolCalls
@@ -141,7 +200,7 @@ function detectBlockedOutcome(
         return !('error' in (tc.result as Record<string, unknown>));
     });
 
-    const blockedBySummary = !!blockerMatch;
+    const blockedBySummary = !!hardBlockerMatch || (!!softBlockerMatch && !hasProgressSignals);
     const blockedByFatalToolError =
         fatalToolErrors.length > 0 && !hasSuccessfulWrite;
 
@@ -208,8 +267,12 @@ async function loadAgentContext(
     let primeDirective = '';
     try {
         primeDirective = await loadPrimeDirective();
-    } catch {
-        // Continue without directive
+    } catch (error) {
+        log.warn('Prime directive load failed; continuing without directive', {
+            error,
+            sessionId: session.id,
+            agentId,
+        });
     }
 
     const systemPrompt = buildAgentSystemPrompt({
@@ -221,6 +284,7 @@ async function loadAgentContext(
         memories,
         recentSessions: recentSessions as Array<{ agent_id: string; result: unknown }>,
         toolNames: tools.map(t => t.name),
+        writePaths: isDroid ? [] : getAgentWritePaths(agentId),
     });
 
     return { voiceName, tools, systemPrompt };
@@ -236,6 +300,7 @@ function buildAgentSystemPrompt(ctx: {
     memories: Array<{ type: string; content: string }>;
     recentSessions: Array<{ agent_id: string; result: unknown }>;
     toolNames: string[];
+    writePaths: string[];
 }): string {
     let prompt = '';
 
@@ -256,7 +321,13 @@ function buildAgentSystemPrompt(ctx: {
     if (ctx.toolNames.length > 0) {
         prompt += `═══ AVAILABLE TOOLS ═══\n`;
         prompt += `You may ONLY use these tools: ${ctx.toolNames.join(', ')}\n`;
-        prompt += `Do NOT call tools like "google:search", "tool_code", "propose_action", or any other name not listed above.\n\n`;
+        prompt += `Do NOT call tools like "google:search", "tool_code", "propose_action", or any other name not listed above.\n`;
+        prompt += `If a tool call returns "Access denied" or "does not exist", do NOT retry the same call. Adjust your approach or skip that action.\n`;
+        if (ctx.writePaths.length > 0) {
+            prompt += `Your file_write access is restricted to these path prefixes: ${ctx.writePaths.join(', ')}\n`;
+            prompt += `Do NOT attempt to write outside these paths — it will be denied.\n`;
+        }
+        prompt += `\n`;
     }
 
     if (ctx.scratchpad) {
@@ -372,6 +443,18 @@ async function runAgentToolLoop(opts: {
             break;
         }
 
+        // Break if all tool calls in this round returned access-denied errors
+        if (result.toolCalls.length > 0 && result.toolCalls.every(tc => {
+            const text = toolErrorText(tc.result);
+            return /access denied/i.test(text) || /does not exist/i.test(text);
+        })) {
+            log.warn('Agent session breaking early — all tool calls denied or invalid', {
+                sessionId: session.id, round,
+                toolCalls: result.toolCalls.map(tc => ({ name: tc.name, error: toolErrorText(tc.result).slice(0, 100) })),
+            });
+            break;
+        }
+
         if (consecutiveEmptyRounds >= MAX_CONSECUTIVE_EMPTY_ROUNDS) {
             log.warn('Agent session breaking early — consecutive empty rounds', {
                 sessionId: session.id, round,
@@ -438,9 +521,16 @@ export async function executeAgentSession(
 
         const cleanedText = extractFromXml(loopResult.lastText);
         const summary = sanitizeSummary(cleanedText);
+        const isHeartbeatReportSession =
+            session.agent_id === 'system' &&
+            session.source === 'cron' &&
+            session.prompt.trim() === 'System heartbeat';
         const blockedOutcome = detectBlockedOutcome(
             [summary, cleanedText].filter(Boolean).join('\n'),
             loopResult.toolCalls,
+            {
+                ignoreSummaryBlockers: isHeartbeatReportSession,
+            },
         );
 
         const finalStatus = blockedOutcome.blocked ? 'blocked' : 'succeeded';

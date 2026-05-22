@@ -37,17 +37,18 @@ RUN apk add --no-cache docker-cli git && \
     mv /tmp/gh_2.74.1_linux_amd64/bin/gh /usr/local/bin/gh && \
     rm -rf /tmp/gh* && \
     addgroup --system --gid 1001 nodejs && \
-    adduser  --system --uid 1001 nextjs
+    adduser  --system --uid 1001 nextjs && \
+    mkdir -p /workspace && \
+    chown nextjs:nodejs /workspace
 
 # Copy only what's needed to run
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy unified worker bundle + sanctum bundle + workspace data + migrations
+# Copy worker bundles and migrations; /workspace is a runtime volume
 COPY --from=builder /app/scripts/unified-worker/dist ./scripts/unified-worker/dist
 COPY --from=builder /app/scripts/sanctum-server/dist ./scripts/sanctum-server/dist
-COPY --from=builder --chown=nextjs:nodejs /app/workspace ./workspace
 COPY --from=builder /app/db ./db
 
 # Entrypoint runs migrations before starting the app/worker

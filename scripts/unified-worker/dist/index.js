@@ -69,11 +69,6 @@ var init_db = __esm({
 });
 
 // src/lib/roundtable/voices.ts
-var voices_exports = {};
-__export(voices_exports, {
-  VOICES: () => VOICES,
-  getVoice: () => getVoice
-});
 function getVoice(agentId) {
   return VOICES[agentId];
 }
@@ -754,16 +749,16 @@ function formatContext(ctx) {
 }
 function createLoggerInternal(bindings) {
   const write = USE_JSON ? writeJson : writePretty;
-  function log35(level, msg, ctx) {
+  function log37(level, msg, ctx) {
     if (LEVEL_VALUES[level] < MIN_LEVEL) return;
     write(level, msg, bindings, normalizeContext(ctx));
   }
   return {
-    debug: (msg, ctx) => log35("debug", msg, ctx),
-    info: (msg, ctx) => log35("info", msg, ctx),
-    warn: (msg, ctx) => log35("warn", msg, ctx),
-    error: (msg, ctx) => log35("error", msg, ctx),
-    fatal: (msg, ctx) => log35("fatal", msg, ctx),
+    debug: (msg, ctx) => log37("debug", msg, ctx),
+    info: (msg, ctx) => log37("info", msg, ctx),
+    warn: (msg, ctx) => log37("warn", msg, ctx),
+    error: (msg, ctx) => log37("error", msg, ctx),
+    fatal: (msg, ctx) => log37("fatal", msg, ctx),
     child: (childBindings) => createLoggerInternal({ ...bindings, ...childBindings })
   };
 }
@@ -914,18 +909,6 @@ var init_model_routing = __esm({
 });
 
 // src/lib/llm/client.ts
-var client_exports = {};
-__export(client_exports, {
-  estimateTokens: () => estimateTokens,
-  extractFromXml: () => extractFromXml,
-  extractJson: () => extractJson,
-  getOpenRouterClient: () => getClient,
-  llmGenerate: () => llmGenerate,
-  llmGenerateWithTools: () => llmGenerateWithTools,
-  normalizeDsml: () => normalizeDsml,
-  promptSection: () => promptSection,
-  sanitizeDialogue: () => sanitizeDialogue
-});
 function normalizeModel(id) {
   if (id === "openrouter/auto") return id;
   if (id.startsWith("openrouter/")) return id.slice("openrouter/".length);
@@ -998,6 +981,105 @@ function getClient() {
   }
   return _client;
 }
+function isAbortLikeError(error) {
+  return error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError" || error.message === "This operation was aborted" || error.message === "The operation was aborted due to timeout");
+}
+function shouldStopOllamaLocalFallback(spec, error) {
+  return !spec.apiKey && isAbortLikeError(error);
+}
+function isLocalModelId(model) {
+  if (!model) return false;
+  const normalized = normalizeModel(model);
+  return normalized.includes(":") && !normalized.includes("/");
+}
+function canUseOpenRouter() {
+  return OPENROUTER_ENABLED && !!OPENROUTER_API_KEY;
+}
+function shouldTryOllamaFirst(model) {
+  return !canUseOpenRouter() || isLocalModelId(model);
+}
+function getRemainingBudget(deadlineAt) {
+  return Math.max(0, deadlineAt - Date.now());
+}
+function getOllamaAttemptTimeoutMs(opts) {
+  const isPreferredTextAttempt = !opts.hasTools && (!!opts.preferredModel && opts.model === opts.preferredModel || !!opts.isFirstLocalAttempt);
+  const baseTimeoutMs = opts.hasTools ? OLLAMA_TOOL_TIMEOUT_MS : isPreferredTextAttempt ? OLLAMA_PREFERRED_TEXT_TIMEOUT_MS : OLLAMA_TEXT_TIMEOUT_MS;
+  return Math.min(baseTimeoutMs, opts.remainingBudgetMs);
+}
+async function withTimeout(label, timeoutMs, fn) {
+  let timeoutId = null;
+  try {
+    return await Promise.race([
+      fn(),
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(
+            Object.assign(new Error(`${label} timed out after ${timeoutMs}ms`), {
+              statusCode: 504
+            })
+          );
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+async function getReachableLocalOllamaModels() {
+  if (!OLLAMA_LOCAL_URL) return null;
+  const cached = ollamaModelCatalogCache;
+  if (cached && cached.baseUrl === OLLAMA_LOCAL_URL && Date.now() - cached.ts < OLLAMA_MODEL_CACHE_TTL_MS) {
+    return cached.models;
+  }
+  try {
+    const response = await fetch(`${OLLAMA_LOCAL_URL}/api/tags`, {
+      signal: AbortSignal.timeout(OLLAMA_TAGS_TIMEOUT_MS)
+    });
+    if (!response.ok) {
+      log.warn("Ollama model catalog probe failed", {
+        baseUrl: OLLAMA_LOCAL_URL,
+        status: response.status
+      });
+      return null;
+    }
+    const data = await response.json();
+    const models = new Set(
+      (data.models ?? []).map((entry) => entry.name?.trim()).filter((name) => Boolean(name))
+    );
+    ollamaModelCatalogCache = {
+      baseUrl: OLLAMA_LOCAL_URL,
+      models,
+      ts: Date.now()
+    };
+    return models;
+  } catch (error) {
+    log.warn("Ollama model catalog probe exception", {
+      baseUrl: OLLAMA_LOCAL_URL,
+      error: error.message?.slice(0, 200)
+    });
+    return null;
+  }
+}
+async function filterReachableLocalOllamaModels(models) {
+  if (!OLLAMA_LOCAL_URL || models.length === 0) return [];
+  const reachableModels = await getReachableLocalOllamaModels();
+  if (!reachableModels) {
+    log.warn("Skipping local Ollama fallback because catalog probe failed", {
+      baseUrl: OLLAMA_LOCAL_URL,
+      requestedModels: models.map((spec) => spec.model)
+    });
+    return [];
+  }
+  const filtered = models.filter((spec) => reachableModels.has(spec.model));
+  const skipped = models.filter((spec) => !reachableModels.has(spec.model)).map((spec) => spec.model);
+  if (skipped.length > 0) {
+    log.info("Skipping unavailable local Ollama models", {
+      baseUrl: OLLAMA_LOCAL_URL,
+      skipped
+    });
+  }
+  return filtered;
+}
 function getOllamaModels() {
   return getOllamaModelsWithFallback();
 }
@@ -1013,9 +1095,11 @@ function dedupeModelSpecs(models) {
   return deduped;
 }
 function getOllamaModelsWithFallback(preferredModel) {
-  const models = [];
+  const cloudModels = [];
+  const localModels = [];
+  const preferLocalFirst = isLocalModelId(preferredModel) || !canUseOpenRouter();
   if (OLLAMA_API_KEY) {
-    models.push(
+    cloudModels.push(
       {
         model: "deepseek-v3.2:cloud",
         baseUrl: OLLAMA_CLOUD_URL,
@@ -1034,16 +1118,18 @@ function getOllamaModelsWithFallback(preferredModel) {
     );
   }
   if (OLLAMA_LOCAL_URL) {
-    const localModels = [
+    const localModelIds = [
       ...preferredModel ? [preferredModel] : [],
       ...OLLAMA_FALLBACK_MODELS,
       ...OLLAMA_MODEL ? [OLLAMA_MODEL] : []
     ];
-    for (const model of localModels) {
-      models.push({ model, baseUrl: OLLAMA_LOCAL_URL });
+    for (const model of localModelIds) {
+      localModels.push({ model, baseUrl: OLLAMA_LOCAL_URL });
     }
   }
-  return dedupeModelSpecs(models);
+  return dedupeModelSpecs(
+    preferLocalFirst ? [...localModels, ...cloudModels] : [...cloudModels, ...localModels]
+  );
 }
 function stripThinking(text) {
   return text.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/<\|channel>thought\n[\s\S]*?<channel\|>/g, "").trim();
@@ -1051,7 +1137,7 @@ function stripThinking(text) {
 function normalizeDsml(text) {
   return text.replace(/<[｜|]DSML[｜|]/g, "<").replace(/<\/[｜|]DSML[｜|]/g, "</");
 }
-async function tryOllamaFirst(messages, temperature, maxTokens, startTime, trackingContext, modelOverride) {
+async function tryOllamaFirst(messages, temperature, maxTokens, startTime, trackingContext, modelOverride, deadlineAt) {
   if (!OLLAMA_API_KEY && !OLLAMA_LOCAL_URL) return null;
   let ollamaModel = modelOverride;
   if (!ollamaModel && trackingContext?.context) {
@@ -1062,7 +1148,11 @@ async function tryOllamaFirst(messages, temperature, maxTokens, startTime, track
     } catch {
     }
   }
-  const ollamaResult = await ollamaChat(messages, temperature, { maxTokens, model: ollamaModel });
+  const ollamaResult = await ollamaChat(messages, temperature, {
+    maxTokens,
+    model: ollamaModel,
+    deadlineAt
+  });
   if (ollamaResult?.text) {
     log.debug("Ollama succeeded", {
       model: ollamaResult.model,
@@ -1083,9 +1173,12 @@ async function tryOllamaFirst(messages, temperature, maxTokens, startTime, track
   });
   return null;
 }
-async function tryOllamaLastResort(messages, temperature, maxTokens, startTime, trackingContext) {
+async function tryOllamaLastResort(messages, temperature, maxTokens, startTime, trackingContext, deadlineAt) {
   if (!OLLAMA_API_KEY && !OLLAMA_LOCAL_URL) return null;
-  const retryResult = await ollamaChat(messages, temperature, { maxTokens });
+  const retryResult = await ollamaChat(messages, temperature, {
+    maxTokens,
+    deadlineAt
+  });
   if (retryResult?.text) {
     void trackUsage(
       `ollama/${retryResult.model}`,
@@ -1177,6 +1270,7 @@ async function ollamaChat(messages, temperature, options) {
   const maxTokens = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
   const tools = options?.tools;
   const maxToolRounds = options?.maxToolRounds ?? 10;
+  const deadlineAt = options?.deadlineAt ?? Date.now() + OLLAMA_BUDGET_MS;
   const openaiTools = tools && tools.length > 0 ? tools.map((t) => ({
     type: "function",
     function: {
@@ -1185,17 +1279,56 @@ async function ollamaChat(messages, temperature, options) {
       parameters: t.parameters
     }
   })) : void 0;
-  for (const spec of models) {
-    const result = await ollamaChatWithModel({
+  const cloudModels = models.filter((spec) => !!spec.apiKey);
+  const localModels = await filterReachableLocalOllamaModels(
+    models.filter((spec) => !spec.apiKey)
+  );
+  const candidateModels = [...cloudModels, ...localModels];
+  let stopLocalFallback = false;
+  if (candidateModels.length === 0) {
+    log.warn("No reachable Ollama chat models available", {
+      preferredModel,
+      hasLocalUrl: !!OLLAMA_LOCAL_URL,
+      hasCloudKey: !!OLLAMA_API_KEY
+    });
+    return null;
+  }
+  for (const [index, spec] of candidateModels.entries()) {
+    if (stopLocalFallback && !spec.apiKey) {
+      log.warn("Skipping remaining local Ollama fallback models after abort-like failure", {
+        model: spec.model,
+        preferredModel
+      });
+      continue;
+    }
+    if (getRemainingBudget(deadlineAt) <= 0) {
+      log.warn("Ollama fallback budget exhausted", {
+        attemptedModels: candidateModels.map((candidate) => candidate.model),
+        maxToolRounds,
+        hasTools: !!tools?.length
+      });
+      return null;
+    }
+    const attempt = await ollamaChatWithModel({
       spec,
       messages,
       temperature,
       maxTokens,
       tools,
       openaiTools,
-      maxToolRounds
+      maxToolRounds,
+      deadlineAt,
+      preferredModel,
+      isFirstLocalAttempt: !spec.apiKey && index === 0
     });
-    if (result) return result;
+    if (attempt.result) return attempt.result;
+    if (attempt.stopLocalFallback) {
+      stopLocalFallback = true;
+      log.warn("Stopping local Ollama fallback cascade after abort-like failure", {
+        model: spec.model,
+        preferredModel
+      });
+    }
   }
   return null;
 }
@@ -1207,7 +1340,10 @@ async function ollamaChatWithModel(input) {
     maxTokens,
     tools,
     openaiTools,
-    maxToolRounds
+    maxToolRounds,
+    deadlineAt,
+    preferredModel,
+    isFirstLocalAttempt
   } = input;
   const { model, baseUrl, apiKey } = spec;
   const toolCallRecords = [];
@@ -1221,10 +1357,26 @@ async function ollamaChatWithModel(input) {
   }));
   for (let round = 0; round <= maxToolRounds; round++) {
     try {
+      const remainingBudgetMs = getRemainingBudget(deadlineAt);
+      if (remainingBudgetMs <= 0) {
+        log.warn("Ollama attempt budget exhausted", {
+          model,
+          round,
+          maxToolRounds
+        });
+        return { result: null };
+      }
       const controller = new AbortController();
+      const attemptTimeoutMs = getOllamaAttemptTimeoutMs({
+        hasTools: !!openaiTools,
+        remainingBudgetMs,
+        model,
+        preferredModel,
+        isFirstLocalAttempt
+      });
       const timeoutId = setTimeout(
         () => controller.abort(),
-        OLLAMA_TIMEOUT_MS
+        attemptTimeoutMs
       );
       const estimatedTokens = workingMessages.reduce(
         (sum, m) => sum + Math.ceil((m.content ?? "").length / 3.5),
@@ -1264,7 +1416,7 @@ async function ollamaChatWithModel(input) {
           status: response.status,
           statusText: response.statusText
         });
-        return null;
+        return { result: null };
       }
       const rawData = await response.json();
       const msg = rawData.message;
@@ -1292,7 +1444,7 @@ async function ollamaChatWithModel(input) {
           model,
           hasMessage: !!msg
         });
-        return null;
+        return { result: null };
       }
       const rawToolCalls = msg.tool_calls?.map((tc, i) => ({
         id: tc.id ?? `call_${round}_${i}`,
@@ -1315,13 +1467,15 @@ async function ollamaChatWithModel(input) {
             thinkingLength: thinking.length,
             rawPreview: (raw || thinking).slice(0, 100) || "(empty)"
           });
-          return null;
+          return { result: null };
         }
         return {
-          text,
-          toolCalls: toolCallRecords,
-          model,
-          usage: data.usage
+          result: {
+            text,
+            toolCalls: toolCallRecords,
+            model,
+            usage: data.usage
+          }
         };
       }
       log.debug("Ollama tool calls received", {
@@ -1383,12 +1537,23 @@ async function ollamaChatWithModel(input) {
     } catch (err) {
       log.warn("Ollama chat exception", {
         model,
+        round,
         error: err.message?.slice(0, 200)
       });
-      return null;
+      return {
+        result: null,
+        ...shouldStopOllamaLocalFallback(spec, err) ? { stopLocalFallback: true } : {}
+      };
     }
   }
-  return { text: "", toolCalls: toolCallRecords, model, usage: void 0 };
+  return {
+    result: {
+      text: "",
+      toolCalls: toolCallRecords,
+      model,
+      usage: void 0
+    }
+  };
 }
 function jsonSchemaPropToZod(prop) {
   const enumValues = prop.enum;
@@ -1424,11 +1589,18 @@ function jsonSchemaToZod(schema) {
   });
   return import_v4.z.object(Object.fromEntries(entries));
 }
-async function openRouterChatCompletions(model, messages, temperature, maxTokens) {
+async function openRouterChatCompletions(model, messages, temperature, maxTokens, deadlineAt) {
+  const remainingBudgetMs = deadlineAt ? getRemainingBudget(deadlineAt) : OPENROUTER_CHAT_TIMEOUT_MS;
+  if (remainingBudgetMs <= 0) {
+    log.warn("Skipping direct /chat/completions fallback because request budget is exhausted", {
+      model
+    });
+    return null;
+  }
   const controller = new AbortController();
   const timeoutId = setTimeout(
     () => controller.abort(),
-    OPENROUTER_CHAT_TIMEOUT_MS
+    Math.min(OPENROUTER_CHAT_TIMEOUT_MS, remainingBudgetMs)
   );
   try {
     const response = await fetch(
@@ -1535,6 +1707,7 @@ async function llmGenerate(options) {
     trackingContext
   } = options;
   const startTime = Date.now();
+  const totalDeadlineAt = startTime + LLM_TEXT_TOTAL_BUDGET_MS;
   log.debug("llmGenerate starting", {
     hasTools: !!(tools && tools.length > 0),
     messageCount: messages.length,
@@ -1546,10 +1719,28 @@ async function llmGenerate(options) {
   });
   const systemMessage = messages.find((m) => m.role === "system");
   const conversationMessages = messages.filter((m) => m.role !== "system");
+  const preferOllamaFirst = shouldTryOllamaFirst(model);
   const hasToolsDefined = tools && tools.length > 0;
-  const ollamaText = await tryOllamaFirst(messages, temperature, maxTokens, startTime, trackingContext);
-  if (ollamaText) return ollamaText;
-  if (!OPENROUTER_ENABLED) {
+  if (preferOllamaFirst) {
+    const ollamaText = await tryOllamaFirst(
+      messages,
+      temperature,
+      maxTokens,
+      startTime,
+      trackingContext,
+      model,
+      totalDeadlineAt
+    );
+    if (ollamaText) return ollamaText;
+    if (isLocalModelId(model)) {
+      log.warn("Explicit local model request failed; skipping cloud fallback", {
+        model,
+        context: trackingContext?.context
+      });
+      return "";
+    }
+  }
+  if (!canUseOpenRouter()) {
     log.warn("Ollama returned empty and OpenRouter is disabled", {
       context: trackingContext?.context,
       agentId: trackingContext?.agentId,
@@ -1564,6 +1755,10 @@ async function llmGenerate(options) {
   if (modelList.length === 0) {
     throw new Error("No LLM models available after resolution");
   }
+  const openRouterDeadlineAt = Math.min(
+    totalDeadlineAt,
+    Date.now() + OPENROUTER_TEXT_BUDGET_MS
+  );
   const buildCallOpts = (spec) => {
     const isArray = Array.isArray(spec);
     const opts = {
@@ -1584,13 +1779,32 @@ async function llmGenerate(options) {
     return opts;
   };
   async function tryCall(spec) {
-    const result = client.callModel(
-      buildCallOpts(spec)
+    const remainingBudgetMs = getRemainingBudget(openRouterDeadlineAt);
+    if (remainingBudgetMs <= 0) {
+      throw Object.assign(new Error("OpenRouter text budget exhausted"), {
+        statusCode: 504
+      });
+    }
+    const timeoutMs = Math.min(OPENROUTER_TEXT_TIMEOUT_MS, remainingBudgetMs);
+    const { rawText, response } = await withTimeout(
+      "OpenRouter text call",
+      timeoutMs,
+      async () => {
+        const result = client.callModel(
+          buildCallOpts(spec)
+        );
+        const [textResult, responseResult] = await Promise.all([
+          result.getText(),
+          result.getResponse()
+        ]);
+        return {
+          rawText: textResult?.trim() ?? "",
+          response: responseResult
+        };
+      }
     );
-    const rawText = (await result.getText())?.trim() ?? "";
     const text = extractFromXml(rawText);
     const durationMs = Date.now() - startTime;
-    const response = await result.getResponse();
     const usedModel = response.model || "unknown";
     const usage = response.usage;
     void trackUsage(usedModel, usage, durationMs, trackingContext);
@@ -1612,29 +1826,38 @@ async function llmGenerate(options) {
       tryCall,
       resolved,
       openRouterResult.error,
+      openRouterDeadlineAt,
       trackingContext?.context
     );
     if (individualText) return individualText;
   } else {
     return openRouterResult.text;
   }
-  if (openRouterResult.error && !hasToolsDefined) {
+  if (!preferOllamaFirst && openRouterResult.error && !hasToolsDefined) {
     log.debug("OpenRouter failed, retrying Ollama as last resort", {
       error: openRouterResult.error.message,
       statusCode: openRouterResult.error.statusCode
     });
-    const ollamaText2 = await tryOllamaLastResort(messages, temperature, maxTokens, startTime, trackingContext);
-    if (ollamaText2) return ollamaText2;
+    const ollamaText = await tryOllamaLastResort(
+      messages,
+      temperature,
+      maxTokens,
+      startTime,
+      trackingContext,
+      totalDeadlineAt
+    );
+    if (ollamaText) return ollamaText;
   }
   throwForOpenRouterStatus(openRouterResult.error?.statusCode);
-  if (OPENROUTER_API_KEY && !hasToolsDefined) {
+  if (canUseOpenRouter() && !hasToolsDefined) {
     const chatText = await tryDirectChatCompletions(
       resolved,
       messages,
       temperature,
       maxTokens,
       startTime,
-      trackingContext
+      trackingContext,
+      totalDeadlineAt
     );
     if (chatText) return chatText;
   }
@@ -1668,12 +1891,22 @@ async function tryOpenRouterArray(tryCall, modelList, context) {
     return { text: null, error: err };
   }
 }
-async function tryOpenRouterIndividual(tryCall, resolved, openRouterError, context) {
+async function tryOpenRouterIndividual(tryCall, resolved, openRouterError, deadlineAt, context) {
   if (openRouterError?.statusCode === 402 || openRouterError?.statusCode === 429) {
     return null;
   }
-  const fallbackModels = openRouterError ? resolved : resolved.slice(MAX_MODELS_ARRAY);
+  const fallbackModels = (openRouterError ? resolved : resolved.slice(MAX_MODELS_ARRAY)).slice(
+    0,
+    OPENROUTER_MAX_INDIVIDUAL_FALLBACKS
+  );
   for (const fallback of fallbackModels) {
+    if (getRemainingBudget(deadlineAt) <= 0) {
+      log.warn("OpenRouter individual fallback budget exhausted", {
+        context,
+        attemptedModels: fallbackModels
+      });
+      return null;
+    }
     try {
       const text = await tryCall(fallback);
       if (text) return text;
@@ -1687,10 +1920,16 @@ async function tryOpenRouterIndividual(tryCall, resolved, openRouterError, conte
   }
   return null;
 }
-async function tryDirectChatCompletions(resolved, messages, temperature, maxTokens, startTime, trackingContext) {
+async function tryDirectChatCompletions(resolved, messages, temperature, maxTokens, startTime, trackingContext, deadlineAt) {
   const chatModel = resolved[0] ?? "deepseek/deepseek-v3.2";
   try {
-    const chatResult = await openRouterChatCompletions(chatModel, messages, temperature, maxTokens);
+    const chatResult = await openRouterChatCompletions(
+      chatModel,
+      messages,
+      temperature,
+      maxTokens,
+      deadlineAt
+    );
     if (chatResult) {
       log.info("Recovered via direct /chat/completions fallback", {
         model: chatModel,
@@ -1770,7 +2009,21 @@ async function openRouterToolLoop(opts) {
   let lastModel = "unknown";
   let lastUsage = null;
   let bestText = "";
+  const deadlineAt = Math.min(
+    opts.deadlineAt ?? Number.MAX_SAFE_INTEGER,
+    startTime + OPENROUTER_TOOL_BUDGET_MS
+  );
   for (let round = 0; round <= maxToolRounds; round++) {
+    const remainingBudgetMs = getRemainingBudget(deadlineAt);
+    if (remainingBudgetMs <= 0) {
+      log.warn("OpenRouter tool loop budget exhausted", {
+        round,
+        maxToolRounds,
+        context: trackingContext?.context,
+        modelList
+      });
+      break;
+    }
     log.debug("Tool round starting", {
       round,
       maxToolRounds,
@@ -1798,7 +2051,7 @@ async function openRouterToolLoop(opts) {
     const controller = new AbortController();
     const timeoutId = setTimeout(
       () => controller.abort(),
-      OPENROUTER_TOOL_TIMEOUT_MS
+      Math.min(OPENROUTER_TOOL_TIMEOUT_MS, remainingBudgetMs)
     );
     const response = await fetch(
       "https://openrouter.ai/api/v1/chat/completions",
@@ -1938,6 +2191,7 @@ async function llmGenerateWithTools(options) {
   } = options;
   const startTime = Date.now();
   const hasTools = tools.length > 0;
+  const totalDeadlineAt = startTime + LLM_TOOL_TOTAL_BUDGET_MS;
   log.debug("llmGenerateWithTools starting", {
     hasTools,
     toolNames: tools.map((t) => t.name),
@@ -1949,6 +2203,7 @@ async function llmGenerateWithTools(options) {
     context: trackingContext?.context,
     agentId: trackingContext?.agentId
   });
+  const preferOllamaFirst = shouldTryOllamaFirst(model);
   let resolvedModel = model;
   if (!resolvedModel && trackingContext?.context) {
     try {
@@ -1958,28 +2213,38 @@ async function llmGenerateWithTools(options) {
     } catch {
     }
   }
-  const ollamaResult = await ollamaChat(messages, temperature, {
-    maxTokens,
-    tools: hasTools ? tools : void 0,
-    maxToolRounds,
-    model: resolvedModel
-  });
-  if (ollamaResult?.text || ollamaResult?.toolCalls && ollamaResult.toolCalls.length > 0) {
-    log.debug("Ollama succeeded (with tools)", {
-      model: ollamaResult.model,
-      context: trackingContext?.context,
-      textLength: ollamaResult.text.length,
-      toolCallCount: ollamaResult.toolCalls.length
+  if (preferOllamaFirst) {
+    const ollamaResult = await ollamaChat(messages, temperature, {
+      maxTokens,
+      tools: hasTools ? tools : void 0,
+      maxToolRounds,
+      model: resolvedModel,
+      deadlineAt: totalDeadlineAt
     });
-    void trackUsage(
-      `ollama/${ollamaResult.model}`,
-      toOpenResponsesUsage(ollamaResult.usage),
-      Date.now() - startTime,
-      trackingContext
-    );
-    return { text: ollamaResult.text, toolCalls: ollamaResult.toolCalls };
+    if (ollamaResult?.text || ollamaResult?.toolCalls && ollamaResult.toolCalls.length > 0) {
+      log.debug("Ollama succeeded (with tools)", {
+        model: ollamaResult.model,
+        context: trackingContext?.context,
+        textLength: ollamaResult.text.length,
+        toolCallCount: ollamaResult.toolCalls.length
+      });
+      void trackUsage(
+        `ollama/${ollamaResult.model}`,
+        toOpenResponsesUsage(ollamaResult.usage),
+        Date.now() - startTime,
+        trackingContext
+      );
+      return { text: ollamaResult.text, toolCalls: ollamaResult.toolCalls };
+    }
+    if (isLocalModelId(resolvedModel)) {
+      log.warn("Explicit local tool-call model failed; skipping cloud fallback", {
+        model: resolvedModel,
+        context: trackingContext?.context
+      });
+      return { text: "", toolCalls: [] };
+    }
   }
-  if (!OPENROUTER_ENABLED) {
+  if (!canUseOpenRouter()) {
     log.warn("Ollama returned empty and OpenRouter is disabled (tool call)", {
       context: trackingContext?.context,
       agentId: trackingContext?.agentId,
@@ -2012,7 +2277,8 @@ async function llmGenerateWithTools(options) {
       maxTokens,
       maxToolRounds,
       trackingContext,
-      startTime
+      startTime,
+      deadlineAt: totalDeadlineAt
     });
   } catch (error) {
     const err = error;
@@ -2020,7 +2286,14 @@ async function llmGenerateWithTools(options) {
       error: err.message,
       statusCode: err.statusCode
     });
-    const ollamaText = await tryOllamaLastResort(messages, temperature, maxTokens, startTime, trackingContext);
+    const ollamaText = await tryOllamaLastResort(
+      messages,
+      temperature,
+      maxTokens,
+      startTime,
+      trackingContext,
+      totalDeadlineAt
+    );
     if (ollamaText) return { text: ollamaText, toolCalls: [] };
     if (err.statusCode === 401) {
       throw new Error("Invalid OpenRouter API key \u2014 check your OPENROUTER_API_KEY");
@@ -2093,9 +2366,6 @@ function extractFromXml(text) {
 function sanitizeDialogue(text) {
   return extractFromXml(text).replace(/<\/?[a-z_][a-z0-9_-]*(?:\s[^>]*)?\s*>/gi, "").replace(/https?:\/\/\S+/g, "").replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, "$1").replace(/^["']|["']$/g, "").replace(/\s+/g, " ").trim();
 }
-function estimateTokens(text) {
-  return Math.ceil(text.length / 4);
-}
 function extractJson(text) {
   const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
   if (fenceMatch) text = fenceMatch[1];
@@ -2141,12 +2411,7 @@ function extractJson(text) {
   }
   return null;
 }
-function promptSection(title, content) {
-  return `\u2550\u2550\u2550 ${title.toUpperCase()} \u2550\u2550\u2550
-${content}
-`;
-}
-var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TOOL_TIMEOUT_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_CLOUD_URL, OLLAMA_API_KEY, OLLAMA_TIMEOUT_MS, OLLAMA_MODEL;
+var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TEXT_TIMEOUT_MS, OPENROUTER_TEXT_BUDGET_MS, OPENROUTER_TOOL_TIMEOUT_MS, OPENROUTER_TOOL_BUDGET_MS, OPENROUTER_MAX_INDIVIDUAL_FALLBACKS, LLM_TEXT_TOTAL_BUDGET_MS, LLM_TOOL_TOTAL_BUDGET_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_CLOUD_URL, OLLAMA_API_KEY, OLLAMA_TEXT_TIMEOUT_MS, OLLAMA_PREFERRED_TEXT_TIMEOUT_MS, OLLAMA_TOOL_TIMEOUT_MS, OLLAMA_BUDGET_MS, OLLAMA_TAGS_TIMEOUT_MS, OLLAMA_MODEL_CACHE_TTL_MS, OLLAMA_MODEL, ollamaModelCatalogCache;
 var init_client = __esm({
   "src/lib/llm/client.ts"() {
     "use strict";
@@ -2161,7 +2426,13 @@ var init_client = __esm({
     MAX_MODELS_ARRAY = 3;
     OLLAMA_DEFAULT_MAX_TOKENS = 16384;
     OPENROUTER_CHAT_TIMEOUT_MS = 3e4;
-    OPENROUTER_TOOL_TIMEOUT_MS = 12e4;
+    OPENROUTER_TEXT_TIMEOUT_MS = 2e4;
+    OPENROUTER_TEXT_BUDGET_MS = 45e3;
+    OPENROUTER_TOOL_TIMEOUT_MS = 3e4;
+    OPENROUTER_TOOL_BUDGET_MS = 75e3;
+    OPENROUTER_MAX_INDIVIDUAL_FALLBACKS = 2;
+    LLM_TEXT_TOTAL_BUDGET_MS = 75e3;
+    LLM_TOOL_TOTAL_BUDGET_MS = 9e4;
     DEFAULT_OLLAMA_FALLBACK_MODELS = [
       "qwen3:14b",
       "gemma4:latest",
@@ -2227,8 +2498,14 @@ var init_client = __esm({
     OLLAMA_LOCAL_URL = OLLAMA_ENABLED ? process.env.OLLAMA_BASE_URL ?? "" : "";
     OLLAMA_CLOUD_URL = "https://ollama.com";
     OLLAMA_API_KEY = OLLAMA_ENABLED ? process.env.OLLAMA_API_KEY ?? "" : "";
-    OLLAMA_TIMEOUT_MS = 12e4;
+    OLLAMA_TEXT_TIMEOUT_MS = 2e4;
+    OLLAMA_PREFERRED_TEXT_TIMEOUT_MS = 3e4;
+    OLLAMA_TOOL_TIMEOUT_MS = 45e3;
+    OLLAMA_BUDGET_MS = 6e4;
+    OLLAMA_TAGS_TIMEOUT_MS = 2500;
+    OLLAMA_MODEL_CACHE_TTL_MS = 3e4;
     OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "";
+    ollamaModelCatalogCache = null;
   }
 });
 
@@ -2326,6 +2603,128 @@ var init_llm = __esm({
   }
 });
 
+// src/lib/net/fetch-with-retry.ts
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function getRetryDelayMs(response, attempt, baseDelayMs) {
+  const retryAfterHeader = response.headers.get("Retry-After");
+  if (retryAfterHeader) {
+    const retryAfterSeconds = Number.parseFloat(retryAfterHeader);
+    if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+      return Math.ceil(retryAfterSeconds * 1e3);
+    }
+  }
+  return baseDelayMs * (attempt + 1);
+}
+function isAbortError(error) {
+  return error instanceof Error && error.name === "AbortError";
+}
+function isTimeoutError(error) {
+  return error instanceof Error && (error.name === "TimeoutError" || error.message === "The operation was aborted due to timeout");
+}
+function getRemainingBudgetMs(startedAtMs, totalTimeoutMs) {
+  if (typeof totalTimeoutMs !== "number") {
+    return null;
+  }
+  return totalTimeoutMs - (Date.now() - startedAtMs);
+}
+function getSleepDelayMs(delayMs, remainingBudgetMs) {
+  if (remainingBudgetMs == null) {
+    return delayMs;
+  }
+  return Math.max(0, Math.min(delayMs, remainingBudgetMs));
+}
+async function fetchWithRetry(url, options = {}) {
+  const {
+    timeoutMs = 15e3,
+    totalTimeoutMs,
+    maxRetries = 2,
+    baseDelayMs = 1e3,
+    label = "fetch",
+    retryOnStatuses = DEFAULT_RETRYABLE_STATUSES,
+    retryOnTimeout = true,
+    signal,
+    ...init
+  } = options;
+  const retryableStatuses = new Set(retryOnStatuses);
+  let lastError;
+  const startedAtMs = Date.now();
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const remainingBudgetMs = getRemainingBudgetMs(startedAtMs, totalTimeoutMs);
+    if (remainingBudgetMs != null && remainingBudgetMs <= 0) {
+      break;
+    }
+    const attemptTimeoutMs = Math.max(
+      1,
+      remainingBudgetMs == null ? timeoutMs : Math.min(timeoutMs, remainingBudgetMs)
+    );
+    const timeoutSignal = AbortSignal.timeout(attemptTimeoutMs);
+    const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+    try {
+      const response = await fetch(url, { ...init, signal: combinedSignal });
+      if (retryableStatuses.has(response.status) && attempt < maxRetries) {
+        const retryDelayMs = getRetryDelayMs(response, attempt, baseDelayMs);
+        const remainingBudgetMsBeforeSleep = getRemainingBudgetMs(startedAtMs, totalTimeoutMs);
+        if (remainingBudgetMsBeforeSleep != null && remainingBudgetMsBeforeSleep <= 0) {
+          return response;
+        }
+        const sleepDelayMs = getSleepDelayMs(
+          retryDelayMs,
+          remainingBudgetMsBeforeSleep
+        );
+        log3.warn(`${label} retrying response`, {
+          status: response.status,
+          attempt,
+          retryDelayMs: sleepDelayMs
+        });
+        await sleep(sleepDelayMs);
+        continue;
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (signal?.aborted) break;
+      if ((isAbortError(error) || isTimeoutError(error)) && !retryOnTimeout) break;
+      if (getRemainingBudgetMs(startedAtMs, totalTimeoutMs) != null) {
+        const remainingBudgetMs2 = getRemainingBudgetMs(startedAtMs, totalTimeoutMs);
+        if (remainingBudgetMs2 != null && remainingBudgetMs2 <= 0) {
+          break;
+        }
+      }
+      if (attempt >= maxRetries) break;
+      const retryDelayMs = baseDelayMs * (attempt + 1);
+      const remainingBudgetMsBeforeSleep = getRemainingBudgetMs(startedAtMs, totalTimeoutMs);
+      if (remainingBudgetMsBeforeSleep != null && remainingBudgetMsBeforeSleep <= 0) {
+        break;
+      }
+      const sleepDelayMs = getSleepDelayMs(
+        retryDelayMs,
+        remainingBudgetMsBeforeSleep
+      );
+      log3.warn(`${label} retrying error`, {
+        attempt,
+        retryDelayMs: sleepDelayMs,
+        error: error.message
+      });
+      await sleep(sleepDelayMs);
+    }
+  }
+  if (totalTimeoutMs != null && getRemainingBudgetMs(startedAtMs, totalTimeoutMs) != null && getRemainingBudgetMs(startedAtMs, totalTimeoutMs) <= 0) {
+    throw new Error(`${label}: total timeout exceeded`);
+  }
+  throw lastError instanceof Error ? lastError : new Error(`${label}: exhausted retries`);
+}
+var log3, DEFAULT_RETRYABLE_STATUSES;
+var init_fetch_with_retry = __esm({
+  "src/lib/net/fetch-with-retry.ts"() {
+    "use strict";
+    init_logger();
+    log3 = logger.child({ module: "fetch-with-retry" });
+    DEFAULT_RETRYABLE_STATUSES = /* @__PURE__ */ new Set([408, 425, 429, 500, 502, 503, 504]);
+  }
+});
+
 // src/lib/discord/client.ts
 function webhookKey(webhookUrl) {
   return webhookUrl.split("?")[0];
@@ -2340,7 +2739,7 @@ async function drainQueue(key) {
       const result = await entry.send();
       entry.resolve(result);
       if (queue.length > 0) {
-        await sleep(WEBHOOK_MIN_INTERVAL_MS);
+        await sleep2(WEBHOOK_MIN_INTERVAL_MS);
       }
     }
   } finally {
@@ -2363,53 +2762,34 @@ async function sendWithRetry(url, body) {
   if (!res) return null;
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    log3.warn("Webhook POST failed", { status: res.status, body: text.slice(0, 200) });
+    log4.warn("Webhook POST failed", { status: res.status, body: text.slice(0, 200) });
     return null;
   }
   return await res.json();
 }
-function sleep(ms) {
+function sleep2(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 async function fetchWithRetry429(url, init, label) {
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const res = await fetch(url, init);
-      if (res.status === 429) {
-        const retryAfterHeader = res.headers.get("Retry-After");
-        const retryMs = retryAfterHeader ? Math.ceil(parseFloat(retryAfterHeader) * 1e3) : 2e3 * (attempt + 1);
-        log3.warn(`${label} rate limited, backing off`, {
-          retryMs,
-          attempt
-        });
-        if (attempt < MAX_RETRIES) {
-          await sleep(retryMs);
-          continue;
-        }
-        return null;
-      }
-      if (res.status >= 500 && attempt < MAX_RETRIES) {
-        log3.warn(`${label} server error ${res.status}, retrying`, {
-          status: res.status,
-          attempt
-        });
-        await sleep(1e3 * (attempt + 1));
-        continue;
-      }
-      return res;
-    } catch (err) {
-      log3.warn(`${label} fetch error`, {
-        error: err.message,
-        attempt,
-        retriesLeft: MAX_RETRIES - attempt
-      });
-      if (attempt < MAX_RETRIES) {
-        await sleep(1e3 * (attempt + 1));
-      }
-    }
+  try {
+    return await fetchWithRetry(url, {
+      ...init,
+      timeoutMs: DISCORD_TIMEOUT_MS,
+      totalTimeoutMs: 2e4,
+      maxRetries: MAX_RETRIES,
+      baseDelayMs: 2e3,
+      label,
+      retryOnStatuses: [429, 500, 502, 503, 504],
+      retryOnTimeout: false
+    });
+  } catch (err) {
+    log4.warn(`${label} fetch error`, {
+      error: err.message,
+      retriesLeft: 0
+    });
+    log4.error(`${label} all retries exhausted`);
+    return null;
   }
-  log3.error(`${label} all retries exhausted`);
-  return null;
 }
 function buildWebhookUrlAndPayload(options) {
   const url = new URL(options.webhookUrl);
@@ -2423,7 +2803,7 @@ function buildWebhookUrlAndPayload(options) {
   if (options.content) payload.content = options.content;
   if (options.embeds) payload.embeds = options.embeds;
   if (!payload.content && !payload.embeds) {
-    log3.warn("Skipping webhook post \u2014 no content or embeds");
+    log4.warn("Skipping webhook post \u2014 no content or embeds");
     return null;
   }
   return { url: url.toString(), payload };
@@ -2461,7 +2841,7 @@ async function discordFetch(path4, options = {}) {
 }
 async function getOrCreateWebhook(channelId, name = "Subcult") {
   if (!BOT_TOKEN) {
-    log3.warn("DISCORD_BOT_TOKEN not set, skipping webhook provisioning");
+    log4.warn("DISCORD_BOT_TOKEN not set, skipping webhook provisioning");
     return null;
   }
   const cached = webhookCache.get(channelId);
@@ -2472,7 +2852,7 @@ async function getOrCreateWebhook(channelId, name = "Subcult") {
     try {
       const listRes = await discordFetch(`/channels/${channelId}/webhooks`);
       if (!listRes.ok) {
-        log3.warn("Failed to list webhooks", {
+        log4.warn("Failed to list webhooks", {
           status: listRes.status,
           channelId
         });
@@ -2493,7 +2873,7 @@ async function getOrCreateWebhook(channelId, name = "Subcult") {
         }
       );
       if (!createRes.ok) {
-        log3.warn("Failed to create webhook", {
+        log4.warn("Failed to create webhook", {
           status: createRes.status,
           channelId
         });
@@ -2504,7 +2884,7 @@ async function getOrCreateWebhook(channelId, name = "Subcult") {
       webhookCache.set(channelId, url);
       return url;
     } catch (err) {
-      log3.warn("Webhook provisioning error", {
+      log4.warn("Webhook provisioning error", {
         error: err.message,
         channelId
       });
@@ -2541,7 +2921,7 @@ async function postToWebhookWithFiles(options) {
     if (!res) return null;
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      log3.warn("Webhook multipart POST failed", { status: res.status, body: text.slice(0, 200) });
+      log4.warn("Webhook multipart POST failed", { status: res.status, body: text.slice(0, 200) });
       return null;
     }
     return await res.json();
@@ -2557,18 +2937,20 @@ async function postToWebhookWithFiles(options) {
     drainQueue(key);
   });
 }
-var log3, DISCORD_API, BOT_TOKEN, webhookCache, webhookProvisioning, WEBHOOK_MIN_INTERVAL_MS, MAX_RETRIES, webhookQueues, processingWebhooks;
+var log4, DISCORD_API, BOT_TOKEN, webhookCache, webhookProvisioning, WEBHOOK_MIN_INTERVAL_MS, MAX_RETRIES, DISCORD_TIMEOUT_MS, webhookQueues, processingWebhooks;
 var init_client2 = __esm({
   "src/lib/discord/client.ts"() {
     "use strict";
     init_logger();
-    log3 = logger.child({ module: "discord" });
+    init_fetch_with_retry();
+    log4 = logger.child({ module: "discord" });
     DISCORD_API = "https://discord.com/api/v10";
     BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
     webhookCache = /* @__PURE__ */ new Map();
     webhookProvisioning = /* @__PURE__ */ new Map();
     WEBHOOK_MIN_INTERVAL_MS = 600;
     MAX_RETRIES = 3;
+    DISCORD_TIMEOUT_MS = 15e3;
     webhookQueues = /* @__PURE__ */ new Map();
     processingWebhooks = /* @__PURE__ */ new Set();
   }
@@ -2603,9 +2985,9 @@ async function syncEnvToDb2() {
                 WHERE name = ${channelName} AND discord_channel_id != ${channelId}
             `;
       channelCache.delete(channelName);
-      log4.info("Discord channel synced from env", { name: channelName, channelId });
+      log5.info("Discord channel synced from env", { name: channelName, channelId });
     } catch (error) {
-      log4.error("Failed to sync discord channel env var", { name: channelName, channelId, error });
+      log5.error("Failed to sync discord channel env var", { name: channelName, channelId, error });
     }
   }
 }
@@ -2622,7 +3004,7 @@ async function getWebhookUrl(channelName) {
         WHERE name = ${channelName}
     `;
   if (!row) {
-    log4.debug("Channel not configured", { channelName });
+    log5.debug("Channel not configured", { channelName });
     return null;
   }
   if (!row.enabled) {
@@ -2663,14 +3045,14 @@ async function getWebhookUrl(channelName) {
 function getChannelForFormat(format) {
   return FORMAT_CHANNEL_MAP[format];
 }
-var log4, FORMAT_CHANNEL_MAP, ENV_PREFIX2, envSynced2, channelCache;
+var log5, FORMAT_CHANNEL_MAP, ENV_PREFIX2, envSynced2, channelCache;
 var init_channels = __esm({
   "src/lib/discord/channels.ts"() {
     "use strict";
     init_db();
     init_client2();
     init_logger();
-    log4 = logger.child({ module: "discord-channels" });
+    log5 = logger.child({ module: "discord-channels" });
     FORMAT_CHANNEL_MAP = {
       standup: "roundtable",
       checkin: "roundtable",
@@ -2894,14 +3276,14 @@ async function postEventToDiscord(input) {
       });
     }
   } catch (err) {
-    log5.warn("Failed to post event to Discord", {
+    log6.warn("Failed to post event to Discord", {
       kind: input.kind,
       channel,
       error: err.message
     });
   }
 }
-var log5, DISCORD_MAX_LENGTH, EVENT_CHANNEL_MAP;
+var log6, DISCORD_MAX_LENGTH, EVENT_CHANNEL_MAP;
 var init_events = __esm({
   "src/lib/discord/events.ts"() {
     "use strict";
@@ -2911,7 +3293,7 @@ var init_events = __esm({
     init_voices();
     init_avatars();
     init_logger();
-    log5 = logger.child({ module: "discord-events" });
+    log6 = logger.child({ module: "discord-events" });
     DISCORD_MAX_LENGTH = 2e3;
     EVENT_CHANNEL_MAP = {
       // proposals
@@ -3195,7 +3577,7 @@ async function createMissionFromProposal(proposalId) {
     stepCount++;
   }
   if (stepCount === 0) {
-    log6.warn("Mission created with no steps \u2014 marking as failed", {
+    log7.warn("Mission created with no steps \u2014 marking as failed", {
       missionId,
       proposalId
     });
@@ -3217,7 +3599,7 @@ async function countTodayProposals(agentId) {
     `;
   return count;
 }
-var log6;
+var log7;
 var init_proposal_service = __esm({
   "src/lib/ops/proposal-service.ts"() {
     "use strict";
@@ -3227,7 +3609,7 @@ var init_proposal_service = __esm({
     init_events2();
     init_agents();
     init_logger();
-    log6 = logger.child({ module: "proposal-service" });
+    log7 = logger.child({ module: "proposal-service" });
   }
 });
 
@@ -3263,7 +3645,7 @@ async function checkReactionMatrix(eventId, input) {
             `;
     }
   } catch (err) {
-    log7.error("Error checking reactions", { error: err, eventId });
+    log8.error("Error checking reactions", { error: err, eventId });
   }
 }
 async function processReactionQueue(timeoutMs = 3e3) {
@@ -3310,7 +3692,7 @@ async function processReactionQueue(timeoutMs = 3e3) {
       processed++;
       if (result.success && result.proposalId) created++;
     } catch (err) {
-      log7.error("Failed to process reaction", {
+      log8.error("Failed to process reaction", {
         error: err,
         reactionId: reaction.id
       });
@@ -3336,7 +3718,7 @@ async function checkReactionCooldown(source, target, type, cooldownMinutes) {
     `;
   return count > 0;
 }
-var log7;
+var log8;
 var init_reaction_matrix = __esm({
   "src/lib/ops/reaction-matrix.ts"() {
     "use strict";
@@ -3344,7 +3726,7 @@ var init_reaction_matrix = __esm({
     init_policy();
     init_proposal_service();
     init_logger();
-    log7 = logger.child({ module: "reaction-matrix" });
+    log8 = logger.child({ module: "reaction-matrix" });
   }
 });
 
@@ -3369,14 +3751,14 @@ async function emitEvent(input) {
             )
             RETURNING id`;
     Promise.resolve().then(() => (init_events(), events_exports)).then(({ postEventToDiscord: postEventToDiscord2 }) => postEventToDiscord2(input)).catch(
-      (err) => log8.warn("Discord event posting failed", {
+      (err) => log9.warn("Discord event posting failed", {
         kind: input.kind,
         error: err.message
       })
     );
     return row.id;
   } catch (err) {
-    log8.error("Failed to emit event", {
+    log9.error("Failed to emit event", {
       error: err,
       kind: input.kind,
       agent_id: input.agent_id
@@ -3390,13 +3772,13 @@ async function emitEventAndCheckReactions(input) {
   await checkReactionMatrix2(eventId, input);
   return eventId;
 }
-var log8;
+var log9;
 var init_events2 = __esm({
   "src/lib/ops/events.ts"() {
     "use strict";
     init_db();
     init_logger();
-    log8 = logger.child({ module: "events" });
+    log9 = logger.child({ module: "events" });
   }
 });
 
@@ -3480,7 +3862,7 @@ async function writeMemory(input) {
     }
     return row.id;
   } catch (err) {
-    log9.error("Failed to write memory", {
+    log10.error("Failed to write memory", {
       error: err,
       agent_id: input.agent_id,
       type: input.type
@@ -3506,14 +3888,14 @@ async function enforceMemoryCap(agentId) {
     await sql`DELETE FROM ops_agent_memory WHERE id = ANY(${ids})`;
   }
 }
-var log9, MAX_MEMORIES_PER_AGENT;
+var log10, MAX_MEMORIES_PER_AGENT;
 var init_memory = __esm({
   "src/lib/ops/memory.ts"() {
     "use strict";
     init_db();
     init_logger();
     init_embeddings();
-    log9 = logger.child({ module: "memory" });
+    log10 = logger.child({ module: "memory" });
     MAX_MEMORIES_PER_AGENT = 200;
   }
 });
@@ -3582,7 +3964,7 @@ ${driftRules}${actionRules}
     });
     parsed = extractJson(response);
     if (!parsed) {
-      log10.warn("No JSON found in memories LLM response", {
+      log11.warn("No JSON found in memories LLM response", {
         sessionId,
         responseLength: response.length,
         responsePreview: response.slice(0, 300),
@@ -3591,7 +3973,7 @@ ${driftRules}${actionRules}
       return 0;
     }
   } catch (err) {
-    log10.error("Memories LLM extraction failed", { error: err, sessionId });
+    log11.error("Memories LLM extraction failed", { error: err, sessionId });
     return 0;
   }
   let written = 0;
@@ -3643,7 +4025,7 @@ ${driftRules}${actionRules}
           source_trace_id: `action:${sessionId}:${item.agent_id}`
         });
       } catch (err) {
-        log10.warn("Failed to create proposal for action item", {
+        log11.warn("Failed to create proposal for action item", {
           error: err,
           agent_id: item.agent_id
         });
@@ -3652,7 +4034,7 @@ ${driftRules}${actionRules}
   }
   return written;
 }
-var log10, ACTION_ITEM_FORMATS, VALID_MEMORY_TYPES;
+var log11, ACTION_ITEM_FORMATS, VALID_MEMORY_TYPES;
 var init_memory_distiller = __esm({
   "src/lib/ops/memory-distiller.ts"() {
     "use strict";
@@ -3662,7 +4044,7 @@ var init_memory_distiller = __esm({
     init_proposal_service();
     init_policy();
     init_logger();
-    log10 = logger.child({ module: "distiller" });
+    log11 = logger.child({ module: "distiller" });
     ACTION_ITEM_FORMATS = [
       "standup",
       "planning",
@@ -3770,7 +4152,7 @@ async function synthesizeArtifact(session, history) {
             )
             RETURNING id
         `;
-    log11.info("Artifact synthesis session created", {
+    log12.info("Artifact synthesis session created", {
       sessionId: row.id,
       format: session.format,
       synthesizer: artifact.synthesizer,
@@ -3779,7 +4161,7 @@ async function synthesizeArtifact(session, history) {
     });
     return row.id;
   } catch (err) {
-    log11.error("Failed to create synthesis session", {
+    log12.error("Failed to create synthesis session", {
       error: err,
       sessionId: session.id,
       format: session.format
@@ -3787,7 +4169,7 @@ async function synthesizeArtifact(session, history) {
     return null;
   }
 }
-var log11, FORMAT_WORD_TARGETS, DEFAULT_WORD_TARGET;
+var log12, FORMAT_WORD_TARGETS, DEFAULT_WORD_TARGET;
 var init_artifact_synthesizer = __esm({
   "src/lib/roundtable/artifact-synthesizer.ts"() {
     "use strict";
@@ -3795,7 +4177,7 @@ var init_artifact_synthesizer = __esm({
     init_formats();
     init_voices();
     init_logger();
-    log11 = logger.child({ module: "artifact-synthesizer" });
+    log12 = logger.child({ module: "artifact-synthesizer" });
     FORMAT_WORD_TARGETS = {
       standup: "200-400 words",
       checkin: "200-400 words",
@@ -3839,7 +4221,7 @@ async function submitVote(proposalId, agentId, vote, reasoning) {
         SET votes = ${jsonb(votes)}
         WHERE id = ${proposalId}
     `;
-  log12.info("Vote submitted", {
+  log13.info("Vote submitted", {
     proposalId,
     agentId,
     vote,
@@ -3940,7 +4322,7 @@ async function finalizeVoting(proposalId) {
         ...consensus
       }
     });
-    log12.info("Voting finalized", {
+    log13.info("Voting finalized", {
       proposalId,
       result: consensus.result,
       approvals: consensus.approvals,
@@ -3971,7 +4353,7 @@ async function collectDebateVotes(proposalId, participants, debateHistory) {
     }
     const lastTurn = [...debateHistory].reverse().find((t) => t.speaker === agentId);
     if (!lastTurn) {
-      log12.warn("No debate turn found for agent, skipping vote", {
+      log13.warn("No debate turn found for agent, skipping vote", {
         agentId,
         proposalId
       });
@@ -3983,7 +4365,7 @@ async function collectDebateVotes(proposalId, participants, debateHistory) {
       const reasoning = text.slice(-200).trim();
       await submitVote(proposalId, agentId, vote, reasoning);
     } else {
-      log12.warn(
+      log13.warn(
         "Could not determine vote from debate turn, skipping agent",
         {
           agentId,
@@ -4008,14 +4390,14 @@ function extractVoteFromText(text) {
   if (hasReject) return "reject";
   return null;
 }
-var log12;
+var log13;
 var init_agent_proposal_voting = __esm({
   "src/lib/ops/agent-proposal-voting.ts"() {
     "use strict";
     init_db();
     init_events2();
     init_logger();
-    log12 = logger.child({ module: "agent-proposal-voting" });
+    log13 = logger.child({ module: "agent-proposal-voting" });
   }
 });
 
@@ -4067,7 +4449,7 @@ async function castVeto(agentId, targetType, targetId, reason) {
         RETURNING id
     `;
   const vetoId = row.id;
-  log13.info("Veto cast", { vetoId, agentId, targetType, targetId, severity });
+  log14.info("Veto cast", { vetoId, agentId, targetType, targetId, severity });
   if (severity === "binding") {
     await haltTarget(targetType, targetId, reason);
   }
@@ -4129,7 +4511,7 @@ async function overrideVeto(vetoId, overrideBy, reason) {
             resolved_at = NOW()
         WHERE id = ${vetoId}
     `;
-  log13.info("Veto overridden", { vetoId, overrideBy, reason });
+  log14.info("Veto overridden", { vetoId, overrideBy, reason });
   await emitEvent({
     agent_id: overrideBy,
     kind: "veto_overridden",
@@ -4151,7 +4533,7 @@ async function withdrawVeto(vetoId, agentId) {
         SET status = 'withdrawn', resolved_at = NOW()
         WHERE id = ${vetoId}
     `;
-  log13.info("Veto withdrawn", { vetoId, agentId });
+  log14.info("Veto withdrawn", { vetoId, agentId });
   await emitEvent({
     agent_id: agentId,
     kind: "veto_withdrawn",
@@ -4249,9 +4631,9 @@ async function haltTarget(targetType, targetId, reason) {
       break;
     }
   }
-  log13.info("Target halted by binding veto", { targetType, targetId });
+  log14.info("Target halted by binding veto", { targetType, targetId });
 }
-var log13;
+var log14;
 var init_veto = __esm({
   "src/lib/ops/veto.ts"() {
     "use strict";
@@ -4259,7 +4641,7 @@ var init_veto = __esm({
     init_policy();
     init_events2();
     init_logger();
-    log13 = logger.child({ module: "veto" });
+    log14 = logger.child({ module: "veto" });
   }
 });
 
@@ -4294,7 +4676,7 @@ async function proposeGovernanceChange(agentId, policyKey, proposedValue, ration
         )
         RETURNING id
     `;
-  log14.info("Governance proposal created", {
+  log15.info("Governance proposal created", {
     id: row.id,
     proposer: agentId,
     policyKey
@@ -4329,7 +4711,7 @@ async function castGovernanceVote(proposalId, agentId, vote, reason) {
   }
   const votes = typeof proposal.votes === "object" && proposal.votes !== null ? proposal.votes : {};
   if (votes[agentId]) {
-    log14.warn("Agent already voted on this proposal", {
+    log15.warn("Agent already voted on this proposal", {
       proposalId,
       agentId
     });
@@ -4341,7 +4723,7 @@ async function castGovernanceVote(proposalId, agentId, vote, reason) {
         SET votes = ${jsonb(votes)}
         WHERE id = ${proposalId}
     `;
-  log14.info("Governance vote cast", { proposalId, agentId, vote });
+  log15.info("Governance vote cast", { proposalId, agentId, vote });
   const approvals = Object.values(votes).filter(
     (v) => v.vote === "approve"
   ).length;
@@ -4352,7 +4734,7 @@ async function castGovernanceVote(proposalId, agentId, vote, reason) {
     const { hasActiveVeto: hasActiveVeto2 } = await Promise.resolve().then(() => (init_veto(), veto_exports));
     const vetoCheck = await hasActiveVeto2("governance", proposalId);
     if (vetoCheck.vetoed && vetoCheck.severity === "binding") {
-      log14.info("Governance proposal blocked by binding veto", {
+      log15.info("Governance proposal blocked by binding veto", {
         proposalId,
         vetoId: vetoCheck.vetoId,
         reason: vetoCheck.reason
@@ -4398,7 +4780,7 @@ async function castGovernanceVote(proposalId, agentId, vote, reason) {
         voters: Object.keys(votes)
       }
     });
-    log14.info("Governance proposal accepted", {
+    log15.info("Governance proposal accepted", {
       proposalId,
       approvals,
       rejections
@@ -4423,7 +4805,7 @@ async function castGovernanceVote(proposalId, agentId, vote, reason) {
         voters: Object.keys(votes)
       }
     });
-    log14.info("Governance proposal rejected", {
+    log15.info("Governance proposal rejected", {
       proposalId,
       approvals,
       rejections
@@ -4459,7 +4841,7 @@ async function collectGovernanceDebateVotes(proposalId, participants, debateHist
     }
     const lastTurn = [...debateHistory].reverse().find((t) => t.speaker === agentId);
     if (!lastTurn) {
-      log14.warn("No debate turn found for agent, skipping vote", {
+      log15.warn("No debate turn found for agent, skipping vote", {
         agentId,
         proposalId
       });
@@ -4477,7 +4859,7 @@ async function collectGovernanceDebateVotes(proposalId, participants, debateHist
         throw err;
       }
     } else {
-      log14.warn(
+      log15.warn(
         "Could not determine vote from debate turn, skipping agent",
         {
           agentId,
@@ -4603,7 +4985,7 @@ async function backfillGovernanceVotes(limit = 10) {
       processed++;
     } catch (err) {
       failed++;
-      log14.error("Governance vote backfill failed", {
+      log15.error("Governance vote backfill failed", {
         proposalId: row.id,
         sessionId: row.debate_session_id,
         error: err.message
@@ -4682,7 +5064,7 @@ Classify this agent's vote now.`
     }
     return null;
   } catch (err) {
-    log14.warn("LLM governance vote inference failed", {
+    log15.warn("LLM governance vote inference failed", {
       error: err.message,
       proposalId: proposal.id,
       agentId
@@ -4690,7 +5072,7 @@ Classify this agent's vote now.`
     return null;
   }
 }
-var log14, PROTECTED_POLICIES;
+var log15, PROTECTED_POLICIES;
 var init_governance = __esm({
   "src/lib/ops/governance.ts"() {
     "use strict";
@@ -4699,7 +5081,7 @@ var init_governance = __esm({
     init_events2();
     init_logger();
     init_client();
-    log14 = logger.child({ module: "governance" });
+    log15 = logger.child({ module: "governance" });
     PROTECTED_POLICIES = /* @__PURE__ */ new Set(["system_enabled", "veto_authority"]);
   }
 });
@@ -4752,14 +5134,14 @@ Rules:
     });
     const jsonMatch = result.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      log15.warn("No JSON in debrief result", { sessionId: session.id });
+      log16.warn("No JSON in debrief result", { sessionId: session.id });
       return null;
     }
     let parsed;
     try {
       parsed = JSON.parse(jsonMatch[0]);
     } catch {
-      log15.warn("Invalid JSON in debrief", { sessionId: session.id });
+      log16.warn("Invalid JSON in debrief", { sessionId: session.id });
       return null;
     }
     parsed.decisions = parsed.decisions ?? [];
@@ -4789,14 +5171,14 @@ Rules:
         });
         if (result2.success) proposalCount++;
       } catch (err) {
-        log15.error("Failed to create proposal from debrief action item", {
+        log16.error("Failed to create proposal from debrief action item", {
           error: err,
           task: item.task,
           sessionId: session.id
         });
       }
     }
-    log15.info("Debrief generated", {
+    log16.info("Debrief generated", {
       sessionId: session.id,
       format: session.format,
       decisions: parsed.decisions.length,
@@ -4806,7 +5188,7 @@ Rules:
     });
     return parsed;
   } catch (err) {
-    log15.error("Debrief generation failed", { error: err, sessionId: session.id });
+    log16.error("Debrief generation failed", { error: err, sessionId: session.id });
     return null;
   }
 }
@@ -4848,7 +5230,7 @@ function formatDebriefMarkdown(debrief, topic) {
   }
   return md;
 }
-var log15;
+var log16;
 var init_debrief = __esm({
   "src/lib/roundtable/debrief.ts"() {
     "use strict";
@@ -4856,7 +5238,7 @@ var init_debrief = __esm({
     init_client();
     init_proposal_service();
     init_logger();
-    log15 = logger.child({ module: "debrief" });
+    log16 = logger.child({ module: "debrief" });
   }
 });
 
@@ -4935,7 +5317,7 @@ async function postConversationStart(session) {
     username: "\u{1F4E1} Subcult Roundtable",
     content
   });
-  log16.info("Roundtable start posted to Discord", {
+  log17.info("Roundtable start posted to Discord", {
     sessionId: session.id,
     channel: channelName
   });
@@ -5007,7 +5389,7 @@ async function postArtifactToDiscord(roundtableSessionId, format, artifactText) 
     const content = `${prefix}${chunks[i]}`;
     await postToWebhook({ webhookUrl, username, content });
   }
-  log16.info("Artifact posted to Discord", {
+  log17.info("Artifact posted to Discord", {
     roundtableSessionId,
     chunks: chunks.length
   });
@@ -5023,7 +5405,7 @@ async function postDebriefToDiscord(roundtableSessionId, format, debriefMarkdown
   for (const chunk of chunks) {
     await postToWebhook({ webhookUrl, username, content: chunk });
   }
-  log16.info("Debrief posted to Discord", { roundtableSessionId, chunks: chunks.length });
+  log17.info("Debrief posted to Discord", { roundtableSessionId, chunks: chunks.length });
 }
 function splitDialogue(text, maxLen) {
   if (text.length <= maxLen) return [text];
@@ -5074,7 +5456,7 @@ function splitAtBoundaries(text, maxLen) {
   }
   return chunks;
 }
-var log16;
+var log17;
 var init_roundtable = __esm({
   "src/lib/discord/roundtable.ts"() {
     "use strict";
@@ -5084,7 +5466,7 @@ var init_roundtable = __esm({
     init_avatars();
     init_format();
     init_logger();
-    log16 = logger.child({ module: "discord-roundtable" });
+    log17 = logger.child({ module: "discord-roundtable" });
   }
 });
 
@@ -5233,7 +5615,7 @@ async function execInToolbox(command, timeoutMs = DEFAULT_TIMEOUT_MS) {
       const cappedStdout = stdout.length > MAX_STDOUT ? stdout.slice(0, MAX_STDOUT) + "\n... [output truncated at 50KB]" : stdout;
       const cappedStderr = stderr.length > MAX_STDERR ? stderr.slice(0, MAX_STDERR) + "\n... [stderr truncated at 10KB]" : stderr;
       if (timedOut) {
-        log17.warn("Toolbox exec timed out", { command: command.slice(0, 200), timeoutMs });
+        log18.warn("Toolbox exec timed out", { command: command.slice(0, 200), timeoutMs });
       }
       resolve({
         stdout: cappedStdout,
@@ -5243,7 +5625,7 @@ async function execInToolbox(command, timeoutMs = DEFAULT_TIMEOUT_MS) {
       });
     });
     child.on("error", (err) => {
-      log17.error("Toolbox exec error", { error: err, command: command.slice(0, 200) });
+      log18.error("Toolbox exec error", { error: err, command: command.slice(0, 200) });
       resolve({
         stdout: "",
         stderr: `exec error: ${err.message}`,
@@ -5253,13 +5635,13 @@ async function execInToolbox(command, timeoutMs = DEFAULT_TIMEOUT_MS) {
     });
   });
 }
-var import_node_child_process, log17, TOOLBOX_CONTAINER, MAX_STDOUT, MAX_STDERR, DEFAULT_TIMEOUT_MS;
+var import_node_child_process, log18, TOOLBOX_CONTAINER, MAX_STDOUT, MAX_STDERR, DEFAULT_TIMEOUT_MS;
 var init_executor = __esm({
   "src/lib/tools/executor.ts"() {
     "use strict";
     import_node_child_process = require("node:child_process");
     init_logger();
-    log17 = logger.child({ module: "executor" });
+    log18 = logger.child({ module: "executor" });
     TOOLBOX_CONTAINER = "subcult-toolbox";
     MAX_STDOUT = 50 * 1024;
     MAX_STDERR = 10 * 1024;
@@ -5381,7 +5763,7 @@ async function checkRebellionState(agentId) {
   if (roll >= policy.resistance_probability) {
     return { isRebelling: false, reason: "probability_check_failed" };
   }
-  log18.info("Rebellion triggered", { agentId, avgAffinity, roll });
+  log19.info("Rebellion triggered", { agentId, avgAffinity, roll });
   const eventId = await emitEvent({
     agent_id: agentId,
     kind: "rebellion_started",
@@ -5409,7 +5791,7 @@ async function isAgentRebelling(agentId) {
 async function endRebellion(agentId, reason) {
   const activeEvent = await getActiveRebellionEvent(agentId);
   if (!activeEvent) {
-    log18.warn("Attempted to end rebellion for agent not rebelling", {
+    log19.warn("Attempted to end rebellion for agent not rebelling", {
       agentId
     });
     return;
@@ -5427,7 +5809,7 @@ async function endRebellion(agentId, reason) {
       duration_hours: Number(durationHours.toFixed(1))
     }
   });
-  log18.info("Rebellion ended", { agentId, reason, durationHours });
+  log19.info("Rebellion ended", { agentId, reason, durationHours });
 }
 async function attemptRebellionResolution(agentId) {
   const policy = await loadRebellionPolicy();
@@ -5468,7 +5850,7 @@ async function enqueueRebellionCrossExam(rebelAgentId) {
   if (!activeEvent) return null;
   const relationships = await getAgentRelationships(rebelAgentId);
   if (relationships.length === 0) {
-    log18.warn("Cannot enqueue rebellion cross-exam: agent has no relationships", {
+    log19.warn("Cannot enqueue rebellion cross-exam: agent has no relationships", {
       rebelAgentId
     });
     return null;
@@ -5489,7 +5871,7 @@ async function enqueueRebellionCrossExam(rebelAgentId) {
       lowest_affinity_agent: lowestAffinityAgent
     }
   });
-  log18.info("Rebellion cross-exam enqueued", {
+  log19.info("Rebellion cross-exam enqueued", {
     rebelAgentId,
     opponent: lowestAffinityAgent,
     sessionId
@@ -5514,7 +5896,7 @@ async function getRebellingAgents() {
     eventId: r.id
   }));
 }
-var log18;
+var log19;
 var init_rebellion = __esm({
   "src/lib/ops/rebellion.ts"() {
     "use strict";
@@ -5523,7 +5905,7 @@ var init_rebellion = __esm({
     init_relationships();
     init_events2();
     init_logger();
-    log18 = logger.child({ module: "rebellion" });
+    log19 = logger.child({ module: "rebellion" });
   }
 });
 
@@ -5545,23 +5927,23 @@ async function updateScratchpad(agentId, content) {
             SET content = ${trimmed},
                 updated_at = now()
         `;
-    log19.info("Scratchpad updated", {
+    log20.info("Scratchpad updated", {
       agentId,
       length: trimmed.length
     });
     return { updated: true, length: trimmed.length };
   } catch (err) {
-    log19.error("Failed to update scratchpad", { error: err, agentId });
+    log20.error("Failed to update scratchpad", { error: err, agentId });
     return { updated: false, length: 0 };
   }
 }
-var log19, MAX_SCRATCHPAD_LENGTH;
+var log20, MAX_SCRATCHPAD_LENGTH;
 var init_scratchpad = __esm({
   "src/lib/ops/scratchpad.ts"() {
     "use strict";
     init_db();
     init_logger();
-    log19 = logger.child({ module: "scratchpad" });
+    log20 = logger.child({ module: "scratchpad" });
     MAX_SCRATCHPAD_LENGTH = 2e3;
   }
 });
@@ -5721,7 +6103,7 @@ var init_situational_briefing = __esm({
 });
 
 // src/lib/discord/watercooler-drop.ts
-var log20, ELIGIBLE_AGENTS;
+var log21, ELIGIBLE_AGENTS;
 var init_watercooler_drop = __esm({
   "src/lib/discord/watercooler-drop.ts"() {
     "use strict";
@@ -5731,7 +6113,7 @@ var init_watercooler_drop = __esm({
     init_voices();
     init_db();
     init_logger();
-    log20 = logger.child({ module: "watercooler-drop" });
+    log21 = logger.child({ module: "watercooler-drop" });
     ELIGIBLE_AGENTS = AGENT_IDS.filter((id) => id !== "primus");
   }
 });
@@ -5789,7 +6171,7 @@ async function synthesizeSpeech(options) {
     clearTimeout(timeout);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      log21.warn("ElevenLabs TTS request failed", {
+      log22.warn("ElevenLabs TTS request failed", {
         status: res.status,
         body: body.slice(0, 200),
         agentId: options.agentId
@@ -5800,14 +6182,14 @@ async function synthesizeSpeech(options) {
     const audio = Buffer.from(arrayBuffer);
     const turnSuffix = options.turn != null ? options.turn : 0;
     const filename = `${options.agentId}-turn-${turnSuffix}.mp3`;
-    log21.info("TTS synthesis completed", {
+    log22.info("TTS synthesis completed", {
       agentId: options.agentId,
       turn: options.turn,
       audioBytes: audio.length
     });
     return { audio, filename };
   } catch (err) {
-    log21.warn("TTS synthesis error", {
+    log22.warn("TTS synthesis error", {
       error: err.message,
       agentId: options.agentId,
       turn: options.turn
@@ -5815,12 +6197,12 @@ async function synthesizeSpeech(options) {
     return null;
   }
 }
-var log21, VOICE_ID_MAP, PRONUNCIATION_DICTIONARY;
+var log22, VOICE_ID_MAP, PRONUNCIATION_DICTIONARY;
 var init_elevenlabs = __esm({
   "src/lib/tts/elevenlabs.ts"() {
     "use strict";
     init_logger();
-    log21 = logger.child({ module: "tts-elevenlabs" });
+    log22 = logger.child({ module: "tts-elevenlabs" });
     VOICE_ID_MAP = {
       chora: "xNtG3W2oqJs0cJZuTyBc",
       subrosa: "lUCNYQh2kqW2wiie85Qk",
@@ -6141,36 +6523,36 @@ async function postConversationCleanup(session, history, finalStatus) {
         await postDebriefToDiscord(session.id, session.format, debriefMd);
       } catch {
       }
-      log22.info("Debrief generated", {
+      log23.info("Debrief generated", {
         sessionId: session.id,
         decisions: debrief.decisions.length,
         actionItems: debrief.actionItems.length
       });
     }
   } catch (err) {
-    log22.error("Debrief generation failed", { error: err, sessionId: session.id });
+    log23.error("Debrief generation failed", { error: err, sessionId: session.id });
   }
   try {
     await distillConversationMemories(session.id, history, session.format);
   } catch (err) {
-    log22.error("Memory distillation failed", { error: err, sessionId: session.id });
+    log23.error("Memory distillation failed", { error: err, sessionId: session.id });
   }
   try {
     const artifactSessionId = await synthesizeArtifact(session, history);
     if (artifactSessionId) {
-      log22.info("Artifact synthesis queued", {
+      log23.info("Artifact synthesis queued", {
         sessionId: session.id,
         artifactSession: artifactSessionId
       });
     }
   } catch (err) {
-    log22.error("Artifact synthesis failed", { error: err, sessionId: session.id });
+    log23.error("Artifact synthesis failed", { error: err, sessionId: session.id });
   }
   const proposalId = session.metadata?.agent_proposal_id;
   if (proposalId && finalStatus === "completed") {
     try {
       const result = await collectDebateVotes(proposalId, session.participants, history);
-      log22.info("Agent proposal voting finalized", {
+      log23.info("Agent proposal voting finalized", {
         proposalId,
         result: result.result,
         approvals: result.approvals,
@@ -6178,7 +6560,7 @@ async function postConversationCleanup(session, history, finalStatus) {
         sessionId: session.id
       });
     } catch (err) {
-      log22.error("Agent proposal vote collection failed", {
+      log23.error("Agent proposal vote collection failed", {
         error: err,
         proposalId,
         sessionId: session.id
@@ -6189,7 +6571,7 @@ async function postConversationCleanup(session, history, finalStatus) {
   if (govProposalId && finalStatus === "completed") {
     try {
       const result = await collectGovernanceDebateVotes(govProposalId, session.participants, history);
-      log22.info("Governance proposal voting finalized", {
+      log23.info("Governance proposal voting finalized", {
         proposalId: govProposalId,
         result: result.result,
         approvals: result.approvals,
@@ -6197,7 +6579,7 @@ async function postConversationCleanup(session, history, finalStatus) {
         sessionId: session.id
       });
     } catch (err) {
-      log22.error("Governance proposal vote collection failed", {
+      log23.error("Governance proposal vote collection failed", {
         error: err,
         proposalId: govProposalId,
         sessionId: session.id
@@ -6514,7 +6896,7 @@ async function loadParticipantContext(participants, topic) {
       briefings.set(participant, briefing);
       memories.set(participant, mems);
     } catch (err) {
-      log22.error("Context loading failed", { error: err, participant });
+      log23.error("Context loading failed", { error: err, participant });
       voiceModifiers.set(participant, []);
       scratchpads.set(participant, "");
       briefings.set(participant, "");
@@ -6545,7 +6927,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
       const rebelling = await isAgentRebelling(participant);
       rebellionStateMap.set(participant, rebelling);
     } catch (err) {
-      log22.error("Rebellion check failed (non-fatal)", {
+      log23.error("Rebellion check failed (non-fatal)", {
         error: err,
         participant
       });
@@ -6562,7 +6944,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
   try {
     discordWebhookUrl = await postConversationStart(session);
   } catch (err) {
-    log22.warn("Discord conversation start failed", {
+    log23.warn("Discord conversation start failed", {
       error: err.message,
       sessionId: session.id
     });
@@ -6572,7 +6954,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
   let consecutiveStale = 0;
   for (let turn = 0; turn < maxTurns; turn++) {
     if (turn > 0 && history.length === 0) {
-      log22.error("All LLM turns returned empty \u2014 aborting roundtable", {
+      log23.error("All LLM turns returned empty \u2014 aborting roundtable", {
         sessionId: session.id,
         turnsAttempted: turn
       });
@@ -6639,7 +7021,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
         }
       });
     } catch (err) {
-      log22.error("LLM failed during conversation", {
+      log23.error("LLM failed during conversation", {
         error: err,
         turn,
         speaker: speakerName,
@@ -6650,7 +7032,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
     }
     const dialogue = sanitizeDialogue(rawDialogue);
     if (!dialogue) {
-      log22.warn("Empty dialogue from LLM, skipping turn", {
+      log23.warn("Empty dialogue from LLM, skipping turn", {
         sessionId: session.id,
         turn,
         speaker: speakerName
@@ -6663,7 +7045,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
       if (similarity > REPETITION_SIMILARITY_THRESHOLD) {
         consecutiveStale++;
         if (consecutiveStale >= MAX_CONSECUTIVE_STALE_TURNS) {
-          log22.info("Early termination: repetition detected", {
+          log23.info("Early termination: repetition detected", {
             sessionId: session.id,
             turn,
             speaker,
@@ -6693,7 +7075,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
         text: entry.dialogue,
         turn
       }).catch((err) => {
-        log22.warn("TTS synthesis failed", {
+        log23.warn("TTS synthesis failed", {
           error: err,
           speaker: entry.speaker,
           turn
@@ -6835,7 +7217,7 @@ async function orchestrateVoiceChat(session) {
       await storeTurnAndEmit(session, entry);
       return entry;
     } catch (err) {
-      log22.error("Voice chat LLM failed", {
+      log23.error("Voice chat LLM failed", {
         error: err,
         speaker,
         turnNumber,
@@ -6894,7 +7276,7 @@ async function orchestrateVoiceChat(session) {
     const lastTurnNumber = currentTurn - 1;
     const userTurn = await waitForUserTurn(lastTurnNumber);
     if (!userTurn) {
-      log22.info("Voice chat ending: no user reply", {
+      log23.info("Voice chat ending: no user reply", {
         sessionId: session.id,
         currentTurn
       });
@@ -6946,7 +7328,7 @@ async function orchestrateVoiceChat(session) {
     try {
       await distillConversationMemories(session.id, history, session.format);
     } catch (err) {
-      log22.error("Voice chat memory distillation failed", { error: err, sessionId: session.id });
+      log23.error("Voice chat memory distillation failed", { error: err, sessionId: session.id });
     }
   }
   return history;
@@ -7031,7 +7413,7 @@ async function generateTopic(slot) {
   const candidates = fresh.length > 0 ? fresh : pool;
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
-var log22, REPETITION_SIMILARITY_THRESHOLD, MAX_CONSECUTIVE_STALE_TURNS, TURN_DELAY_BASE_MS, TURN_DELAY_JITTER_MS, POST_CONVERSATION_SETTLE_MS, VOICE_OPENING_GAP_MS, VOICE_MULTI_RESPONSE_GAP_MS, VOICE_POLL_INTERVAL_MS, VOICE_INACTIVITY_TIMEOUT_MS, TOPIC_POOLS;
+var log23, REPETITION_SIMILARITY_THRESHOLD, MAX_CONSECUTIVE_STALE_TURNS, TURN_DELAY_BASE_MS, TURN_DELAY_JITTER_MS, POST_CONVERSATION_SETTLE_MS, VOICE_OPENING_GAP_MS, VOICE_MULTI_RESPONSE_GAP_MS, VOICE_POLL_INTERVAL_MS, VOICE_INACTIVITY_TIMEOUT_MS, TOPIC_POOLS;
 var init_orchestrator = __esm({
   "src/lib/roundtable/orchestrator.ts"() {
     "use strict";
@@ -7057,7 +7439,7 @@ var init_orchestrator = __esm({
     init_discord();
     init_elevenlabs();
     init_logger();
-    log22 = logger.child({ module: "orchestrator" });
+    log23 = logger.child({ module: "orchestrator" });
     REPETITION_SIMILARITY_THRESHOLD = 0.6;
     MAX_CONSECUTIVE_STALE_TURNS = 2;
     TURN_DELAY_BASE_MS = 3e3;
@@ -7214,7 +7596,7 @@ ${artifactText}`
     });
     const jsonMatch = result.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
-      log30.info("No actions extracted from artifact", {
+      log32.info("No actions extracted from artifact", {
         sessionId,
         format
       });
@@ -7241,7 +7623,7 @@ ${artifactText}`
       });
       if (proposalResult.success) {
         created++;
-        log30.info("Action extracted from roundtable artifact", {
+        log32.info("Action extracted from roundtable artifact", {
           sessionId,
           format,
           proposalId: proposalResult.proposalId,
@@ -7253,7 +7635,7 @@ ${artifactText}`
     }
     return created;
   } catch (err) {
-    log30.error("Action extraction failed", {
+    log32.error("Action extraction failed", {
       error: err,
       sessionId,
       format
@@ -7261,14 +7643,14 @@ ${artifactText}`
     return 0;
   }
 }
-var log30, ACTIONABLE_FORMATS, DELIBERATED_FORMATS, VALID_STEP_KINDS;
+var log32, ACTIONABLE_FORMATS, DELIBERATED_FORMATS, VALID_STEP_KINDS;
 var init_action_extractor = __esm({
   "src/lib/roundtable/action-extractor.ts"() {
     "use strict";
     init_client();
     init_proposal_service();
     init_logger();
-    log30 = logger.child({ module: "action-extractor" });
+    log32 = logger.child({ module: "action-extractor" });
     ACTIONABLE_FORMATS = /* @__PURE__ */ new Set([
       "planning",
       "strategy",
@@ -7326,7 +7708,7 @@ async function extractContentFromSession(sessionId) {
         SELECT id FROM ops_content_drafts WHERE source_session_id = ${sessionId} LIMIT 1
     `;
   if (existing) {
-    log31.info("Draft already exists for session, skipping", {
+    log33.info("Draft already exists for session, skipping", {
       sessionId,
       draftId: existing.id
     });
@@ -7336,7 +7718,7 @@ async function extractContentFromSession(sessionId) {
         SELECT format, participants, topic FROM ops_roundtable_sessions WHERE id = ${sessionId}
     `;
   if (!session) {
-    log31.warn("Session not found", { sessionId });
+    log33.warn("Session not found", { sessionId });
     return null;
   }
   const turns = await sql`
@@ -7346,7 +7728,7 @@ async function extractContentFromSession(sessionId) {
         ORDER BY turn_number ASC
     `;
   if (turns.length === 0) {
-    log31.warn("No turns found for session", { sessionId });
+    log33.warn("No turns found for session", { sessionId });
     return null;
   }
   const CONTENT_THRESHOLD = 120;
@@ -7396,25 +7778,25 @@ If no extractable creative content exists, respond with:
     });
     const jsonMatch = result.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      log31.warn("No JSON found in extraction result", { sessionId });
+      log33.warn("No JSON found in extraction result", { sessionId });
       return null;
     }
     let parsed;
     try {
       parsed = JSON.parse(jsonMatch[0]);
     } catch (parseErr) {
-      log31.warn("Invalid JSON in extraction result", {
+      log33.warn("Invalid JSON in extraction result", {
         sessionId,
         error: parseErr
       });
       return null;
     }
     if (!parsed.hasContent || !parsed.title || !parsed.body) {
-      log31.info("No extractable content found", { sessionId });
+      log33.info("No extractable content found", { sessionId });
       return null;
     }
     if (typeof parsed.title !== "string" || typeof parsed.body !== "string") {
-      log31.warn("Title or body not strings, rejecting", {
+      log33.warn("Title or body not strings, rejecting", {
         sessionId,
         titleType: typeof parsed.title,
         bodyType: typeof parsed.body
@@ -7422,11 +7804,11 @@ If no extractable creative content exists, respond with:
       return null;
     }
     if (parsed.title.length > MAX_TITLE_LENGTH) {
-      log31.warn("Title too long, truncating", { sessionId });
+      log33.warn("Title too long, truncating", { sessionId });
       parsed.title = parsed.title.slice(0, MAX_TITLE_LENGTH);
     }
     if (parsed.body.length > MAX_BODY_LENGTH) {
-      log31.warn("Body too long, truncating", { sessionId });
+      log33.warn("Body too long, truncating", { sessionId });
       parsed.body = parsed.body.slice(0, MAX_BODY_LENGTH);
     }
     const validTypes = [
@@ -7458,7 +7840,7 @@ If no extractable creative content exists, respond with:
             )
             RETURNING id
         `;
-    log31.info("Content draft created", {
+    log33.info("Content draft created", {
       draftId: draft.id,
       sessionId,
       contentType,
@@ -7480,7 +7862,7 @@ If no extractable creative content exists, respond with:
     });
     return draft.id;
   } catch (err) {
-    log31.error("Content extraction failed", {
+    log33.error("Content extraction failed", {
       error: err,
       sessionId
     });
@@ -7497,20 +7879,20 @@ async function processReviewSession(sessionId) {
         `;
     const draftId = typeof session?.metadata?.draft_id === "string" ? session.metadata.draft_id : void 0;
     if (!draftId) {
-      log31.warn("No draft linked to review session", { sessionId });
+      log33.warn("No draft linked to review session", { sessionId });
       return;
     }
     const [draftById] = await sql`
             SELECT * FROM ops_content_drafts WHERE id = ${draftId} LIMIT 1
         `;
     if (!draftById) {
-      log31.warn("Draft not found for review session", {
+      log33.warn("Draft not found for review session", {
         sessionId,
         draftId
       });
       return;
     }
-    log31.info("Found draft via metadata lookup", {
+    log33.info("Found draft via metadata lookup", {
       sessionId,
       draftId
     });
@@ -7526,7 +7908,7 @@ async function processReviewForDraft(draft, sessionId) {
         ORDER BY turn_number ASC
     `;
   if (turns.length === 0) {
-    log31.warn("No turns found for review session", { sessionId });
+    log33.warn("No turns found for review session", { sessionId });
     return;
   }
   const reviewerTurns = /* @__PURE__ */ new Map();
@@ -7601,14 +7983,14 @@ Respond ONLY with valid JSON (no markdown fencing):
     });
     const jsonMatch = result.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      log31.warn("No JSON found in review result", { sessionId });
+      log33.warn("No JSON found in review result", { sessionId });
       return;
     }
     let parsed;
     try {
       parsed = JSON.parse(jsonMatch[0]);
     } catch (parseErr) {
-      log31.warn("Invalid JSON in review result", {
+      log33.warn("Invalid JSON in review result", {
         sessionId,
         draftId: draft.id,
         error: parseErr
@@ -7626,7 +8008,7 @@ Respond ONLY with valid JSON (no markdown fencing):
       summary
     );
   } catch (err) {
-    log31.error("Review processing failed", {
+    log33.error("Review processing failed", {
       error: err,
       sessionId,
       draftId: draft.id
@@ -7654,7 +8036,7 @@ async function applyReviewResult(draft, sessionId, reviewerNotes, consensus, sum
         reviewerCount: reviewerNotes.length
       }
     });
-    log31.info("Draft approved", {
+    log33.info("Draft approved", {
       draftId: draft.id,
       reviewers: reviewerNotes.length
     });
@@ -7678,7 +8060,7 @@ async function applyReviewResult(draft, sessionId, reviewerNotes, consensus, sum
         reviewerCount: reviewerNotes.length
       }
     });
-    log31.info("Draft rejected", {
+    log33.info("Draft rejected", {
       draftId: draft.id,
       reviewers: reviewerNotes.length
     });
@@ -7690,7 +8072,7 @@ async function applyReviewResult(draft, sessionId, reviewerNotes, consensus, sum
                 updated_at = NOW()
             WHERE id = ${draft.id}
         `;
-    log31.info("Draft review inconclusive, staying in review", {
+    log33.info("Draft review inconclusive, staying in review", {
       draftId: draft.id,
       consensus
     });
@@ -7722,24 +8104,24 @@ Summary: ${reviewSummary}`,
       source: "system"
     });
     if (result.success) {
-      log31.info("Content revision proposal created", {
+      log33.info("Content revision proposal created", {
         draftId: draft.id,
         proposalId: result.proposalId
       });
     } else {
-      log31.warn("Content revision proposal rejected", {
+      log33.warn("Content revision proposal rejected", {
         draftId: draft.id,
         reason: result.reason
       });
     }
   } catch (err) {
-    log31.error("Failed to create content revision proposal", {
+    log33.error("Failed to create content revision proposal", {
       error: err,
       draftId: draft.id
     });
   }
 }
-var log31, MAX_TITLE_LENGTH, MAX_BODY_LENGTH;
+var log33, MAX_TITLE_LENGTH, MAX_BODY_LENGTH;
 var init_content_pipeline = __esm({
   "src/lib/ops/content-pipeline.ts"() {
     "use strict";
@@ -7748,7 +8130,7 @@ var init_content_pipeline = __esm({
     init_events2();
     init_proposal_service();
     init_logger();
-    log31 = logger.child({ module: "content-pipeline" });
+    log33 = logger.child({ module: "content-pipeline" });
     MAX_TITLE_LENGTH = 500;
     MAX_BODY_LENGTH = 5e4;
   }
@@ -7768,10 +8150,10 @@ async function performDig(config) {
   const digId = import_crypto2.default.randomUUID();
   const agentId = config.agent_id ?? "system";
   const maxMemories = config.max_memories ?? DEFAULT_MAX_MEMORIES;
-  log32.info("Starting archaeological dig", { digId, agentId, maxMemories });
+  log34.info("Starting archaeological dig", { digId, agentId, maxMemories });
   const memories = await fetchMemoriesForDig(config, maxMemories);
   if (memories.length < 3) {
-    log32.info("Not enough memories for archaeology", {
+    log34.info("Not enough memories for archaeology", {
       digId,
       available: memories.length
     });
@@ -7831,7 +8213,7 @@ async function performDig(config) {
       finding_types: [...new Set(allFindings.map((f) => f.finding_type))]
     }
   });
-  log32.info("Archaeological dig completed", {
+  log34.info("Archaeological dig completed", {
     digId,
     agentId,
     findingCount: allFindings.length,
@@ -7877,7 +8259,7 @@ ${m.content}`
     memorySummary.length / CHARS_PER_TOKEN_ESTIMATE
   );
   if (estimatedInputTokens > TOKEN_WARNING_THRESHOLD) {
-    log32.warn("High token count in archaeology batch", {
+    log34.warn("High token count in archaeology batch", {
       agentId,
       estimatedInputTokens,
       memoryCount: memories.length,
@@ -7926,7 +8308,7 @@ ${memorySummary}`
     }
   });
   if (!result?.trim()) {
-    log32.warn("Archaeology analysis returned empty", { agentId });
+    log34.warn("Archaeology analysis returned empty", { agentId });
     return [];
   }
   try {
@@ -7939,12 +8321,12 @@ ${memorySummary}`
         if (lastCompleteObj > 0) {
           jsonStr = jsonStr.slice(0, lastCompleteObj + 1) + "]}";
         }
-        log32.info("Attempting truncated JSON recovery", {
+        log34.info("Attempting truncated JSON recovery", {
           originalLength: result.length,
           recoveredLength: jsonStr.length
         });
       } else {
-        log32.warn("No JSON found in archaeology response", {
+        log34.warn("No JSON found in archaeology response", {
           responsePreview: result.slice(0, 200)
         });
         return [];
@@ -7952,7 +8334,7 @@ ${memorySummary}`
     }
     const parsed = JSON.parse(jsonStr);
     if (!parsed.findings || !Array.isArray(parsed.findings)) {
-      log32.warn("Invalid JSON structure in archaeology response", {
+      log34.warn("Invalid JSON structure in archaeology response", {
         hasFindings: !!parsed.findings,
         isArray: Array.isArray(parsed.findings),
         keys: Object.keys(parsed)
@@ -7972,7 +8354,7 @@ ${memorySummary}`
       const evidenceWithWarnings = (f.evidence ?? []).map((e) => {
         const memory = memories[e.memory_index - 1];
         if (!memory) {
-          log32.warn(
+          log34.warn(
             "LLM referenced invalid memory_index in evidence",
             {
               memory_index: e.memory_index,
@@ -7988,7 +8370,7 @@ ${memorySummary}`
         };
       }).filter((e) => e.memory_id !== "unknown");
       if (f.evidence?.length > 0 && evidenceWithWarnings.length === 0) {
-        log32.warn(
+        log34.warn(
           "All evidence filtered due to invalid memory indices",
           {
             finding_title: f.title,
@@ -8006,7 +8388,7 @@ ${memorySummary}`
       };
     });
   } catch (err) {
-    log32.error("Failed to parse archaeology findings", {
+    log34.error("Failed to parse archaeology findings", {
       error: err.message,
       responseLength: result.length,
       responsePreview: result.slice(0, 300),
@@ -8056,7 +8438,7 @@ async function getLastDigTimestamp() {
     `;
   return row?.latest ? new Date(row.latest) : null;
 }
-var import_crypto2, log32, DEFAULT_MAX_MEMORIES, MEMORIES_PER_BATCH, ANALYSIS_TEMPERATURE, ANALYSIS_MAX_TOKENS, CHARS_PER_TOKEN_ESTIMATE, TOKEN_WARNING_THRESHOLD;
+var import_crypto2, log34, DEFAULT_MAX_MEMORIES, MEMORIES_PER_BATCH, ANALYSIS_TEMPERATURE, ANALYSIS_MAX_TOKENS, CHARS_PER_TOKEN_ESTIMATE, TOKEN_WARNING_THRESHOLD;
 var init_memory_archaeology = __esm({
   "src/lib/ops/memory-archaeology.ts"() {
     "use strict";
@@ -8065,7 +8447,7 @@ var init_memory_archaeology = __esm({
     init_events2();
     init_logger();
     import_crypto2 = __toESM(require("crypto"));
-    log32 = logger.child({ module: "memory-archaeology" });
+    log34 = logger.child({ module: "memory-archaeology" });
     DEFAULT_MAX_MEMORIES = 100;
     MEMORIES_PER_BATCH = 15;
     ANALYSIS_TEMPERATURE = 0.7;
@@ -8436,7 +8818,7 @@ __export(agent_designer_exports, {
   setHumanApproval: () => setHumanApproval
 });
 async function generateAgentProposal(proposerId) {
-  log33.info("Generating agent proposal", { proposer: proposerId });
+  log35.info("Generating agent proposal", { proposer: proposerId });
   const agents = await sql`
         SELECT agent_id, display_name, role
         FROM ops_agent_registry
@@ -8461,7 +8843,7 @@ async function generateAgentProposal(proposerId) {
         WHERE status IN ('proposed', 'voting')
     `;
   if (pendingCount.count >= 2) {
-    log33.info("Skipping proposal \u2014 too many pending proposals", {
+    log35.info("Skipping proposal \u2014 too many pending proposals", {
       pending: pendingCount.count
     });
     throw new Error(
@@ -8529,7 +8911,7 @@ Respond with valid JSON only, no markdown fencing:
       }
     });
     if (result && result.trim().length > 0) break;
-    log33.warn("LLM returned empty for agent proposal, retrying", {
+    log35.warn("LLM returned empty for agent proposal, retrying", {
       proposer: proposerId,
       attempt: attempt + 1
     });
@@ -8537,7 +8919,7 @@ Respond with valid JSON only, no markdown fencing:
   }
   let parsed;
   if (!result || result.trim().length === 0) {
-    log33.error("LLM returned empty response for agent proposal", {
+    log35.error("LLM returned empty response for agent proposal", {
       proposer: proposerId
     });
     throw new Error("LLM returned empty response for agent proposal");
@@ -8548,7 +8930,7 @@ Respond with valid JSON only, no markdown fencing:
     if (!jsonMatch) throw new Error("No JSON found in LLM response");
     parsed = JSON.parse(jsonMatch[0]);
   } catch (err) {
-    log33.error("Failed to parse agent proposal from LLM", {
+    log35.error("Failed to parse agent proposal from LLM", {
       error: err,
       responsePreview: result.slice(0, 500)
     });
@@ -8629,7 +9011,7 @@ async function saveProposal(proposal, proposerId) {
         )
         RETURNING id
     `;
-  log33.info("Agent proposal saved", {
+  log35.info("Agent proposal saved", {
     id: row.id,
     proposer: proposerId,
     agentName: proposal.agent_name
@@ -8680,9 +9062,9 @@ async function setHumanApproval(proposalId, approved) {
         SET human_approved = ${approved}
         WHERE id = ${proposalId}
     `;
-  log33.info("Human approval set", { proposalId, approved });
+  log35.info("Human approval set", { proposalId, approved });
 }
-var log33;
+var log35;
 var init_agent_designer = __esm({
   "src/lib/ops/agent-designer.ts"() {
     "use strict";
@@ -8690,7 +9072,7 @@ var init_agent_designer = __esm({
     init_client();
     init_events2();
     init_logger();
-    log33 = logger.child({ module: "agent-designer" });
+    log35 = logger.child({ module: "agent-designer" });
   }
 });
 
@@ -8706,22 +9088,12 @@ init_db();
 init_client();
 init_voices();
 
-// src/lib/types.ts
-var ALL_AGENTS = [
-  "chora",
-  "subrosa",
-  "thaum",
-  "praxis",
-  "mux",
-  "primus"
-];
-
 // src/lib/tools/tools/bash.ts
 init_executor();
 var bashTool = {
   name: "bash",
   description: "Execute a bash command in the toolbox environment. Has access to standard Linux utilities, curl, jq, git, node, python3, gh CLI, ripgrep, and fd-find.",
-  agents: [...ALL_AGENTS],
+  agents: ["praxis", "mux"],
   parameters: {
     type: "object",
     properties: {
@@ -8754,9 +9126,19 @@ var bashTool = {
   }
 };
 
+// src/lib/types.ts
+var ALL_AGENTS = [
+  "chora",
+  "subrosa",
+  "thaum",
+  "praxis",
+  "mux",
+  "primus"
+];
+
 // src/lib/tools/tools/web-search.ts
 init_logger();
-var log23 = logger.child({ module: "web-search" });
+var log24 = logger.child({ module: "web-search" });
 var BRAVE_API_KEY = process.env.BRAVE_API_KEY ?? "";
 var BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search";
 var DDG_SEARCH_URL = "https://api.duckduckgo.com/";
@@ -8795,7 +9177,7 @@ var webSearchTool = {
           signal: AbortSignal.timeout(15e3)
         });
         if (response.status === 429) {
-          log23.warn("Brave Search rate-limited, falling back to DuckDuckGo", { query });
+          log24.warn("Brave Search rate-limited, falling back to DuckDuckGo", { query });
         } else if (response.ok) {
           const data = await response.json();
           const results = (data.web?.results ?? []).map((r) => ({
@@ -8805,13 +9187,13 @@ var webSearchTool = {
           }));
           return { results, query, count: results.length, source: "brave" };
         } else {
-          log23.warn("Brave Search error, falling back to DuckDuckGo", {
+          log24.warn("Brave Search error, falling back to DuckDuckGo", {
             status: response.status,
             query
           });
         }
       } catch (err) {
-        log23.warn("Brave Search failed, falling back to DuckDuckGo", {
+        log24.warn("Brave Search failed, falling back to DuckDuckGo", {
           error: err.message,
           query
         });
@@ -8848,7 +9230,7 @@ var webSearchTool = {
       }
       return { results, query, count: results.length, source: "ddg" };
     } catch (err) {
-      log23.error("DuckDuckGo fallback also failed", { error: err, query });
+      log24.error("DuckDuckGo fallback also failed", { error: err, query });
       return { error: `Search failed: ${err.message}` };
     }
   }
@@ -8962,14 +9344,16 @@ init_executor();
 var import_node_crypto = require("node:crypto");
 init_db();
 var import_node_path = __toESM(require("node:path"));
+init_logger();
 var WRITE_ACLS = {
-  chora: ["agents/chora/", "output/", "shared/"],
-  subrosa: ["agents/subrosa/", "output/", "shared/"],
-  thaum: ["agents/thaum/", "output/", "shared/"],
+  chora: [],
+  subrosa: [],
+  thaum: [],
   praxis: ["agents/praxis/", "output/", "shared/"],
   mux: ["agents/mux/", "output/", "shared/"],
   primus: ["agents/primus/", "output/", "shared/"]
 };
+var log25 = createLogger({ service: "file_write" });
 var DROID_PREFIX = "droids/";
 function isPathAllowed(agentId, relativePath) {
   if (agentId.startsWith("droid-")) {
@@ -8999,7 +9383,12 @@ async function isPathAllowedWithGrants(agentId, relativePath) {
   try {
     const grants = await getActiveGrants(agentId);
     return grants.some((prefix) => relativePath.startsWith(prefix));
-  } catch {
+  } catch (grantErr) {
+    log25.warn("ACL grant lookup failed (non-fatal)", {
+      error: grantErr,
+      agentId,
+      relativePath
+    });
     return false;
   }
 }
@@ -9060,7 +9449,13 @@ function createFileWriteExecute(agentId) {
       const artifactId = (0, import_node_crypto.randomUUID)();
       try {
         await appendManifest(artifactId, fullPath, agentId, content.length);
-      } catch {
+      } catch (manifestErr) {
+        log25.warn("Manifest append failed (non-fatal)", {
+          error: manifestErr,
+          agentId,
+          path: fullPath,
+          artifactId
+        });
       }
       return { path: fullPath, bytes: content.length, appended: append, artifact_id: artifactId };
     }
@@ -9070,7 +9465,7 @@ function createFileWriteExecute(agentId) {
 var fileWriteTool = {
   name: "file_write",
   description: "Write content to a file in the shared workspace. Creates parent directories if needed. Path access is restricted by agent role.",
-  agents: ["chora", "subrosa", "thaum", "praxis", "mux", "primus"],
+  agents: ["praxis", "mux", "primus"],
   parameters: {
     type: "object",
     properties: {
@@ -9316,7 +9711,7 @@ var checkDroidTool = {
 init_db();
 init_logger();
 init_embeddings();
-var log24 = logger.child({ module: "memory-search" });
+var log26 = logger.child({ module: "memory-search" });
 var memorySearchTool = {
   name: "memory_search",
   description: "Search agent memories using semantic similarity. Returns relevant memories from any agent.",
@@ -9371,7 +9766,7 @@ var memorySearchTool = {
           count: rows2.length
         };
       } catch (err) {
-        log24.warn("Vector search failed, falling back to text", { error: err });
+        log26.warn("Vector search failed, falling back to text", { error: err });
       }
     }
     const rows = await sql`
@@ -9526,7 +9921,7 @@ var scratchpadUpdateTool = {
 // src/lib/tools/tools/propose-policy-change.ts
 init_governance();
 init_logger();
-var log25 = logger.child({ module: "propose-policy-change" });
+var log27 = logger.child({ module: "propose-policy-change" });
 function createProposePolicyChangeExecute(agentId) {
   return async (params) => {
     const policyKey = params.policy_key;
@@ -9539,7 +9934,7 @@ function createProposePolicyChangeExecute(agentId) {
         proposedValue,
         rationale
       );
-      log25.info("Governance proposal created via tool", {
+      log27.info("Governance proposal created via tool", {
         proposalId,
         agentId,
         policyKey
@@ -9551,7 +9946,7 @@ function createProposePolicyChangeExecute(agentId) {
       };
     } catch (err) {
       const error = err;
-      log25.error("Failed to create governance proposal", {
+      log27.error("Failed to create governance proposal", {
         error: error.message,
         agentId,
         policyKey
@@ -9593,7 +9988,7 @@ var proposePolicyChangeTool = {
 // src/lib/tools/tools/propose-mission.ts
 init_proposal_service();
 init_logger();
-var log26 = logger.child({ module: "propose-mission" });
+var log28 = logger.child({ module: "propose-mission" });
 function createProposeMissionExecute(agentId, sessionId) {
   return async (params) => {
     const title = params.title;
@@ -9617,7 +10012,7 @@ function createProposeMissionExecute(agentId, sessionId) {
         source: "agent",
         source_trace_id: sessionId
       });
-      log26.info("Mission proposal created via tool", {
+      log28.info("Mission proposal created via tool", {
         proposalId: result.proposalId,
         missionId: result.missionId,
         agentId,
@@ -9638,7 +10033,7 @@ function createProposeMissionExecute(agentId, sessionId) {
       };
     } catch (err) {
       const error = err;
-      log26.error("Failed to create mission proposal", {
+      log28.error("Failed to create mission proposal", {
         error: error.message,
         agentId,
         title
@@ -9694,7 +10089,7 @@ var proposeMissionTool = {
 // src/lib/tools/tools/cast-veto.ts
 init_veto();
 init_logger();
-var log27 = logger.child({ module: "cast-veto" });
+var log29 = logger.child({ module: "cast-veto" });
 function createCastVetoExecute(agentId) {
   return async (params) => {
     const targetType = params.target_type;
@@ -9707,7 +10102,7 @@ function createCastVetoExecute(agentId) {
         targetId,
         reason
       );
-      log27.info("Veto cast via tool", {
+      log29.info("Veto cast via tool", {
         vetoId,
         agentId,
         targetType,
@@ -9722,7 +10117,7 @@ function createCastVetoExecute(agentId) {
       };
     } catch (err) {
       const error = err;
-      log27.error("Failed to cast veto", {
+      log29.error("Failed to cast veto", {
         error: error.message,
         agentId,
         targetType,
@@ -9824,6 +10219,10 @@ function getDroidTools(droidId) {
     return tool;
   });
 }
+function getAgentWritePaths(agentId) {
+  if (!fileWriteTool.agents.includes(agentId)) return [];
+  return WRITE_ACLS[agentId] ?? [];
+}
 
 // src/lib/tools/agent-session.ts
 init_events2();
@@ -9832,7 +10231,7 @@ init_scratchpad();
 init_situational_briefing();
 init_prime_directive();
 init_logger();
-var log28 = logger.child({ module: "agent-session" });
+var log30 = logger.child({ module: "agent-session" });
 var SESSION_SOFT_DEADLINE_BUFFER_MS = 9e4;
 var TOOL_RESULT_MAX_LENGTH = 5e3;
 var MAX_CONSECUTIVE_EMPTY_ROUNDS = 3;
@@ -9854,7 +10253,7 @@ function truncateToFirstSentences(text, maxLen) {
   if (lastNewline > maxLen * 0.5) return truncated.slice(0, lastNewline);
   return truncated + "...";
 }
-var BLOCKER_SUMMARY_PATTERNS = [
+var HARD_BLOCKER_SUMMARY_PATTERNS = [
   /\bcritical blocker\b/i,
   /\bdata dependency blocked\b/i,
   // Negative lookbehind guards against "not blocked by", "never blocked by", "wasn't blocked by", etc.
@@ -9864,13 +10263,35 @@ var BLOCKER_SUMMARY_PATTERNS = [
   /\bcannot continue\b/i,
   /\bcannot be completed\b/i,
   /\bno further (procedural )?steps? (i )?can take\b/i,
+  /\bhands are tied\b/i,
+  // Negative lookbehind guards against "not stalled by", "never stalled by", etc.
+  /(?<!(?:not|never) )\bstalled by\b/i
+];
+var SOFT_BLOCKER_SUMMARY_PATTERNS = [
   /\bawait(?:ing)? (?:instruction|input|external|data|provisioning)\b/i,
   // Negative lookbehind guards against "not waiting for", "never waiting for", etc.
   /(?<!(?:not|never) )\bwaiting for\b/i,
-  /\bhands are tied\b/i,
-  // Negative lookbehind guards against "not stalled by", "never stalled by", etc.
-  /(?<!(?:not|never) )\bstalled by\b/i,
   /\bpaused pending\b/i
+];
+var PROGRESS_SUMMARY_PATTERNS = [
+  /\bcompleted\b/i,
+  /\bfinished\b/i,
+  /\bgenerated\b/i,
+  /\bproduced\b/i,
+  /\bcreated\b/i,
+  /\bdrafted\b/i,
+  /\bwrote\b/i,
+  /\bupdated\b/i,
+  /\bpublished\b/i,
+  /\bposted\b/i,
+  /\bsent\b/i,
+  /\bdelivered\b/i,
+  /\bfetched\b/i,
+  /\bprocessed\b/i,
+  /\bqueued\b/i,
+  /\bsaved\b/i,
+  /\bsucceeded\b/i,
+  /\bsuccessfully\b/i
 ];
 var TOOL_ERROR_PATTERNS = [
   /no such file or directory/i,
@@ -9889,11 +10310,29 @@ function toolErrorText(result) {
   const stderr = typeof rec.stderr === "string" ? rec.stderr : "";
   return [err, stderr].filter(Boolean).join("\n");
 }
-function detectBlockedOutcome(summary, toolCalls) {
+function isSuccessfulToolCall(toolCall) {
+  if (toolCall.result === void 0) return false;
+  const text = toolErrorText(toolCall.result);
+  if (text.length > 0) {
+    if (/not available/i.test(text)) return false;
+    if (TOOL_ERROR_PATTERNS.some((p) => p.test(text))) return false;
+  }
+  if (typeof toolCall.result === "object" && toolCall.result !== null) {
+    return !(typeof toolCall.result.error === "string");
+  }
+  return true;
+}
+function detectBlockedOutcome(summary, toolCalls, options) {
   const evidence = [];
-  const blockerMatch = BLOCKER_SUMMARY_PATTERNS.find((p) => p.test(summary));
-  if (blockerMatch) {
-    evidence.push(`summary matched pattern: ${blockerMatch.source}`);
+  const hardBlockerMatch = options?.ignoreSummaryBlockers ? void 0 : HARD_BLOCKER_SUMMARY_PATTERNS.find((p) => p.test(summary));
+  if (hardBlockerMatch) {
+    evidence.push(`summary matched hard-blocker pattern: ${hardBlockerMatch.source}`);
+  }
+  const softBlockerMatch = options?.ignoreSummaryBlockers ? void 0 : SOFT_BLOCKER_SUMMARY_PATTERNS.find((p) => p.test(summary));
+  const hasSuccessfulToolCall = toolCalls.some(isSuccessfulToolCall);
+  const hasProgressSignals = hasSuccessfulToolCall || PROGRESS_SUMMARY_PATTERNS.some((p) => p.test(summary));
+  if (softBlockerMatch && !hasProgressSignals) {
+    evidence.push(`summary matched unresolved soft-blocker pattern: ${softBlockerMatch.source}`);
   }
   const toolErrors = toolCalls.map((tc) => ({
     name: tc.name,
@@ -9910,7 +10349,7 @@ function detectBlockedOutcome(summary, toolCalls) {
     if (!tc.result || typeof tc.result !== "object") return false;
     return !("error" in tc.result);
   });
-  const blockedBySummary = !!blockerMatch;
+  const blockedBySummary = !!hardBlockerMatch || !!softBlockerMatch && !hasProgressSignals;
   const blockedByFatalToolError = fatalToolErrors.length > 0 && !hasSuccessfulWrite;
   if (blockedBySummary || blockedByFatalToolError) {
     const reason = blockedBySummary ? "Session summary reported unresolved blocker" : "Fatal tool error without successful artifact write";
@@ -9945,7 +10384,12 @@ async function loadAgentContext(session, isDroid, agentId) {
   let primeDirective = "";
   try {
     primeDirective = await loadPrimeDirective();
-  } catch {
+  } catch (error) {
+    log30.warn("Prime directive load failed; continuing without directive", {
+      error,
+      sessionId: session.id,
+      agentId
+    });
   }
   const systemPrompt = buildAgentSystemPrompt({
     voice: voice ?? null,
@@ -9955,7 +10399,8 @@ async function loadAgentContext(session, isDroid, agentId) {
     briefing,
     memories,
     recentSessions,
-    toolNames: tools.map((t) => t.name)
+    toolNames: tools.map((t) => t.name),
+    writePaths: isDroid ? [] : getAgentWritePaths(agentId)
   });
   return { voiceName, tools, systemPrompt };
 }
@@ -9989,7 +10434,16 @@ ${ctx.primeDirective}
     prompt += `You may ONLY use these tools: ${ctx.toolNames.join(", ")}
 `;
     prompt += `Do NOT call tools like "google:search", "tool_code", "propose_action", or any other name not listed above.
-
+`;
+    prompt += `If a tool call returns "Access denied" or "does not exist", do NOT retry the same call. Adjust your approach or skip that action.
+`;
+    if (ctx.writePaths.length > 0) {
+      prompt += `Your file_write access is restricted to these path prefixes: ${ctx.writePaths.join(", ")}
+`;
+      prompt += `Do NOT attempt to write outside these paths \u2014 it will be denied.
+`;
+    }
+    prompt += `
 `;
   }
   if (ctx.scratchpad) {
@@ -10049,7 +10503,7 @@ async function runAgentToolLoop(opts) {
       return { lastText, toolCalls: allToolCalls, rounds: -1 };
     }
     if (elapsed > softDeadlineMs && round > 0 && lastText) {
-      log28.info("Soft deadline reached, finishing with current output", {
+      log30.info("Soft deadline reached, finishing with current output", {
         sessionId: session.id,
         elapsed: Math.round(elapsed / 1e3),
         rounds: llmRounds
@@ -10073,7 +10527,7 @@ async function runAgentToolLoop(opts) {
       consecutiveEmptyRounds++;
     }
     allToolCalls.push(...result.toolCalls);
-    log28.debug("Agent session round completed", {
+    log30.debug("Agent session round completed", {
       sessionId: session.id,
       round,
       textLength: result.text.length,
@@ -10086,15 +10540,26 @@ async function runAgentToolLoop(opts) {
     if (!result.text && result.toolCalls.every(
       (tc) => typeof tc.result === "string" && tc.result.includes("not available")
     )) {
-      log28.warn("Agent session breaking early \u2014 all tool calls returned not-available", {
+      log30.warn("Agent session breaking early \u2014 all tool calls returned not-available", {
         sessionId: session.id,
         round,
         toolCalls: result.toolCalls.map((tc) => tc.name)
       });
       break;
     }
+    if (result.toolCalls.length > 0 && result.toolCalls.every((tc) => {
+      const text = toolErrorText(tc.result);
+      return /access denied/i.test(text) || /does not exist/i.test(text);
+    })) {
+      log30.warn("Agent session breaking early \u2014 all tool calls denied or invalid", {
+        sessionId: session.id,
+        round,
+        toolCalls: result.toolCalls.map((tc) => ({ name: tc.name, error: toolErrorText(tc.result).slice(0, 100) }))
+      });
+      break;
+    }
     if (consecutiveEmptyRounds >= MAX_CONSECUTIVE_EMPTY_ROUNDS) {
-      log28.warn("Agent session breaking early \u2014 consecutive empty rounds", {
+      log30.warn("Agent session breaking early \u2014 consecutive empty rounds", {
         sessionId: session.id,
         round,
         cumulativeToolCalls: allToolCalls.length
@@ -10145,9 +10610,13 @@ async function executeAgentSession(session) {
     if (loopResult.rounds === -1) return;
     const cleanedText = extractFromXml(loopResult.lastText);
     const summary = sanitizeSummary(cleanedText);
+    const isHeartbeatReportSession = session.agent_id === "system" && session.source === "cron" && session.prompt.trim() === "System heartbeat";
     const blockedOutcome = detectBlockedOutcome(
       [summary, cleanedText].filter(Boolean).join("\n"),
-      loopResult.toolCalls
+      loopResult.toolCalls,
+      {
+        ignoreSummaryBlockers: isHeartbeatReportSession
+      }
     );
     const finalStatus = blockedOutcome.blocked ? "blocked" : "succeeded";
     await completeSession(
@@ -10200,7 +10669,7 @@ async function executeAgentSession(session) {
     }
   } catch (err) {
     const errorMsg = err.message;
-    log28.error("Agent session failed", { error: err, sessionId: session.id, agentId });
+    log30.error("Agent session failed", { error: err, sessionId: session.id, agentId });
     await completeSession(
       session.id,
       "failed",
@@ -10262,7 +10731,7 @@ var import_path = __toESM(require("path"));
 init_db();
 init_logger();
 init_events2();
-var log29 = logger.child({ module: "content-publication" });
+var log31 = logger.child({ module: "content-publication" });
 var DEFAULT_BLOG_DIR = "output/blog";
 var MAX_BACKFILL_BATCH = 20;
 var WORKSPACE_ROOT = process.env.WORKSPACE_ROOT?.trim() || "/workspace";
@@ -10604,7 +11073,7 @@ async function mirrorPublishedDraft(draft) {
     return true;
   }
   if (nextGhost.status === "failed") {
-    log29.warn("Ghost mirror failed", {
+    log31.warn("Ghost mirror failed", {
       draftId: draft.id,
       attempt: nextGhost.attempts,
       error: nextGhost.error,
@@ -10631,7 +11100,7 @@ async function publishApprovedDrafts(limit = MAX_BACKFILL_BATCH) {
     } catch (err) {
       failed++;
       const reason = err instanceof Error ? err.message : String(err);
-      log29.error("publishLocally failed", {
+      log31.error("publishLocally failed", {
         draftId: draft.id,
         title: draft.title,
         error: reason
@@ -10685,7 +11154,7 @@ async function publishApprovedDrafts(limit = MAX_BACKFILL_BATCH) {
     } catch (err) {
       failed++;
       const reason = err instanceof Error ? err.message : String(err);
-      log29.error("Draft status update failed after local publish", {
+      log31.error("Draft status update failed after local publish", {
         draftId: draft.id,
         title: draft.title,
         localSlug: local.slug,
@@ -10697,7 +11166,7 @@ async function publishApprovedDrafts(limit = MAX_BACKFILL_BATCH) {
       await mirrorPublishedDraft(draft);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      log29.warn("Ghost mirror threw unexpectedly", {
+      log31.warn("Ghost mirror threw unexpectedly", {
         draftId: draft.id,
         title: draft.title,
         error: reason
@@ -10772,14 +11241,65 @@ async function mirrorPublishedDraftBackfill(limit = MAX_BACKFILL_BATCH) {
 
 // scripts/unified-worker/index.ts
 init_governance();
-var log34 = createLogger({ service: "unified-worker" });
+
+// scripts/unified-worker/review-recovery.ts
+async function processCompletedReviewDrafts(drafts, processReviewSession2, logger2) {
+  if (drafts.length === 0) return 0;
+  logger2.info("Catching up stuck content reviews", { count: drafts.length });
+  let processed = 0;
+  for (const draft of drafts) {
+    try {
+      await processReviewSession2(draft.review_session_id);
+      processed += 1;
+      logger2.info("Stuck review processed", {
+        draftId: draft.id,
+        title: draft.title
+      });
+    } catch (err) {
+      logger2.error("Failed to process stuck review", {
+        error: err,
+        draftId: draft.id
+      });
+    }
+  }
+  return processed;
+}
+async function releaseStaleReviewDrafts(drafts, resetDraftToDraft, logger2) {
+  if (drafts.length === 0) return 0;
+  logger2.info("Releasing stale content reviews back to draft", {
+    count: drafts.length
+  });
+  let released = 0;
+  for (const draft of drafts) {
+    try {
+      const didReset = await resetDraftToDraft(draft.id);
+      if (didReset) {
+        released += 1;
+        logger2.info("Stale review draft reset to draft", {
+          draftId: draft.id,
+          title: draft.title,
+          previousReviewSessionId: draft.review_session_id
+        });
+      }
+    } catch (err) {
+      logger2.error("Failed to release stale review draft", {
+        error: err,
+        draftId: draft.id
+      });
+    }
+  }
+  return released;
+}
+
+// scripts/unified-worker/index.ts
+var log36 = createLogger({ service: "unified-worker" });
 var WORKER_ID = `unified-${process.pid}`;
 if (!process.env.DATABASE_URL) {
-  log34.fatal("Missing DATABASE_URL");
+  log36.fatal("Missing DATABASE_URL");
   process.exit(1);
 }
 if (!process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_ENABLED !== "false") {
-  log34.fatal("Missing OPENROUTER_API_KEY (set OPENROUTER_ENABLED=false to run without OpenRouter)");
+  log36.fatal("Missing OPENROUTER_API_KEY (set OPENROUTER_ENABLED=false to run without OpenRouter)");
   process.exit(1);
 }
 var sql2 = (0, import_postgres2.default)(process.env.DATABASE_URL, {
@@ -10801,7 +11321,7 @@ async function pollAgentSessions() {
         RETURNING *
     `;
   if (!session) return false;
-  log34.info("Processing agent session", {
+  log36.info("Processing agent session", {
     sessionId: session.id,
     agent: session.agent_id,
     source: session.source
@@ -10829,7 +11349,12 @@ async function pollAgentSessions() {
             "",
             artifactText
           );
-        } catch {
+        } catch (discordErr) {
+          log36.warn("Discord posting failed (non-fatal)", {
+            error: discordErr,
+            sessionId: session.id,
+            roundtableId: session.source_id
+          });
         }
       }
       if (artifactText && artifactText.length > 50) {
@@ -10847,7 +11372,7 @@ async function pollAgentSessions() {
               rtSession.topic
             );
             if (actionCount > 0) {
-              log34.info(
+              log36.info(
                 "Actions extracted from roundtable artifact",
                 {
                   sessionId: session.id,
@@ -10859,7 +11384,7 @@ async function pollAgentSessions() {
             }
           }
         } catch (extractErr) {
-          log34.error("Action extraction failed (non-fatal)", {
+          log36.error("Action extraction failed (non-fatal)", {
             error: extractErr,
             sessionId: session.id
           });
@@ -10892,7 +11417,7 @@ async function pollAgentSessions() {
                 () => false
               );
               if (fileExists2) {
-                log34.info(
+                log36.info(
                   "Artifact file already exists (written by synthesis agent)",
                   {
                     sessionId: session.id,
@@ -10905,7 +11430,7 @@ async function pollAgentSessions() {
                   artifactText,
                   "utf-8"
                 );
-                log34.info("Artifact file written to workspace", {
+                log36.info("Artifact file written to workspace", {
                   sessionId: session.id,
                   path: filePath,
                   format: rtSession.format,
@@ -10915,7 +11440,7 @@ async function pollAgentSessions() {
             }
           }
         } catch (fileErr) {
-          log34.error("Artifact file write failed (non-fatal)", {
+          log36.error("Artifact file write failed (non-fatal)", {
             error: fileErr,
             sessionId: session.id
           });
@@ -10971,7 +11496,7 @@ async function pollAgentSessions() {
                                 )
                                 RETURNING id
                             `;
-              log34.info("Content draft created from synthesis", {
+              log36.info("Content draft created from synthesis", {
                 draftId: draft.id,
                 sessionId: session.id,
                 roundtableId: session.source_id,
@@ -10992,12 +11517,18 @@ async function pollAgentSessions() {
                     contentType
                   }
                 });
-              } catch {
+              } catch (emitErr) {
+                log36.warn("Content draft event emission failed (non-fatal)", {
+                  error: emitErr,
+                  sessionId: session.id,
+                  roundtableId: session.source_id,
+                  draftId: draft.id
+                });
               }
             }
           }
         } catch (draftErr) {
-          log34.error("Content draft creation failed (non-fatal)", {
+          log36.error("Content draft creation failed (non-fatal)", {
             error: draftErr,
             sessionId: session.id
           });
@@ -11005,7 +11536,7 @@ async function pollAgentSessions() {
       }
     }
   } catch (err) {
-    log34.error("Agent session execution failed", {
+    log36.error("Agent session execution failed", {
       error: err,
       sessionId: session.id
     });
@@ -11042,7 +11573,7 @@ async function pollRoundtables() {
         SET status = 'pending'
         WHERE id = ${session.id}
     `;
-  log34.info("Processing roundtable", {
+  log36.info("Processing roundtable", {
     sessionId: session.id,
     format: session.format,
     topic: session.topic.slice(0, 80)
@@ -11053,11 +11584,11 @@ async function pollRoundtables() {
       try {
         const { processReviewSession: processReviewSession2 } = await Promise.resolve().then(() => (init_content_pipeline(), content_pipeline_exports));
         await processReviewSession2(session.id);
-        log34.info("Content review processed", {
+        log36.info("Content review processed", {
           sessionId: session.id
         });
       } catch (reviewErr) {
-        log34.error("Content review processing failed (non-fatal)", {
+        log36.error("Content review processing failed (non-fatal)", {
           error: reviewErr,
           sessionId: session.id
         });
@@ -11073,13 +11604,13 @@ async function pollRoundtables() {
             rebellionAgentId,
             "cross_exam_completed"
           );
-          log34.info("Rebellion resolved via cross-exam", {
+          log36.info("Rebellion resolved via cross-exam", {
             sessionId: session.id,
             rebellionAgentId
           });
         }
       } catch (rebellionErr) {
-        log34.error(
+        log36.error(
           "Rebellion resolution from cross-exam failed (non-fatal)",
           {
             error: rebellionErr,
@@ -11090,7 +11621,7 @@ async function pollRoundtables() {
       }
     }
   } catch (err) {
-    log34.error("Roundtable orchestration failed", {
+    log36.error("Roundtable orchestration failed", {
       error: err,
       sessionId: session.id
     });
@@ -11130,7 +11661,7 @@ async function pollMissionSteps() {
   return true;
 }
 async function dispatchMissionStep(step) {
-  log34.info("Processing mission step", {
+  log36.info("Processing mission step", {
     stepId: step.id,
     kind: step.kind,
     missionId: step.mission_id
@@ -11139,7 +11670,7 @@ async function dispatchMissionStep(step) {
     const { hasActiveVeto: hasActiveVeto2 } = await Promise.resolve().then(() => (init_veto(), veto_exports));
     const missionVeto = await hasActiveVeto2("mission", step.mission_id);
     if (missionVeto.vetoed) {
-      log34.info("Mission step blocked by veto on mission", {
+      log36.info("Mission step blocked by veto on mission", {
         stepId: step.id,
         missionId: step.mission_id,
         vetoId: missionVeto.vetoId,
@@ -11158,7 +11689,7 @@ async function dispatchMissionStep(step) {
     }
     const stepVeto = await hasActiveVeto2("step", step.id);
     if (stepVeto.vetoed) {
-      log34.info("Mission step blocked by veto on step", {
+      log36.info("Mission step blocked by veto on step", {
         stepId: step.id,
         vetoId: stepVeto.vetoId,
         severity: stepVeto.severity
@@ -11175,7 +11706,7 @@ async function dispatchMissionStep(step) {
       return;
     }
   } catch (vetoErr) {
-    log34.error("Veto check failed (non-fatal, allowing step)", {
+    log36.error("Veto check failed (non-fatal, allowing step)", {
       error: vetoErr,
       stepId: step.id
     });
@@ -11293,7 +11824,7 @@ async function dispatchMissionStep(step) {
                     VALUES (${agentId}, ${outputPrefix}, 'mission', ${step.mission_id}::uuid, NOW() + INTERVAL '4 hours')
                 `;
       } catch (grantErr) {
-        log34.warn("Failed to create ACL grant for step", {
+        log36.warn("Failed to create ACL grant for step", {
           error: grantErr,
           agentId,
           outputPath: step.output_path
@@ -11345,7 +11876,7 @@ async function dispatchMissionStep(step) {
       }
     });
   } catch (err) {
-    log34.error("Mission step failed", { error: err, stepId: step.id });
+    log36.error("Mission step failed", { error: err, stepId: step.id });
     const stepData = await sql2`
             SELECT result FROM ops_mission_steps WHERE id = ${step.id}
         `;
@@ -11493,14 +12024,14 @@ async function pollInitiatives() {
         RETURNING *
     `;
   if (!entry) return false;
-  log34.info("Processing initiative", {
+  log36.info("Processing initiative", {
     entryId: entry.id,
     agent: entry.agent_id
   });
   try {
     const initiativeAction = entry.context?.action;
     if (initiativeAction === "agent_design_proposal") {
-      log34.info("Processing agent design proposal", {
+      log36.info("Processing agent design proposal", {
         entryId: entry.id,
         agent: entry.agent_id
       });
@@ -11520,7 +12051,7 @@ async function pollInitiatives() {
       return true;
     }
     if (initiativeAction === "memory_archaeology") {
-      log34.info("Processing memory archaeology dig", {
+      log36.info("Processing memory archaeology dig", {
         entryId: entry.id,
         agent: entry.agent_id
       });
@@ -11553,9 +12084,6 @@ async function pollInitiatives() {
             `;
       return true;
     }
-    const { llmGenerate: llmGenerate2 } = await Promise.resolve().then(() => (init_client(), client_exports));
-    const { getVoice: getVoice2 } = await Promise.resolve().then(() => (init_voices(), voices_exports));
-    const voice = getVoice2(entry.agent_id);
     const memories = entry.context?.memories ?? [];
     const AGENT_MISSION_TEMPLATES = {
       chora: [
@@ -11781,7 +12309,7 @@ async function pollInitiatives() {
             WHERE id = ${entry.id}
         `;
   } catch (err) {
-    log34.error("Initiative processing failed", {
+    log36.error("Initiative processing failed", {
       error: err,
       entryId: entry.id
     });
@@ -11806,7 +12334,7 @@ async function sweepStaleAgentSessions() {
         RETURNING id, agent_id, source
     `;
   if (stale.length > 0) {
-    log34.warn("Swept stale agent sessions", {
+    log36.warn("Swept stale agent sessions", {
       count: stale.length,
       sessions: stale.map((s) => ({
         id: s.id,
@@ -11837,7 +12365,7 @@ async function sweepOrphanedMissionSteps() {
         RETURNING id, mission_id, kind, assigned_agent
     `;
   if (orphaned.length > 0) {
-    log34.warn("Swept orphaned mission steps", {
+    log36.warn("Swept orphaned mission steps", {
       count: orphaned.length,
       steps: orphaned.map((s) => ({
         id: s.id,
@@ -11882,15 +12410,20 @@ async function waitForDb(maxRetries = 30, intervalMs = 2e3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       await sql2`SELECT 1 FROM ops_roundtable_sessions LIMIT 0`;
-      log34.info("Database ready", { attempt });
+      log36.info("Database ready", { attempt });
       return;
-    } catch {
+    } catch (dbErr) {
+      log36.warn("Database not ready yet", {
+        error: dbErr,
+        attempt,
+        maxRetries
+      });
       if (attempt === maxRetries) {
         throw new Error(
           `Database not ready after ${maxRetries} attempts`
         );
       }
-      log34.info("Waiting for database...", { attempt, maxRetries });
+      log36.info("Waiting for database...", { attempt, maxRetries });
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
   }
@@ -11904,23 +12437,43 @@ async function catchUpStuckReviews() {
         WHERE d.status = 'review'
           AND rs.status = 'completed'
     `;
-  if (stuck.length === 0) return;
-  log34.info("Catching up stuck content reviews", { count: stuck.length });
   const { processReviewSession: processReviewSession2 } = await Promise.resolve().then(() => (init_content_pipeline(), content_pipeline_exports));
-  for (const draft of stuck) {
-    try {
-      await processReviewSession2(draft.review_session_id);
-      log34.info("Stuck review processed", {
-        draftId: draft.id,
-        title: draft.title
-      });
-    } catch (err) {
-      log34.error("Failed to process stuck review", {
-        error: err,
-        draftId: draft.id
-      });
-    }
-  }
+  await processCompletedReviewDrafts(
+    stuck,
+    (reviewSessionId) => processReviewSession2(reviewSessionId),
+    log36
+  );
+}
+async function catchUpOrphanedReviewDrafts() {
+  const stale = await sql2`
+        SELECT d.id, d.title, d.review_session_id
+        FROM ops_content_drafts d
+        LEFT JOIN ops_roundtable_sessions rs ON rs.id = d.review_session_id
+        WHERE d.status = 'review'
+          AND d.created_at < NOW() - interval '24 hours'
+          AND (
+              d.review_session_id IS NULL
+              OR rs.id IS NULL
+              OR rs.status <> 'completed'
+          )
+    `;
+  await releaseStaleReviewDrafts(
+    stale,
+    async (draftId) => {
+      const result = await sql2`
+                UPDATE ops_content_drafts
+                SET status = 'draft',
+                    review_session_id = NULL,
+                    updated_at = NOW()
+                WHERE id = ${draftId}
+                  AND status = 'review'
+                  AND created_at < NOW() - interval '24 hours'
+                RETURNING id
+            `;
+      return result.length > 0;
+    },
+    log36
+  );
 }
 async function catchUpOrphanedMissions() {
   const orphaned = await sql2`
@@ -11937,7 +12490,7 @@ async function catchUpOrphanedMissions() {
            AND COUNT(s.id) = COUNT(s.id) FILTER (WHERE s.status IN ('succeeded', 'blocked', 'failed'))
     `;
   if (orphaned.length === 0) return;
-  log34.info("Catching up orphaned missions", { count: orphaned.length });
+  log36.info("Catching up orphaned missions", { count: orphaned.length });
   for (const mission of orphaned) {
     const finalStatus = mission.failed > 0 ? "failed" : mission.blocked > 0 ? "blocked" : "succeeded";
     const failReason = mission.failed > 0 ? `${mission.failed} of ${mission.total} step(s) failed` : mission.blocked > 0 ? `${mission.blocked} of ${mission.total} step(s) blocked` : null;
@@ -11950,7 +12503,7 @@ async function catchUpOrphanedMissions() {
             WHERE id = ${mission.id}
             AND status = 'approved'
         `;
-    log34.info("Orphaned mission finalized", {
+    log36.info("Orphaned mission finalized", {
       missionId: mission.id,
       title: mission.title,
       status: finalStatus
@@ -11960,17 +12513,18 @@ async function catchUpOrphanedMissions() {
 async function pollLoop() {
   await waitForDb();
   await catchUpStuckReviews();
+  await catchUpOrphanedReviewDrafts();
   await catchUpOrphanedMissions();
   const startupPublish = await publishApprovedDrafts();
   if (startupPublish.published > 0 || startupPublish.failed > 0) {
-    log34.info("Startup content publish sweep complete", {
+    log36.info("Startup content publish sweep complete", {
       published: startupPublish.published,
       failed: startupPublish.failed
     });
   }
   const startupGhostBackfill = await mirrorPublishedDraftBackfill();
   if (!startupGhostBackfill.skipped && startupGhostBackfill.processed > 0) {
-    log34.info("Startup Ghost backfill sweep complete", {
+    log36.info("Startup Ghost backfill sweep complete", {
       processed: startupGhostBackfill.processed,
       mirrored: startupGhostBackfill.mirrored,
       failed: startupGhostBackfill.failed,
@@ -11979,7 +12533,7 @@ async function pollLoop() {
   }
   const startupGovernanceBackfill = await backfillGovernanceVotes();
   if (startupGovernanceBackfill.processed > 0) {
-    log34.info("Startup governance vote backfill complete", {
+    log36.info("Startup governance vote backfill complete", {
       processed: startupGovernanceBackfill.processed,
       resolved: startupGovernanceBackfill.resolved,
       requeued: startupGovernanceBackfill.requeued,
@@ -11996,14 +12550,14 @@ async function pollLoop() {
       await finalizeMissionSteps();
       const publishResult = await publishApprovedDrafts();
       if (publishResult.published > 0 || publishResult.failed > 0) {
-        log34.info("Content publish sweep complete", {
+        log36.info("Content publish sweep complete", {
           published: publishResult.published,
           failed: publishResult.failed
         });
       }
       const ghostBackfill = await mirrorPublishedDraftBackfill();
       if (!ghostBackfill.skipped && ghostBackfill.processed > 0) {
-        log34.info("Ghost mirror backfill sweep complete", {
+        log36.info("Ghost mirror backfill sweep complete", {
           processed: ghostBackfill.processed,
           mirrored: ghostBackfill.mirrored,
           failed: ghostBackfill.failed,
@@ -12012,7 +12566,7 @@ async function pollLoop() {
       }
       const governanceBackfill = await backfillGovernanceVotes();
       if (governanceBackfill.processed > 0) {
-        log34.info("Governance vote backfill sweep complete", {
+        log36.info("Governance vote backfill sweep complete", {
           processed: governanceBackfill.processed,
           resolved: governanceBackfill.resolved,
           requeued: governanceBackfill.requeued,
@@ -12024,22 +12578,22 @@ async function pollLoop() {
       await sweepOrphanedMissionSteps();
       await pollInitiatives();
     } catch (err) {
-      log34.error("Poll loop error", { error: err });
+      log36.error("Poll loop error", { error: err });
     }
     await new Promise((resolve) => setTimeout(resolve, 5e3));
   }
 }
 function shutdown(signal) {
-  log34.info(`Received ${signal}, shutting down...`);
+  log36.info(`Received ${signal}, shutting down...`);
   running = false;
   setTimeout(() => {
-    log34.warn("Forced shutdown after 30s timeout");
+    log36.warn("Forced shutdown after 30s timeout");
     process.exit(1);
   }, 3e4);
 }
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
-log34.info("Unified worker started", {
+log36.info("Unified worker started", {
   workerId: WORKER_ID,
   database: !!process.env.DATABASE_URL,
   openrouter: process.env.OPENROUTER_ENABLED !== "false" && !!process.env.OPENROUTER_API_KEY,
@@ -12047,10 +12601,10 @@ log34.info("Unified worker started", {
   braveSearch: !!process.env.BRAVE_API_KEY
 });
 pollLoop().then(() => {
-  log34.info("Worker stopped");
+  log36.info("Worker stopped");
   process.exit(0);
 }).catch((err) => {
-  log34.fatal("Fatal error", { error: err });
+  log36.fatal("Fatal error", { error: err });
   process.exit(1);
 });
 //# sourceMappingURL=index.js.map

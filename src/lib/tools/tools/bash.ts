@@ -1,12 +1,11 @@
 // bash tool — execute commands in the toolbox container
 import type { NativeTool } from '../types';
-import { ALL_AGENTS } from '@/lib/types';
 import { execInToolbox } from '../executor';
 
 export const bashTool: NativeTool = {
     name: 'bash',
     description: 'Execute a bash command in the toolbox environment. Has access to standard Linux utilities, curl, jq, git, node, python3, gh CLI, ripgrep, and fd-find.',
-    agents: [...ALL_AGENTS],
+    agents: ['praxis', 'mux'],
     parameters: {
         type: 'object',
         properties: {
