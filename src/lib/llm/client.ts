@@ -496,7 +496,7 @@ function getOllamaModelsWithFallback(preferredModel?: string): OllamaModelSpec[]
         ];
 
         for (const model of localModelIds) {
-            localModels.push({ model, baseUrl: OLLAMA_LOCAL_URL });
+            localModels.push({ model, baseUrl: OLLAMA_LOCAL_URL, apiKey: OLLAMA_API_KEY || undefined });
         }
     }
 
@@ -850,6 +850,49 @@ interface OllamaChatWithModelInput {
     isFirstLocalAttempt?: boolean;
 }
 
+/**
+ * Parse a llama-line SSE response from /api/chat.
+ * llama-line always returns text/event-stream even when stream: false is sent.
+ * The stream contains 0+ broker status events followed by the final ollama JSON.
+ */
+async function parseOllamaSseResponse(response: Response): Promise<{
+    message?: {
+        content?: string;
+        thinking?: string;
+        reasoning?: string;
+        tool_calls?: Array<{
+            function: { name: string; arguments: string | Record<string, unknown> };
+        }>;
+    };
+    done?: boolean;
+    done_reason?: string;
+    prompt_eval_count?: number;
+    eval_count?: number;
+}> {
+    const text = await response.text();
+    const lines = text.split('\n');
+    for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (!payload || payload === '[DONE]') continue;
+        let parsed: Record<string, unknown>;
+        try {
+            parsed = JSON.parse(payload) as Record<string, unknown>;
+        } catch {
+            continue;
+        }
+        // Broker error events
+        if (parsed['status'] === 'ollama_unavailable' || parsed['status'] === 'dropped_by_admin') {
+            throw new Error(`llama-line broker error: ${parsed['status']}`);
+        }
+        // Skip broker status events (queued, processing, etc.)
+        if (typeof parsed['status'] === 'string') continue;
+        // This is the actual ollama response payload
+        return parsed as ReturnType<typeof parseOllamaSseResponse> extends Promise<infer T> ? T : never;
+    }
+    throw new Error('No valid response found in llama-line SSE stream');
+}
+
 /** Try a single Ollama model. Returns result or null on failure. */
 async function ollamaChatWithModel(
     input: OllamaChatWithModelInput,
@@ -958,21 +1001,9 @@ async function ollamaChatWithModel(
                 return { result: null };
             }
 
-            // Native /api/chat response format
-            const rawData = (await response.json()) as {
-                message?: {
-                    content?: string;
-                    thinking?: string;
-                    reasoning?: string;
-                    tool_calls?: Array<{
-                        function: { name: string; arguments: string | Record<string, unknown> };
-                    }>;
-                };
-                done?: boolean;
-                done_reason?: string;
-                prompt_eval_count?: number;
-                eval_count?: number;
-            };
+            // Native /api/chat response format — parse SSE envelope from llama-line broker.
+            // llama-line always returns text/event-stream even when stream: false is sent.
+            const rawData = await parseOllamaSseResponse(response);
 
             // Map native format to our internal expectations
             const msg = rawData.message;

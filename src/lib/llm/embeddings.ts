@@ -15,6 +15,8 @@ const EMBEDDING_PROVIDER = process.env.EMBEDDING_PROVIDER ?? 'ollama';
 // ─── Ollama (local on almaz) ───────────────────────────────
 const EMBEDDING_OLLAMA_URL = process.env.EMBEDDING_OLLAMA_URL ?? 'http://localhost:11434';
 const OLLAMA_EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? 'bge-m3';
+// llama-line broker requires Bearer auth on all inference endpoints (including /v1/embeddings)
+const EMBEDDING_OLLAMA_API_KEY = process.env.OLLAMA_API_KEY ?? process.env.EMBEDDING_OLLAMA_API_KEY ?? '';
 
 // ─── OpenRouter (cloud fallback) ───────────────────────────
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
@@ -39,11 +41,13 @@ async function getEmbeddingOllama(text: string): Promise<number[] | null> {
     if (!EMBEDDING_OLLAMA_URL) return null;
 
     try {
+        const embeddingHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (EMBEDDING_OLLAMA_API_KEY) embeddingHeaders['Authorization'] = `Bearer ${EMBEDDING_OLLAMA_API_KEY}`;
         const response = await fetch(
             `${EMBEDDING_OLLAMA_URL}/v1/embeddings`,
             {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: embeddingHeaders,
                 body: JSON.stringify({
                     model: OLLAMA_EMBEDDING_MODEL,
                     input: text,
