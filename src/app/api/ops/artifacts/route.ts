@@ -47,9 +47,9 @@ interface WorkspaceFileRow {
 
 const WORKSPACE_ROOT = '/workspace';
 const OUTPUT_ROOT = '/workspace/output';
-const MAX_FILE_PREVIEW_BYTES = 2 * 1024;
+const CONTENT_PREVIEW_BYTES = 2 * 1024;
+const WORKSPACE_PREVIEW_BYTES = 128;
 const MAX_WORKSPACE_FILES = 200;
-const MAX_WORKSPACE_PREVIEW_FILES = 20;
 const FIND_DELIMITER = '__SUBCORP_ARTIFACT__';
 const log = logger.child({ module: 'ops-artifacts-route' });
 
@@ -131,7 +131,7 @@ async function loadContentArtifacts(limit: number): Promise<ArtifactItem[]> {
             source: 'content' as const,
             type: row.content_type,
             title: row.title || 'Untitled draft',
-            body_preview: body.slice(0, MAX_FILE_PREVIEW_BYTES),
+            body_preview: body.slice(0, CONTENT_PREVIEW_BYTES),
             path: null,
             agent_id: row.author_agent,
             status: row.status,
@@ -148,32 +148,21 @@ async function loadContentArtifacts(limit: number): Promise<ArtifactItem[]> {
 }
 
 async function listWorkspaceOutputFiles(limit: number): Promise<WorkspaceFileRow[]> {
-    const effectiveLimit = Math.min(limit, MAX_WORKSPACE_FILES, MAX_WORKSPACE_PREVIEW_FILES);
+    const effectiveLimit = Math.min(limit, MAX_WORKSPACE_FILES);
     const command =
         `if [ ! -d ${shellEscape(OUTPUT_ROOT)} ]; then exit 0; fi; ` +
         `find ${shellEscape(OUTPUT_ROOT)} -type f ` +
         `\( -name '*.md' -o -name '*.txt' -o -name '*.json' \) ` +
-        `-printf '%T@\\t%s\\t%p\\0' 2>/dev/null | sort -z -nr | head -z -n ${effectiveLimit} | ` +
-        `while IFS= read -r -d '' record; do ` +
-        `modified="\${record%%$'\\t'*}"; ` +
-        `rest="\${record#*$'\\t'}"; ` +
-        `size="\${rest%%$'\\t'*}"; ` +
-        `absolutePath="\${rest#*$'\\t'}"; ` +
-        `relativePath="\${absolutePath#${WORKSPACE_ROOT}/}"; ` +
-        `printf '\\n${FIND_DELIMITER}%s\\t%s\\t%s\\n' "$modified" "$size" "$relativePath"; ` +
-        `head -c ${MAX_FILE_PREVIEW_BYTES} "$absolutePath" 2>/dev/null || true; ` +
-        `done`;
+        `-printf '%T@\\t%s\\t%p\\n' 2>/dev/null | sort -nr | head -n ${effectiveLimit}`;
 
     const result = await execInToolbox(command, 10_000);
     if (result.exitCode !== 0 || !result.stdout.trim()) return [];
 
-    return result.stdout.split(`\n${FIND_DELIMITER}`).flatMap(chunk => {
-        if (!chunk) return [];
+    const files = result.stdout.trim().split('\n').flatMap(line => {
+        const [modifiedRaw, sizeRaw, absolutePath] = line.split('\t');
+        if (!absolutePath?.startsWith(`${WORKSPACE_ROOT}/`)) return [];
 
-        const firstNewline = chunk.indexOf('\n');
-        if (firstNewline < 0) return [];
-
-        const [modifiedRaw, sizeRaw, relativePath] = chunk.slice(0, firstNewline).split('\t');
+        const relativePath = absolutePath.replace(`${WORKSPACE_ROOT}/`, '');
         if (!relativePath || !isPreviewablePath(relativePath)) return [];
 
         const absolute = path.join(WORKSPACE_ROOT, relativePath);
@@ -183,9 +172,33 @@ async function listWorkspaceOutputFiles(limit: number): Promise<WorkspaceFileRow
             relativePath,
             size: parseInt(sizeRaw, 10) || 0,
             modifiedEpoch: Math.floor(parseFloat(modifiedRaw) || 0),
-            preview: chunk.slice(firstNewline + 1),
+            preview: '',
         }];
     });
+
+    if (files.length === 0) return files;
+
+    const previewCommand = files.map((file, index) => {
+        const absolute = path.join(WORKSPACE_ROOT, file.relativePath);
+        if (!absolute.startsWith(`${OUTPUT_ROOT}/`)) return '';
+
+        return `printf '\\n${FIND_DELIMITER}${index}\\n'; head -c ${WORKSPACE_PREVIEW_BYTES} ${shellEscape(absolute)} 2>/dev/null || true`;
+    }).filter(Boolean).join('; ');
+
+    const previewResult = await execInToolbox(previewCommand, 10_000);
+    if (previewResult.exitCode !== 0 || !previewResult.stdout) return files;
+
+    for (const chunk of previewResult.stdout.split(`\n${FIND_DELIMITER}`)) {
+        const markerMatch = chunk.match(/^(\d+)\n/);
+        if (!markerMatch) continue;
+
+        const index = parseInt(markerMatch[1], 10);
+        if (!Number.isInteger(index) || !files[index]) continue;
+
+        files[index].preview = chunk.slice(markerMatch[0].length);
+    }
+
+    return files;
 }
 
 async function loadWorkspaceArtifacts(limit: number): Promise<ArtifactItem[]> {
