@@ -1458,14 +1458,14 @@ async function sweepStaleRoundtables(): Promise<boolean> {
     return stale.length > 0;
 }
 
-/** Sweep mission steps stuck in 'running' with no active agent session (e.g. after worker restart) */
+/** Sweep mission steps stuck in 'running' with no live agent session (e.g. after worker restart) */
 async function sweepOrphanedMissionSteps(): Promise<boolean> {
     const orphaned = await sql<
         { id: string; mission_id: string; kind: string; assigned_agent: string | null }[]
     >`
         UPDATE ops_mission_steps
         SET status = 'failed',
-            failure_reason = 'Swept — step running with no active agent session',
+            failure_reason = 'Swept — step running with no live agent session',
             completed_at = NOW(),
             updated_at = NOW()
         WHERE status = 'running'
@@ -1475,7 +1475,7 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
             OR NOT EXISTS (
               SELECT 1 FROM ops_agent_sessions s
               WHERE s.id = (result->>'agent_session_id')::uuid
-                AND s.status = 'running'
+                AND s.status IN ('pending', 'running')
             )
           )
         RETURNING id, mission_id, kind, assigned_agent
