@@ -23,8 +23,12 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
 const OPENROUTER_EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 const OPENROUTER_EMBEDDING_DIMENSIONS = 1024;
 
-// llama-line queues embedding requests too; allow queue wait + inference time.
-const EMBEDDING_TIMEOUT_MS = 120_000;
+// Embeddings are best-effort context enrichment. Keep the timeout short so a
+// slow/busy llama-line queue cannot starve worker mission dispatch.
+const EMBEDDING_TIMEOUT_MS = Number.parseInt(
+    process.env.EMBEDDING_TIMEOUT_MS ?? '5000',
+    10,
+);
 const LLAMA_LINE_TERMINAL_STATUSES = new Set([
     'ollama_unavailable',
     'dropped_by_admin',
