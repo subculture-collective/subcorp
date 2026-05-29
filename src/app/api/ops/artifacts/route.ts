@@ -1,7 +1,6 @@
 // /api/ops/artifacts — unified read-only artifact gallery data
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'node:path';
-import { requireRole } from '@/lib/auth/middleware';
 import { sql } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { execInToolbox } from '@/lib/tools/executor';
@@ -206,9 +205,6 @@ async function loadWorkspaceArtifacts(limit: number): Promise<ArtifactItem[]> {
 }
 
 export async function GET(req: NextRequest) {
-    const authResult = await requireRole('member', 'admin');
-    if (authResult instanceof NextResponse) return authResult;
-
     const { searchParams } = new URL(req.url);
     const limit = clampLimit(searchParams.get('limit'));
     const q = searchParams.get('q')?.trim() ?? '';

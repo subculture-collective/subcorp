@@ -4,7 +4,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MarkdownContent } from '@/components/MarkdownContent';
 import { AGENTS } from '@/lib/agents';
-import { useAuth } from '@/lib/auth/client';
 import type { AgentId } from '@/lib/types';
 
 type ArtifactSource = 'content' | 'workspace';
@@ -73,10 +72,7 @@ function useDebouncedValue(value: string, delayMs: number): string {
     return debounced;
 }
 
-function useArtifacts(
-    filters: { q: string; type: string; source: string },
-    enabled: boolean,
-) {
+function useArtifacts(filters: { q: string; type: string; source: string }) {
     const [artifacts, setArtifacts] = useState<ArtifactItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -84,13 +80,6 @@ function useArtifacts(
 
     const fetchArtifacts = useCallback(async (signal?: AbortSignal) => {
         const requestId = ++requestIdRef.current;
-        if (!enabled) {
-            setArtifacts([]);
-            setError(null);
-            setLoading(false);
-            return;
-        }
-
         const params = new URLSearchParams();
         params.set('limit', '120');
         if (filters.q.trim()) params.set('q', filters.q.trim());
@@ -114,7 +103,7 @@ function useArtifacts(
         } finally {
             if (!signal?.aborted && requestId === requestIdRef.current) setLoading(false);
         }
-    }, [enabled, filters.q, filters.type, filters.source]);
+    }, [filters.q, filters.type, filters.source]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -268,15 +257,11 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactItem | null }) {
 }
 
 export function ArtifactGallery() {
-    const { user, loading: authLoading, requireAuth } = useAuth();
     const [q, setQ] = useState('');
     const [type, setType] = useState('');
     const [source, setSource] = useState('');
     const debouncedQ = useDebouncedValue(q, 250);
-    const { artifacts, loading, error, refetch } = useArtifacts(
-        { q: debouncedQ, type, source },
-        Boolean(user),
-    );
+    const { artifacts, loading, error, refetch } = useArtifacts({ q: debouncedQ, type, source });
     const [selectedId, setSelectedId] = useState<string | null>(null);
 
     const types = useMemo(
@@ -297,41 +282,6 @@ export function ArtifactGallery() {
 
     const showSkeleton = loading && artifacts.length === 0;
     const showEmpty = !loading && !error && artifacts.length === 0;
-
-    const handleSignIn = useCallback(async () => {
-        try {
-            await requireAuth('Sign in to browse private agent artifacts');
-            refetch();
-        } catch {
-            // User cancelled auth modal.
-        }
-    }, [requireAuth, refetch]);
-
-    if (authLoading) {
-        return (
-            <section className='rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 text-sm text-zinc-500'>
-                Checking session…
-            </section>
-        );
-    }
-
-    if (!user) {
-        return (
-            <section className='rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 space-y-3'>
-                <div>
-                    <h2 className='text-lg font-semibold text-zinc-100'>Artifact Gallery</h2>
-                    <p className='text-sm text-zinc-500'>Sign in to browse private DB drafts and workspace outputs.</p>
-                </div>
-                <button
-                    type='button'
-                    onClick={handleSignIn}
-                    className='px-3 py-1.5 rounded-lg bg-zinc-100 text-xs font-medium text-zinc-900 hover:bg-white transition-colors'
-                >
-                    Sign in
-                </button>
-            </section>
-        );
-    }
 
     return (
         <section className='space-y-4'>
