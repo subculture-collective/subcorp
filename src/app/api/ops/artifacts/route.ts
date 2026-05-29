@@ -87,6 +87,9 @@ function inferTypeFromPath(relativePath: string): string {
     if (lower.startsWith('output/reports/')) return 'report';
     if (lower.startsWith('output/reviews/')) return 'review';
     if (lower.startsWith('output/digests/')) return 'digest';
+    if (lower.startsWith('output/newsletters/')) return 'newsletter';
+    if (lower.startsWith('output/newspapers/')) return 'newspaper';
+    if (lower.startsWith('output/projects/')) return 'project';
     if (lower.endsWith('.md') || lower.endsWith('.txt')) return 'document';
     return 'artifact';
 }
@@ -151,7 +154,11 @@ async function listWorkspaceOutputFiles(limit: number): Promise<WorkspaceFileRow
         `find ${shellEscape(OUTPUT_ROOT)} -type f ` +
         `\( -name '*.md' -o -name '*.txt' -o -name '*.json' \) ` +
         `-printf '%T@\\t%s\\t%p\\0' 2>/dev/null | sort -z -nr | head -z -n ${effectiveLimit} | ` +
-        `while IFS=$'\\t' read -r -d '' modified size absolutePath; do ` +
+        `while IFS= read -r -d '' record; do ` +
+        `modified="\${record%%$'\\t'*}"; ` +
+        `rest="\${record#*$'\\t'}"; ` +
+        `size="\${rest%%$'\\t'*}"; ` +
+        `absolutePath="\${rest#*$'\\t'}"; ` +
         `relativePath="\${absolutePath#${WORKSPACE_ROOT}/}"; ` +
         `printf '\\n${FIND_DELIMITER}%s\\t%s\\t%s\\n' "$modified" "$size" "$relativePath"; ` +
         `head -c ${MAX_FILE_PREVIEW_BYTES} "$absolutePath" 2>/dev/null || true; ` +
