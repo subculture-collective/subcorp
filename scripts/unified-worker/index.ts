@@ -915,6 +915,7 @@ async function finalizeMissionSteps(): Promise<boolean> {
             id: string;
             mission_id: string;
             kind: string;
+            step_status: string;
             assigned_agent: string | null;
             session_agent_id: string | null;
             session_status: string | null;
@@ -927,6 +928,7 @@ async function finalizeMissionSteps(): Promise<boolean> {
             s.id,
             s.mission_id,
             s.kind,
+            s.status as step_status,
             s.assigned_agent,
             sess.agent_id as session_agent_id,
             sess.status as session_status,
@@ -941,7 +943,13 @@ async function finalizeMissionSteps(): Promise<boolean> {
             END as session_summary
         FROM ops_mission_steps s
         LEFT JOIN ops_agent_sessions sess ON sess.id = (s.result->>'agent_session_id')::uuid
-        WHERE s.status = 'running'
+        WHERE (
+            s.status = 'running'
+            OR (
+                s.status = 'failed'
+                AND s.failure_reason LIKE 'Swept — step running with no %agent session'
+            )
+        )
         AND s.result->>'agent_session_id' IS NOT NULL
     `;
 
@@ -953,73 +961,99 @@ async function finalizeMissionSteps(): Promise<boolean> {
         if (!step.session_status) continue;
 
         if (step.session_status === 'succeeded') {
-            await sql`
+            const updated = await sql`
                 UPDATE ops_mission_steps
                 SET status = 'succeeded',
+                    failure_reason = NULL,
                     completed_at = NOW(),
                     updated_at = NOW()
                 WHERE id = ${step.id}
+                  AND (
+                    status = 'running'
+                    OR (
+                        status = 'failed'
+                        AND failure_reason LIKE 'Swept — step running with no %agent session'
+                    )
+                  )
+                RETURNING id
             `;
+            if (updated.length === 0) continue;
             finalized++;
+
+            await finalizeMissionIfComplete(step.mission_id, {
+                recoverSweptFailure: step.step_status === 'failed',
+            });
 
             // Emit step-kind-specific events for research/insights channels
             const resolvedAgent = step.assigned_agent || step.session_agent_id;
             if (resolvedAgent) {
-                const { emitEvent: emitStepEvent } =
-                    await import('../../src/lib/ops/events');
-                if (RESEARCH_STEP_KINDS.has(step.kind)) {
-                    await emitStepEvent({
-                        agent_id: resolvedAgent,
-                        kind: 'research_completed',
-                        title: `Research completed: ${step.kind}`,
-                        summary: step.session_summary || undefined,
-                        tags: ['research', step.kind, 'completed'],
-                        metadata: {
-                            missionId: step.mission_id,
-                            stepId: step.id,
-                            stepKind: step.kind,
-                        },
-                    });
-                } else if (INSIGHT_STEP_KINDS.has(step.kind)) {
-                    await emitStepEvent({
-                        agent_id: resolvedAgent,
-                        kind: 'insight_generated',
-                        title: `Insight generated: ${step.kind}`,
-                        summary: step.session_summary || undefined,
-                        tags: ['insight', step.kind, 'completed'],
-                        metadata: {
-                            missionId: step.mission_id,
-                            stepId: step.id,
-                            stepKind: step.kind,
-                        },
+                try {
+                    const { emitEvent: emitStepEvent } =
+                        await import('../../src/lib/ops/events');
+                    if (RESEARCH_STEP_KINDS.has(step.kind)) {
+                        await emitStepEvent({
+                            agent_id: resolvedAgent,
+                            kind: 'research_completed',
+                            title: `Research completed: ${step.kind}`,
+                            summary: step.session_summary || undefined,
+                            tags: ['research', step.kind, 'completed'],
+                            metadata: {
+                                missionId: step.mission_id,
+                                stepId: step.id,
+                                stepKind: step.kind,
+                            },
+                        });
+                    } else if (INSIGHT_STEP_KINDS.has(step.kind)) {
+                        await emitStepEvent({
+                            agent_id: resolvedAgent,
+                            kind: 'insight_generated',
+                            title: `Insight generated: ${step.kind}`,
+                            summary: step.session_summary || undefined,
+                            tags: ['insight', step.kind, 'completed'],
+                            metadata: {
+                                missionId: step.mission_id,
+                                stepId: step.id,
+                                stepKind: step.kind,
+                            },
+                        });
+                    }
+                } catch (emitErr) {
+                    log.warn('Mission step completion event failed (non-fatal)', {
+                        error: emitErr,
+                        stepId: step.id,
+                        missionId: step.mission_id,
                     });
                 }
             }
-
-            await finalizeMissionIfComplete(step.mission_id);
         } else if (step.session_status === 'blocked') {
-            await sql`
+            const updated = await sql`
                 UPDATE ops_mission_steps
                 SET status = 'blocked',
                     failure_reason = ${step.session_blocked_reason ?? 'Agent session blocked'},
                     completed_at = NOW(),
                     updated_at = NOW()
                 WHERE id = ${step.id}
+                  AND status = 'running'
+                RETURNING id
             `;
+            if (updated.length === 0) continue;
             finalized++;
             await finalizeMissionIfComplete(step.mission_id);
         } else if (
             step.session_status === 'failed' ||
             step.session_status === 'timed_out'
         ) {
-            await sql`
+            const updated = await sql`
                 UPDATE ops_mission_steps
                 SET status = 'failed',
                     failure_reason = ${step.session_error ?? (step.session_status === 'timed_out' ? 'Agent session timed out' : 'Agent session failed')},
                     completed_at = NOW(),
                     updated_at = NOW()
                 WHERE id = ${step.id}
+                  AND status = 'running'
+                RETURNING id
             `;
+            if (updated.length === 0) continue;
             finalized++;
             await finalizeMissionIfComplete(step.mission_id);
         }
@@ -1475,7 +1509,6 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
             OR NOT EXISTS (
               SELECT 1 FROM ops_agent_sessions s
               WHERE s.id = (result->>'agent_session_id')::uuid
-                AND s.status IN ('pending', 'running')
             )
           )
         RETURNING id, mission_id, kind, assigned_agent
@@ -1509,7 +1542,10 @@ async function runMaintenanceTasks(): Promise<void> {
     // Sweep roundtables stuck in 'running' after restarts/timeouts
     await sweepStaleRoundtables();
 
-    // Sweep orphaned mission steps (no active session, e.g. after worker restart)
+    // Finalize terminal session-backed mission steps before orphan sweeping.
+    await finalizeMissionSteps();
+
+    // Sweep orphaned mission steps (no live session, e.g. after worker restart)
     await sweepOrphanedMissionSteps();
 
     // Keep autonomous output moving even when host cron/timers are absent.
@@ -1517,7 +1553,10 @@ async function runMaintenanceTasks(): Promise<void> {
 }
 
 /** Check if all steps in a mission are done, finalize if so */
-async function finalizeMissionIfComplete(missionId: string): Promise<void> {
+async function finalizeMissionIfComplete(
+    missionId: string,
+    options?: { recoverSweptFailure?: boolean },
+): Promise<void> {
     const [counts] = await sql<
         [{ total: number; succeeded: number; blocked: number; failed: number }]
     >`
@@ -1551,7 +1590,14 @@ async function finalizeMissionIfComplete(missionId: string): Promise<void> {
             completed_at = NOW(),
             updated_at = NOW()
         WHERE id = ${missionId}
-        AND status IN ('running', 'approved')
+        AND (
+            status IN ('running', 'approved')
+            OR (
+                ${options?.recoverSweptFailure ?? false}
+                AND status = 'failed'
+                AND failure_reason LIKE '%step%failed'
+            )
+        )
     `;
 }
 
