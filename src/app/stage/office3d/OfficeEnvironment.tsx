@@ -53,7 +53,7 @@ export function OfficeEnvironment({
     period: 'day' | 'dusk' | 'night';
 }) {
     const gl = useThree(s => s.gl);
-    const scene = useThree(s => s.scene);
+    const { scene } = useThree();
 
     const envMap = useMemo(
         () => createGradientEnvMap(gl, SKY_COLORS[period].top, SKY_COLORS[period].bottom),
@@ -62,6 +62,8 @@ export function OfficeEnvironment({
 
     // Apply to scene and cleanup on change/unmount
     useEffect(() => {
+        // Three.js scene is external mutable renderer state; apply environment imperatively.
+        // eslint-disable-next-line react-hooks/immutability
         scene.environment = envMap;
         return () => {
             scene.environment = null;

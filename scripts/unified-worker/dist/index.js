@@ -1002,8 +1002,9 @@ function getRemainingBudget(deadlineAt) {
   return Math.max(0, deadlineAt - Date.now());
 }
 function getOllamaAttemptTimeoutMs(opts) {
-  const isPreferredTextAttempt = !opts.hasTools && (!!opts.preferredModel && opts.model === opts.preferredModel || !!opts.isFirstLocalAttempt);
-  const baseTimeoutMs = opts.hasTools ? OLLAMA_TOOL_TIMEOUT_MS : isPreferredTextAttempt ? OLLAMA_PREFERRED_TEXT_TIMEOUT_MS : OLLAMA_TEXT_TIMEOUT_MS;
+  const isPreferredTextAttempt = !opts.hasTools && !!opts.preferredModel && opts.model === opts.preferredModel;
+  const isImplicitFirstLocalTextAttempt = !opts.hasTools && !opts.preferredModel && !!opts.isFirstLocalAttempt;
+  const baseTimeoutMs = opts.hasTools ? OLLAMA_TOOL_TIMEOUT_MS : isImplicitFirstLocalTextAttempt ? OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS : isPreferredTextAttempt ? OLLAMA_PREFERRED_TEXT_TIMEOUT_MS : OLLAMA_TEXT_TIMEOUT_MS;
   return Math.min(baseTimeoutMs, opts.remainingBudgetMs);
 }
 async function withTimeout(label, timeoutMs, fn) {
@@ -1032,7 +1033,10 @@ async function getReachableLocalOllamaModels() {
     return cached.models;
   }
   try {
+    const tagsHeaders = {};
+    if (OLLAMA_API_KEY) tagsHeaders["Authorization"] = `Bearer ${OLLAMA_API_KEY}`;
     const response = await fetch(`${OLLAMA_LOCAL_URL}/api/tags`, {
+      headers: tagsHeaders,
       signal: AbortSignal.timeout(OLLAMA_TAGS_TIMEOUT_MS)
     });
     if (!response.ok) {
@@ -1124,7 +1128,7 @@ function getOllamaModelsWithFallback(preferredModel) {
       ...OLLAMA_MODEL ? [OLLAMA_MODEL] : []
     ];
     for (const model of localModelIds) {
-      localModels.push({ model, baseUrl: OLLAMA_LOCAL_URL });
+      localModels.push({ model, baseUrl: OLLAMA_LOCAL_URL, apiKey: OLLAMA_API_KEY || void 0 });
     }
   }
   return dedupeModelSpecs(
@@ -1332,6 +1336,27 @@ async function ollamaChat(messages, temperature, options) {
   }
   return null;
 }
+async function parseOllamaSseResponse(response) {
+  const text = await response.text();
+  const lines = text.split("\n");
+  for (const line of lines) {
+    if (!line.startsWith("data: ")) continue;
+    const payload = line.slice(6).trim();
+    if (!payload || payload === "[DONE]") continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      continue;
+    }
+    if (parsed["status"] === "ollama_unavailable" || parsed["status"] === "dropped_by_admin") {
+      throw new Error(`llama-line broker error: ${parsed["status"]}`);
+    }
+    if (typeof parsed["status"] === "string") continue;
+    return parsed;
+  }
+  throw new Error("No valid response found in llama-line SSE stream");
+}
 async function ollamaChatWithModel(input) {
   const {
     spec,
@@ -1418,7 +1443,7 @@ async function ollamaChatWithModel(input) {
         });
         return { result: null };
       }
-      const rawData = await response.json();
+      const rawData = await parseOllamaSseResponse(response);
       const msg = rawData.message;
       const finishReason = rawData.done_reason === "stop" || rawData.done && !msg?.tool_calls?.length ? "stop" : msg?.tool_calls?.length ? "tool_calls" : "stop";
       const data = {
@@ -2411,7 +2436,7 @@ function extractJson(text) {
   }
   return null;
 }
-var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TEXT_TIMEOUT_MS, OPENROUTER_TEXT_BUDGET_MS, OPENROUTER_TOOL_TIMEOUT_MS, OPENROUTER_TOOL_BUDGET_MS, OPENROUTER_MAX_INDIVIDUAL_FALLBACKS, LLM_TEXT_TOTAL_BUDGET_MS, LLM_TOOL_TOTAL_BUDGET_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_CLOUD_URL, OLLAMA_API_KEY, OLLAMA_TEXT_TIMEOUT_MS, OLLAMA_PREFERRED_TEXT_TIMEOUT_MS, OLLAMA_TOOL_TIMEOUT_MS, OLLAMA_BUDGET_MS, OLLAMA_TAGS_TIMEOUT_MS, OLLAMA_MODEL_CACHE_TTL_MS, OLLAMA_MODEL, ollamaModelCatalogCache;
+var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TEXT_TIMEOUT_MS, OPENROUTER_TEXT_BUDGET_MS, OPENROUTER_TOOL_TIMEOUT_MS, OPENROUTER_TOOL_BUDGET_MS, OPENROUTER_MAX_INDIVIDUAL_FALLBACKS, LLM_TEXT_TOTAL_BUDGET_MS, LLM_TOOL_TOTAL_BUDGET_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_CLOUD_URL, OLLAMA_API_KEY, OLLAMA_TEXT_TIMEOUT_MS, OLLAMA_PREFERRED_TEXT_TIMEOUT_MS, OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS, OLLAMA_TOOL_TIMEOUT_MS, OLLAMA_BUDGET_MS, OLLAMA_TAGS_TIMEOUT_MS, OLLAMA_MODEL_CACHE_TTL_MS, OLLAMA_MODEL, ollamaModelCatalogCache;
 var init_client = __esm({
   "src/lib/llm/client.ts"() {
     "use strict";
@@ -2498,11 +2523,12 @@ var init_client = __esm({
     OLLAMA_LOCAL_URL = OLLAMA_ENABLED ? process.env.OLLAMA_BASE_URL ?? "" : "";
     OLLAMA_CLOUD_URL = "https://ollama.com";
     OLLAMA_API_KEY = OLLAMA_ENABLED ? process.env.OLLAMA_API_KEY ?? "" : "";
-    OLLAMA_TEXT_TIMEOUT_MS = 2e4;
-    OLLAMA_PREFERRED_TEXT_TIMEOUT_MS = 3e4;
-    OLLAMA_TOOL_TIMEOUT_MS = 45e3;
-    OLLAMA_BUDGET_MS = 6e4;
-    OLLAMA_TAGS_TIMEOUT_MS = 2500;
+    OLLAMA_TEXT_TIMEOUT_MS = 6e5;
+    OLLAMA_PREFERRED_TEXT_TIMEOUT_MS = 6e5;
+    OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS = 6e5;
+    OLLAMA_TOOL_TIMEOUT_MS = 6e5;
+    OLLAMA_BUDGET_MS = 12e5;
+    OLLAMA_TAGS_TIMEOUT_MS = 5e3;
     OLLAMA_MODEL_CACHE_TTL_MS = 3e4;
     OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "";
     ollamaModelCatalogCache = null;
@@ -2519,11 +2545,13 @@ async function getEmbedding(text) {
 async function getEmbeddingOllama(text) {
   if (!EMBEDDING_OLLAMA_URL) return null;
   try {
+    const embeddingHeaders = { "Content-Type": "application/json" };
+    if (EMBEDDING_OLLAMA_API_KEY) embeddingHeaders["Authorization"] = `Bearer ${EMBEDDING_OLLAMA_API_KEY}`;
     const response = await fetch(
       `${EMBEDDING_OLLAMA_URL}/v1/embeddings`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: embeddingHeaders,
         body: JSON.stringify({
           model: OLLAMA_EMBEDDING_MODEL,
           input: text
@@ -2539,7 +2567,7 @@ async function getEmbeddingOllama(text) {
       });
       return null;
     }
-    const data = await response.json();
+    const data = await readEmbeddingResponse(response);
     return data.data?.[0]?.embedding ?? null;
   } catch {
     log2.debug("Ollama embedding error (host unreachable?)", {
@@ -2548,6 +2576,25 @@ async function getEmbeddingOllama(text) {
     });
     return null;
   }
+}
+async function readEmbeddingResponse(response) {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/event-stream")) {
+    return await response.json();
+  }
+  const text = await response.text();
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.startsWith("data: ")) continue;
+    const raw = line.slice("data: ".length).trim();
+    if (!raw || raw === "[DONE]") continue;
+    const payload = JSON.parse(raw);
+    if (payload.status === "queued") continue;
+    if (payload.status && LLAMA_LINE_TERMINAL_STATUSES.has(payload.status)) {
+      throw new Error(payload.message ?? payload.status);
+    }
+    if (payload.data?.[0]?.embedding) return payload;
+  }
+  return {};
 }
 async function getEmbeddingOpenRouter(text) {
   if (!OPENROUTER_API_KEY2) return null;
@@ -2578,7 +2625,7 @@ async function getEmbeddingOpenRouter(text) {
     return null;
   }
 }
-var log2, EMBEDDING_PROVIDER, EMBEDDING_OLLAMA_URL, OLLAMA_EMBEDDING_MODEL, OPENROUTER_API_KEY2, OPENROUTER_EMBEDDING_MODEL, OPENROUTER_EMBEDDING_DIMENSIONS, EMBEDDING_TIMEOUT_MS;
+var log2, EMBEDDING_PROVIDER, EMBEDDING_OLLAMA_URL, OLLAMA_EMBEDDING_MODEL, EMBEDDING_OLLAMA_API_KEY, OPENROUTER_API_KEY2, OPENROUTER_EMBEDDING_MODEL, OPENROUTER_EMBEDDING_DIMENSIONS, EMBEDDING_TIMEOUT_MS, LLAMA_LINE_TERMINAL_STATUSES;
 var init_embeddings = __esm({
   "src/lib/llm/embeddings.ts"() {
     "use strict";
@@ -2587,10 +2634,15 @@ var init_embeddings = __esm({
     EMBEDDING_PROVIDER = process.env.EMBEDDING_PROVIDER ?? "ollama";
     EMBEDDING_OLLAMA_URL = process.env.EMBEDDING_OLLAMA_URL ?? "http://localhost:11434";
     OLLAMA_EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "bge-m3";
+    EMBEDDING_OLLAMA_API_KEY = process.env.OLLAMA_API_KEY ?? process.env.EMBEDDING_OLLAMA_API_KEY ?? "";
     OPENROUTER_API_KEY2 = process.env.OPENROUTER_API_KEY ?? "";
     OPENROUTER_EMBEDDING_MODEL = "openai/text-embedding-3-small";
     OPENROUTER_EMBEDDING_DIMENSIONS = 1024;
-    EMBEDDING_TIMEOUT_MS = 15e3;
+    EMBEDDING_TIMEOUT_MS = 12e4;
+    LLAMA_LINE_TERMINAL_STATUSES = /* @__PURE__ */ new Set([
+      "ollama_unavailable",
+      "dropped_by_admin"
+    ]);
   }
 });
 
@@ -5584,6 +5636,33 @@ var init_voice_evolution = __esm({
 });
 
 // src/lib/tools/executor.ts
+function dockerBackedToolsEnabled() {
+  return process.env.DOCKER_BACKED_TOOLS_ENABLED !== "false" && process.env.TOOLBOX_TOOLS_ENABLED !== "false";
+}
+function disableDockerBackedTools(reason) {
+  process.env.DOCKER_BACKED_TOOLS_ENABLED = "false";
+  log18.warn("Docker-backed tools disabled", { reason });
+}
+async function checkToolboxAvailable() {
+  if (!dockerBackedToolsEnabled()) {
+    return { ok: false, reason: "Docker-backed tools disabled by environment" };
+  }
+  return new Promise((resolve) => {
+    (0, import_node_child_process.execFile)("docker", ["exec", TOOLBOX_CONTAINER, "true"], {
+      timeout: 5e3,
+      encoding: "utf8"
+    }, (error, _stdout, stderr) => {
+      if (!error) {
+        resolve({ ok: true });
+        return;
+      }
+      resolve({
+        ok: false,
+        reason: (stderr || error.message || "docker exec failed").trim()
+      });
+    });
+  });
+}
 function getExitCode(error) {
   const err = error;
   if (typeof err.status === "number") return err.status;
@@ -5591,6 +5670,14 @@ function getExitCode(error) {
   return 1;
 }
 async function execInToolbox(command, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  if (!dockerBackedToolsEnabled()) {
+    return {
+      stdout: "",
+      stderr: "Docker-backed tools are disabled for this executor runtime.",
+      exitCode: 126,
+      timedOut: false
+    };
+  }
   return new Promise((resolve) => {
     const args = [
       "exec",
@@ -5611,6 +5698,14 @@ async function execInToolbox(command, timeoutMs = DEFAULT_TIMEOUT_MS) {
           timedOut = true;
         }
         exitCode = getExitCode(error);
+        const message = `${stderr}
+${error.message}`;
+        if (message.includes("permission denied") || message.includes("Cannot connect to the Docker daemon")) {
+          log18.error("Docker-backed executor cannot reach Docker", {
+            command: command.slice(0, 200),
+            stderr: stderr.slice(0, 500)
+          });
+        }
       }
       const cappedStdout = stdout.length > MAX_STDOUT ? stdout.slice(0, MAX_STDOUT) + "\n... [output truncated at 50KB]" : stdout;
       const cappedStderr = stderr.length > MAX_STDERR ? stderr.slice(0, MAX_STDERR) + "\n... [stderr truncated at 10KB]" : stderr;
@@ -5635,7 +5730,7 @@ async function execInToolbox(command, timeoutMs = DEFAULT_TIMEOUT_MS) {
     });
   });
 }
-var import_node_child_process, log18, TOOLBOX_CONTAINER, MAX_STDOUT, MAX_STDERR, DEFAULT_TIMEOUT_MS;
+var import_node_child_process, log18, TOOLBOX_CONTAINER, MAX_STDOUT, MAX_STDERR, DEFAULT_TIMEOUT_MS, DOCKER_BACKED_TOOL_NAMES;
 var init_executor = __esm({
   "src/lib/tools/executor.ts"() {
     "use strict";
@@ -5646,6 +5741,15 @@ var init_executor = __esm({
     MAX_STDOUT = 50 * 1024;
     MAX_STDERR = 10 * 1024;
     DEFAULT_TIMEOUT_MS = 3e4;
+    DOCKER_BACKED_TOOL_NAMES = /* @__PURE__ */ new Set([
+      "bash",
+      "file_read",
+      "file_write",
+      "web_fetch",
+      "send_to_agent",
+      "spawn_droid",
+      "check_droid"
+    ]);
   }
 });
 
@@ -7163,8 +7267,6 @@ async function orchestrateVoiceChat(session) {
   }
   await markSessionRunning(session, `Participants: ${session.participants.join(", ")} | live voice session`);
   async function generateAgentTurn(speaker, turnNumber) {
-    const voice = getVoice(speaker);
-    const speakerName = voice?.displayName ?? speaker;
     let interactionType;
     if (history.length > 0) {
       const lastSpeaker = history[history.length - 1].speaker;
@@ -8704,7 +8806,7 @@ INSTRUCTIONS:
 
 Your output is a MERGED PULL REQUEST with real code changes. Do not just describe what you would change.
 `,
-      github_issue: (ctx, _today, _outputDir) => `You are managing the subculture-collective GitHub organization.
+      github_issue: (ctx) => `You are managing the subculture-collective GitHub organization.
 Org: https://github.com/subculture-collective
 Platform repo: https://github.com/subculture-collective/subcorp
 You have FULL ACCESS \u2014 create repos, issues, PRs, labels, projects, anything.
@@ -8719,7 +8821,7 @@ Use bash to run gh commands. Examples:
 
 Create well-structured issues with clear titles, descriptions, acceptance criteria, and appropriate labels.
 `,
-      github_pr: (ctx, _today, _outputDir) => `You are managing code in the subculture-collective GitHub organization.
+      github_pr: (ctx) => `You are managing code in the subculture-collective GitHub organization.
 Org: https://github.com/subculture-collective
 Platform repo: https://github.com/subculture-collective/subcorp
 You have FULL ACCESS.
@@ -8751,7 +8853,7 @@ INSTRUCTIONS:
 5. If you find improvements to make, create detailed PRs with clear descriptions of what you changed and why.
 6. Write findings to ${outputDir}/
 `,
-      publish_blog: (ctx, _today, _outputDir) => `You are publishing content to the SUBCULT blog at https://blog.subcult.tv (Ghost CMS).
+      publish_blog: (ctx) => `You are publishing content to the SUBCULT blog at https://blog.subcult.tv (Ghost CMS).
 
 Task: ${ctx.payload.description || ctx.missionTitle}
 
@@ -8763,7 +8865,7 @@ INSTRUCTIONS:
 4. Blog posts should be polished, on-brand, and provide genuine value to readers.
 5. Topics: technology, AI, autonomy, open source, creative tools, underground culture.
 `,
-      notify_human: (ctx, _today, _outputDir) => `You need human assistance for a task you cannot complete autonomously.
+      notify_human: (ctx) => `You need human assistance for a task you cannot complete autonomously.
 
 Request: ${ctx.payload.description || ctx.missionTitle}
 
@@ -10158,6 +10260,7 @@ var castVetoTool = {
 };
 
 // src/lib/tools/registry.ts
+init_executor();
 var ALL_TOOLS = [
   bashTool,
   webSearchTool,
@@ -10176,7 +10279,7 @@ var ALL_TOOLS = [
   castVetoTool
 ];
 function getAgentTools(agentId, sessionId) {
-  return ALL_TOOLS.filter((tool) => tool.agents.includes(agentId)).map(({ agents: _agents, ...tool }) => {
+  return ALL_TOOLS.filter((tool) => tool.agents.includes(agentId)).filter((tool) => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name)).map(({ agents: _agents, ...tool }) => {
     if (tool.name === "file_write") {
       return { ...tool, execute: createFileWriteExecute(agentId) };
     }
@@ -10212,7 +10315,7 @@ function getAgentTools(agentId, sessionId) {
 }
 function getDroidTools(droidId) {
   const droidToolNames = ["file_read", "file_write", "bash", "web_search", "web_fetch"];
-  return ALL_TOOLS.filter((tool) => droidToolNames.includes(tool.name)).map(({ agents: _agents, ...tool }) => {
+  return ALL_TOOLS.filter((tool) => droidToolNames.includes(tool.name)).filter((tool) => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name)).map(({ agents: _agents, ...tool }) => {
     if (tool.name === "file_write") {
       return { ...tool, execute: createFileWriteExecute(droidId) };
     }
@@ -10220,6 +10323,7 @@ function getDroidTools(droidId) {
   });
 }
 function getAgentWritePaths(agentId) {
+  if (!dockerBackedToolsEnabled()) return [];
   if (!fileWriteTool.agents.includes(agentId)) return [];
   return WRITE_ACLS[agentId] ?? [];
 }
@@ -10721,6 +10825,7 @@ async function completeSession(sessionId, status, result, toolCalls, llmRounds, 
 }
 
 // scripts/unified-worker/index.ts
+init_executor();
 init_logger();
 init_formats();
 
@@ -11294,6 +11399,17 @@ async function releaseStaleReviewDrafts(drafts, resetDraftToDraft, logger2) {
 // scripts/unified-worker/index.ts
 var log36 = createLogger({ service: "unified-worker" });
 var WORKER_ID = `unified-${process.pid}`;
+var WORKER_HEARTBEAT_ENABLED = process.env.WORKER_HEARTBEAT_ENABLED !== "false";
+var WORKER_HEARTBEAT_URL = process.env.WORKER_HEARTBEAT_URL ?? "http://subcult-corp-app:3000/api/ops/heartbeat";
+var WORKER_HEARTBEAT_INTERVAL_MS = Number.parseInt(
+  process.env.WORKER_HEARTBEAT_INTERVAL_MS ?? "300000",
+  10
+);
+var WORKER_HEARTBEAT_TIMEOUT_MS = Number.parseInt(
+  process.env.WORKER_HEARTBEAT_TIMEOUT_MS ?? "120000",
+  10
+);
+var lastWorkerHeartbeatAttemptAt = 0;
 if (!process.env.DATABASE_URL) {
   log36.fatal("Missing DATABASE_URL");
   process.exit(1);
@@ -11301,6 +11417,53 @@ if (!process.env.DATABASE_URL) {
 if (!process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_ENABLED !== "false") {
   log36.fatal("Missing OPENROUTER_API_KEY (set OPENROUTER_ENABLED=false to run without OpenRouter)");
   process.exit(1);
+}
+async function triggerHeartbeatIfDue() {
+  if (!WORKER_HEARTBEAT_ENABLED) return false;
+  if (!process.env.CRON_SECRET) {
+    log36.warn("Worker-managed heartbeat skipped: missing CRON_SECRET");
+    return false;
+  }
+  const now = Date.now();
+  if (now - lastWorkerHeartbeatAttemptAt < WORKER_HEARTBEAT_INTERVAL_MS) {
+    return false;
+  }
+  lastWorkerHeartbeatAttemptAt = now;
+  const startedAt = Date.now();
+  try {
+    const response = await fetch(WORKER_HEARTBEAT_URL, {
+      headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
+      signal: AbortSignal.timeout(WORKER_HEARTBEAT_TIMEOUT_MS)
+    });
+    const body = await response.text();
+    const durationMs = Date.now() - startedAt;
+    if (!response.ok) {
+      log36.warn("Worker-managed heartbeat failed", {
+        status: response.status,
+        durationMs,
+        body: body.slice(0, 500)
+      });
+      return false;
+    }
+    let summary = body.slice(0, 500);
+    try {
+      const parsed = JSON.parse(body);
+      summary = {
+        status: parsed.status,
+        triggers: parsed.triggers,
+        roundtable: parsed.roundtable,
+        cron: parsed.cron
+      };
+    } catch {
+    }
+    log36.info("Worker-managed heartbeat completed", { durationMs, summary });
+    return true;
+  } catch (err) {
+    log36.warn("Worker-managed heartbeat exception", {
+      error: err.message
+    });
+    return false;
+  }
 }
 var sql2 = (0, import_postgres2.default)(process.env.DATABASE_URL, {
   max: 5,
@@ -12345,6 +12508,31 @@ async function sweepStaleAgentSessions() {
   }
   return stale.length > 0;
 }
+async function sweepStaleRoundtables() {
+  const stale = await sql2`
+        UPDATE ops_roundtable_sessions
+        SET status = 'failed',
+            completed_at = NOW(),
+            metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                'sweptReason', 'Swept by worker — roundtable exceeded running timeout',
+                'sweptAt', NOW()
+            )
+        WHERE status = 'running'
+          AND started_at < NOW() - INTERVAL '4 hours'
+        RETURNING id, format, topic
+    `;
+  if (stale.length > 0) {
+    log36.warn("Swept stale roundtables", {
+      count: stale.length,
+      sessions: stale.map((s) => ({
+        id: s.id,
+        format: s.format,
+        topic: s.topic.slice(0, 120)
+      }))
+    });
+  }
+  return stale.length > 0;
+}
 async function sweepOrphanedMissionSteps() {
   const orphaned = await sql2`
         UPDATE ops_mission_steps
@@ -12380,6 +12568,12 @@ async function sweepOrphanedMissionSteps() {
     }
   }
   return orphaned.length > 0;
+}
+async function runMaintenanceTasks() {
+  await sweepStaleAgentSessions();
+  await sweepStaleRoundtables();
+  await sweepOrphanedMissionSteps();
+  await triggerHeartbeatIfDue();
 }
 async function finalizeMissionIfComplete(missionId) {
   const [counts] = await sql2`
@@ -12512,6 +12706,10 @@ async function catchUpOrphanedMissions() {
 }
 async function pollLoop() {
   await waitForDb();
+  const toolbox = await checkToolboxAvailable();
+  if (!toolbox.ok) {
+    disableDockerBackedTools(toolbox.reason);
+  }
   await catchUpStuckReviews();
   await catchUpOrphanedReviewDrafts();
   await catchUpOrphanedMissions();
@@ -12541,11 +12739,15 @@ async function pollLoop() {
       failed: startupGovernanceBackfill.failed
     });
   }
+  await runMaintenanceTasks();
   while (running) {
     try {
       await pollRoundtables();
       const hadSession = await pollAgentSessions();
-      if (hadSession) continue;
+      if (hadSession) {
+        await runMaintenanceTasks();
+        continue;
+      }
       await pollMissionSteps();
       await finalizeMissionSteps();
       const publishResult = await publishApprovedDrafts();
@@ -12574,8 +12776,7 @@ async function pollLoop() {
           failed: governanceBackfill.failed
         });
       }
-      await sweepStaleAgentSessions();
-      await sweepOrphanedMissionSteps();
+      await runMaintenanceTasks();
       await pollInitiatives();
     } catch (err) {
       log36.error("Poll loop error", { error: err });

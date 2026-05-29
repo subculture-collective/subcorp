@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { CheckCircleIcon, XIcon } from '@/lib/icons';
 import { XTwitterIcon } from '@/lib/icons';
 
@@ -26,14 +26,11 @@ export function SubscribeCTA({ variant, source = 'website' }: SubscribeCTAProps)
     const [plan, setPlan] = useState<Plan>('both');
     const [status, setStatus] = useState<Status>('idle');
     const [errorMessage, setErrorMessage] = useState('');
-    const [dismissed, setDismissed] = useState(false);
-
-    // Check localStorage dismiss for compact variant
-    useEffect(() => {
-        if (variant === 'compact') {
-            setDismissed(localStorage.getItem(DISMISS_KEY) === '1');
-        }
-    }, [variant]);
+    const [dismissed, setDismissed] = useState(() =>
+        variant === 'compact' &&
+        typeof window !== 'undefined' &&
+        localStorage.getItem(DISMISS_KEY) === '1',
+    );
 
     if (variant === 'compact' && dismissed) return null;
 

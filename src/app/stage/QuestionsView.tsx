@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useInterval } from './hooks';
 import { TranscriptViewer } from './TranscriptViewer';
 import { AgentAvatarStack } from './AgentAvatar';
-import type { RoundtableSession, RoundtableTurn } from '@/lib/types';
+import type { RoundtableSession } from '@/lib/types';
 import {
     MessageCircleIcon,
     CheckCircleIcon,
@@ -15,17 +15,6 @@ import {
 } from '@/lib/icons';
 
 // ─── Helpers ───
-
-function formatRelativeTime(dateStr: string): string {
-    const now = Date.now();
-    const then = new Date(dateStr).getTime();
-    const diffSec = Math.floor((now - then) / 1000);
-
-    if (diffSec < 60) return `${diffSec}s ago`;
-    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-    return `${Math.floor(diffSec / 86400)}d ago`;
-}
 
 function formatDateTime(dateStr: string): string {
     const d = new Date(dateStr);

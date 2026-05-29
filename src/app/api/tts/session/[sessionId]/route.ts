@@ -7,9 +7,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFile, writeFile, unlink, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { logger } from '@/lib/logger';
 
 const AUDIO_DIR = '/workspace/audio';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const log = logger.child({ route: 'tts/session' });
 
 function validateSessionId(sessionId: string): string | null {
     if (!UUID_RE.test(sessionId)) return null;
@@ -60,7 +62,7 @@ export async function POST(
         await writeFile(filePath, buffer);
         return NextResponse.json({ ok: true });
     } catch (err) {
-        console.error('[TTS Cache] Write error:', err);
+        log.error('TTS cache write failed', { error: err, sessionId });
         return NextResponse.json({ error: 'Write failed' }, { status: 500 });
     }
 }

@@ -18,6 +18,7 @@ import { CostTracker } from './CostTracker';
 import { MemoryExplorer } from './MemoryExplorer';
 import { RelationshipGraph } from './RelationshipGraph';
 import { ContentPipeline } from './ContentPipeline';
+import { ArtifactGallery } from './ArtifactGallery';
 import { GovernancePanel } from './GovernancePanel';
 import { DreamLog } from './DreamLog';
 import { AgentDesigner } from './AgentDesigner';
@@ -51,6 +52,7 @@ const VALID_VIEWS: ViewMode[] = [
     'memories',
     'relationships',
     'content',
+    'artifacts',
     'files',
     'governance',
     'dreams',
@@ -369,6 +371,13 @@ function StageContent() {
                     {view === 'content' && (
                         <SectionErrorBoundary label='Content Pipeline'>
                             <ContentPipeline />
+                        </SectionErrorBoundary>
+                    )}
+
+                    {/* ── Artifacts View ── */}
+                    {view === 'artifacts' && (
+                        <SectionErrorBoundary label='Artifact Gallery'>
+                            <ArtifactGallery />
                         </SectionErrorBoundary>
                     )}
 

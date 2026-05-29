@@ -191,7 +191,6 @@ interface WeekData {
 async function gatherWeekData(
     weekStart: Date,
     weekEnd: Date,
-    spotlightAgent: AgentId,
 ): Promise<WeekData> {
     const start = weekStart.toISOString();
     const end = weekEnd.toISOString();
@@ -653,7 +652,7 @@ export async function generateWeeklyNewsletter(): Promise<string | null> {
         week: weekString,
         spotlight: spotlightAgent,
     });
-    const data = await gatherWeekData(weekStart, weekEnd, spotlightAgent);
+    const data = await gatherWeekData(weekStart, weekEnd);
 
     // Check if there's enough data to warrant a newsletter
     const stats = buildStats(data);

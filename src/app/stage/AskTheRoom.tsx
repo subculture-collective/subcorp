@@ -58,6 +58,8 @@ export function AskTheRoom({
     useEffect(() => {
         if (stt.transcript && stt.transcript !== prevTranscript.current) {
             prevTranscript.current = stt.transcript;
+            // Speech recognition is an external browser source; sync final transcript into the editable field.
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setQuestion(prev => {
                 const joined = prev ? `${prev} ${stt.transcript}` : stt.transcript;
                 return joined.slice(0, MAX_CHARS);
@@ -71,6 +73,8 @@ export function AskTheRoom({
 
     // Auto-enable voice mode when voice_chat format is selected
     useEffect(() => {
+        // Keep dependent voice-mode toggle synchronized with format picker.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         if (format === 'voice_chat') setVoiceMode(true);
     }, [format]);
 
@@ -148,6 +152,8 @@ export function AskTheRoom({
             const pendingQuestion = question.trim();
             if (pendingQuestion.length >= MIN_CHARS) {
                 autoSubmitRef.current = true;
+                // Submit in response to the external speech-recognition completion event.
+                // eslint-disable-next-line react-hooks/set-state-in-effect
                 handleSubmit(true);
             }
         }

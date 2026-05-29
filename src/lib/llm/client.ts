@@ -257,12 +257,14 @@ const OLLAMA_LOCAL_URL =
     OLLAMA_ENABLED ? (process.env.OLLAMA_BASE_URL ?? '') : '';
 const OLLAMA_CLOUD_URL = 'https://ollama.com';
 const OLLAMA_API_KEY = OLLAMA_ENABLED ? (process.env.OLLAMA_API_KEY ?? '') : '';
-const OLLAMA_TEXT_TIMEOUT_MS = 20_000;
-const OLLAMA_PREFERRED_TEXT_TIMEOUT_MS = 30_000;
-const OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS = 45_000;
-const OLLAMA_TOOL_TIMEOUT_MS = 45_000;
-const OLLAMA_BUDGET_MS = 60_000;
-const OLLAMA_TAGS_TIMEOUT_MS = 2_500;
+// Timeouts are generous to accommodate llama-line broker queue wait times.
+// The broker serialises requests; a busy queue can add minutes of wait before inference starts.
+const OLLAMA_TEXT_TIMEOUT_MS = 600_000;          // 10 min
+const OLLAMA_PREFERRED_TEXT_TIMEOUT_MS = 600_000; // 10 min
+const OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS = 600_000; // 10 min
+const OLLAMA_TOOL_TIMEOUT_MS = 600_000;           // 10 min
+const OLLAMA_BUDGET_MS = 1_200_000;               // 20 min total budget across all attempts
+const OLLAMA_TAGS_TIMEOUT_MS = 5_000;
 const OLLAMA_MODEL_CACHE_TTL_MS = 30_000;
 /** Model override via env — when set, ONLY this model is used for local Ollama. */
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? '';
@@ -372,7 +374,10 @@ async function getReachableLocalOllamaModels(): Promise<Set<string> | null> {
     }
 
     try {
+        const tagsHeaders: Record<string, string> = {};
+        if (OLLAMA_API_KEY) tagsHeaders['Authorization'] = `Bearer ${OLLAMA_API_KEY}`;
         const response = await fetch(`${OLLAMA_LOCAL_URL}/api/tags`, {
+            headers: tagsHeaders,
             signal: AbortSignal.timeout(OLLAMA_TAGS_TIMEOUT_MS),
         });
         if (!response.ok) {

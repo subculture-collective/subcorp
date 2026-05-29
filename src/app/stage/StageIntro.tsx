@@ -1,7 +1,7 @@
 // StageIntro — collapsible intro explaining what SUBCORP is and what you can do
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { AGENTS, AGENT_IDS } from '@/lib/agents';
 import {
     MicIcon,
@@ -25,21 +25,19 @@ const CAPABILITIES = [
 
 export function StageIntro() {
     // Start open on SSR, close after mount if user has seen it before
-    const [isOpen, setIsOpen] = useState(true);
-    const [hasSeen, setHasSeen] = useState(false);
-
-    useEffect(() => {
-        if (localStorage.getItem('subcult-intro-seen') === 'true') {
-            setIsOpen(false);
-            setHasSeen(true);
-        }
-    }, []);
+    const [hasSeen, setHasSeen] = useState(() =>
+        typeof window !== 'undefined' && localStorage.getItem('subcult-intro-seen') === 'true',
+    );
+    const [isOpen, setIsOpen] = useState(() =>
+        !(typeof window !== 'undefined' && localStorage.getItem('subcult-intro-seen') === 'true'),
+    );
 
     const handleToggle = () => {
         const newState = !isOpen;
         setIsOpen(newState);
         if (!newState && !hasSeen) {
             localStorage.setItem('subcult-intro-seen', 'true');
+            setHasSeen(true);
         }
     };
 

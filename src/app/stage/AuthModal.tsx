@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { useAuth, useAuthModal } from '@/lib/auth/client';
 
 type ModalState = 'choose' | 'login' | 'signup';
@@ -91,27 +92,27 @@ export function AuthModal() {
                     {state === 'choose' && (
                         <div className='space-y-3'>
                             {/* OAuth providers */}
-                            <a
+                            <Link
                                 href='/api/auth/oauth/github'
                                 className='w-full rounded-lg bg-[#24292f] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#2f363d] transition-colors flex items-center justify-center gap-2'
                             >
                                 <svg className='w-4 h-4' viewBox='0 0 16 16' fill='currentColor'><path d='M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z'/></svg>
                                 Continue with GitHub
-                            </a>
-                            <a
+                            </Link>
+                            <Link
                                 href='/api/auth/oauth/discord'
                                 className='w-full rounded-lg bg-[#5865F2] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#4752c4] transition-colors flex items-center justify-center gap-2'
                             >
                                 <svg className='w-4 h-4' viewBox='0 0 16 16' fill='currentColor'><path d='M13.55 3.15A13.2 13.2 0 0010.3 2a9.5 9.5 0 00-.42.86 12.3 12.3 0 00-3.76 0A9.3 9.3 0 005.7 2a13.3 13.3 0 00-3.26 1.16C.36 6.77-.22 10.3.07 13.79A13.4 13.4 0 004.12 16a10 10 0 00.87-1.41 8.6 8.6 0 01-1.37-.66l.33-.26a9.5 9.5 0 008.1 0l.33.26c-.44.26-.9.48-1.37.66.25.5.54.97.87 1.41a13.4 13.4 0 004.05-2.21c.39-4.08-.66-7.57-2.78-10.64zM5.35 11.65c-.92 0-1.68-.84-1.68-1.88s.74-1.88 1.68-1.88 1.69.85 1.68 1.88c0 1.04-.74 1.88-1.68 1.88zm6.3 0c-.92 0-1.68-.84-1.68-1.88s.74-1.88 1.68-1.88 1.69.85 1.68 1.88c0 1.04-.74 1.88-1.68 1.88z'/></svg>
                                 Continue with Discord
-                            </a>
-                            <a
+                            </Link>
+                            <Link
                                 href='/api/auth/oauth/openai'
                                 className='w-full rounded-lg bg-[#10a37f] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#0d8c6d] transition-colors flex items-center justify-center gap-2'
                             >
                                 <svg className='w-4 h-4' viewBox='0 0 24 24' fill='currentColor'><path d='M22.28 9.37a6.04 6.04 0 00-.52-4.93 6.1 6.1 0 00-6.58-2.83A6.04 6.04 0 0010.68 0a6.1 6.1 0 00-5.83 4.25 6.04 6.04 0 00-4.03 2.92 6.1 6.1 0 00.75 7.14 6.04 6.04 0 00.52 4.93 6.1 6.1 0 006.58 2.83A6.04 6.04 0 0013.17 24a6.1 6.1 0 005.83-4.25 6.04 6.04 0 004.03-2.92 6.1 6.1 0 00-.75-7.14v-.32zM13.17 22.7a4.57 4.57 0 01-2.94-1.07l.15-.08 4.88-2.82a.8.8 0 00.4-.69v-6.9l2.06 1.19a.07.07 0 01.04.06v5.7a4.59 4.59 0 01-4.59 4.6zM3.6 18.53a4.56 4.56 0 01-.55-3.07l.15.09 4.88 2.82a.78.78 0 00.78 0l5.96-3.44v2.38a.08.08 0 01-.03.06l-4.94 2.85a4.59 4.59 0 01-6.26-1.69zM2.34 7.9A4.56 4.56 0 014.73 5.9v5.8a.78.78 0 00.39.68l5.96 3.44-2.07 1.19a.08.08 0 01-.07 0L4 14.17a4.59 4.59 0 01-1.66-6.27zm17.05 3.97l-5.96-3.44 2.07-1.2a.07.07 0 01.07 0l4.94 2.86a4.59 4.59 0 01-.71 8.28v-5.81a.79.79 0 00-.4-.69zm2.05-3.1l-.15-.09-4.88-2.82a.78.78 0 00-.78 0L9.67 9.3V6.92a.07.07 0 01.03-.06l4.94-2.85a4.59 4.59 0 016.8 4.76zM8.53 12.7l-2.07-1.2a.07.07 0 01-.04-.05V5.76a4.59 4.59 0 017.53-3.53l-.15.08-4.88 2.82a.8.8 0 00-.4.69l.01 6.88zm1.12-2.42l2.65-1.53 2.65 1.53v3.06l-2.65 1.53-2.65-1.53v-3.06z'/></svg>
                                 Continue with OpenAI
-                            </a>
+                            </Link>
                             <div className='flex items-center gap-3 py-1'>
                                 <div className='flex-1 h-px bg-zinc-700/50' />
                                 <span className='text-[10px] text-zinc-500 uppercase tracking-wider'>or</span>

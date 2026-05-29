@@ -2,11 +2,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { subscribe } from '@/lib/ops/subscribers';
 import { withRequestContext } from '@/lib/with-request-context';
+import { logger } from '@/lib/logger';
 
 export const dynamic = 'force-dynamic';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_PLANS = new Set(['daily', 'weekly', 'both']);
+const log = logger.child({ route: 'ops/subscribe' });
 
 export async function POST(req: NextRequest) {
     return withRequestContext(req, async () => {
@@ -36,7 +38,7 @@ export async function POST(req: NextRequest) {
 
             return NextResponse.json({ ok: true, isNew: result.isNew });
         } catch (err) {
-            console.error('[subscribe] error:', err);
+            log.error('Subscribe failed', { error: err });
             return NextResponse.json(
                 { error: 'Something went wrong' },
                 { status: 500 },

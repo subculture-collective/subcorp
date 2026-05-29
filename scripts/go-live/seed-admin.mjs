@@ -6,9 +6,12 @@ import postgres from 'postgres';
 import argon2 from 'argon2';
 import readline from 'readline';
 
+const out = (...args) => process.stdout.write(`${args.join(' ')}\n`);
+const errOut = (...args) => process.stderr.write(`${args.join(' ')}\n`);
+
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
-    console.error('Missing DATABASE_URL environment variable');
+    errOut('Missing DATABASE_URL environment variable');
     process.exit(1);
 }
 
@@ -29,12 +32,12 @@ async function main() {
     const password = await ask('Admin password: ');
 
     if (!email || !username || !password) {
-        console.error('All fields are required');
+        errOut('All fields are required');
         process.exit(1);
     }
 
     if (password.length < 8) {
-        console.error('Password must be at least 8 characters');
+        errOut('Password must be at least 8 characters');
         process.exit(1);
     }
 
@@ -59,11 +62,11 @@ async function main() {
             ON CONFLICT (user_id) DO UPDATE SET password_hash = ${passwordHash}, updated_at = NOW()
         `;
 
-        console.log(`\nAdmin user created/updated:`);
-        console.log(`  ID:       ${user.id}`);
-        console.log(`  Email:    ${user.email}`);
-        console.log(`  Username: ${user.username}`);
-        console.log(`  Role:     ${user.role}`);
+        out('\nAdmin user created/updated:');
+        out(`  ID:       ${user.id}`);
+        out(`  Email:    ${user.email}`);
+        out(`  Username: ${user.username}`);
+        out(`  Role:     ${user.role}`);
     });
 
     rl.close();
@@ -71,6 +74,6 @@ async function main() {
 }
 
 main().catch(err => {
-    console.error(err);
+    errOut(err?.stack ?? err);
     process.exit(1);
 });

@@ -235,35 +235,6 @@ export async function generateDailyDigest(date?: Date): Promise<string | null> {
         costs: Math.round(data.totalCost * 10000) / 10000,
     };
 
-    // Build prompt for Mux
-    const dataSummary = [
-        `Date: ${dateStr}`,
-        `Total events: ${totalEvents} (${Object.entries(data.eventCounts)
-            .map(([k, v]) => `${k}: ${v}`)
-            .join(', ')})`,
-        `Conversations completed: ${data.sessions.length}`,
-        ...(data.sessions.length > 0 ?
-            data.sessions
-                .slice(0, 5)
-                .map(
-                    s =>
-                        `  - "${s.topic}" (${s.participants.join(', ')}, ${s.turns} turns)`,
-                )
-        :   []),
-        `Missions: ${data.missionOutcomes.succeeded} succeeded, ${data.missionOutcomes.failed} failed`,
-        `New memories: ${totalMemories} (${Object.entries(data.memoriesByAgent)
-            .map(([a, c]) => `${a}: ${c}`)
-            .join(', ')})`,
-        `LLM costs: $${stats.costs}`,
-        '',
-        'Notable events:',
-        ...(data.topEvents.length > 0 ?
-            data.topEvents
-                .slice(0, 10)
-                .map(e => `  - [${e.agent_id}/${e.kind}] ${e.title}`)
-        :   ['  (none)']),
-    ].join('\n');
-
     // Generate summary via template (Mux voice, dry and direct)
     const summary = buildDigestSummary(dateStr, stats, data);
 

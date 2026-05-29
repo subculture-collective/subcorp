@@ -1,7 +1,7 @@
 // StageSidebar — grouped icon sidebar for view navigation
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useRef, useCallback } from 'react';
 import type { ViewMode } from './StageHeader';
 import {
     SignalIcon,
@@ -50,6 +50,7 @@ const NAV_GROUPS: NavGroup[] = [
         items: [
             { key: 'newspaper', label: 'Newspaper', icon: <NewspaperIcon size={16} /> },
             { key: 'newsletter', label: 'Newsletter', icon: <MailIcon size={16} /> },
+            { key: 'artifacts', label: 'Artifacts', icon: <ArchiveIcon size={16} /> },
             { key: 'content', label: 'Content', icon: <FileTextIcon size={16} /> },
             { key: 'files', label: 'Files', icon: <FolderIcon size={16} /> },
             { key: 'governance', label: 'Governance', icon: <ScaleIcon size={16} /> },

@@ -908,7 +908,7 @@ export function MemoryExplorer() {
                 selectedTypes.size > 0 ? Array.from(selectedTypes) : undefined,
             min_confidence: minConfidence > 0 ? minConfidence : undefined,
             search: debouncedSearch || undefined,
-            limit: 200,
+            limit: 1000,
         }),
         [selectedAgent, selectedTypes, minConfidence, debouncedSearch],
     );

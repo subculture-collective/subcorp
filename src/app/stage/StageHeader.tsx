@@ -23,6 +23,7 @@ export type ViewMode =
     | 'memories'
     | 'relationships'
     | 'content'
+    | 'artifacts'
     | 'files'
     | 'governance'
     | 'dreams'

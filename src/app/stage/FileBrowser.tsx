@@ -1,7 +1,7 @@
 // FileBrowser — workspace filesystem browser + content pipeline sub-tabs
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import {
     useWorkspaceDirectory,
     useWorkspaceFile,
@@ -53,6 +53,7 @@ function isCodeFile(ext: string): boolean {
 }
 
 const AGENT_IDS = Object.keys(AGENTS) as AgentId[];
+const LOADING_ROW_WIDTHS = [78, 64, 72, 55, 81, 68];
 
 function getAgentColor(name: string): string | null {
     const lower = name.toLowerCase();
@@ -353,7 +354,7 @@ export function FileBrowser() {
                             {Array.from({ length: 6 }).map((_, i) => (
                                 <div key={i} className='flex items-center gap-3'>
                                     <div className='h-3.5 w-3.5 rounded bg-zinc-800' />
-                                    <div className='h-3 rounded bg-zinc-800 flex-1' style={{ maxWidth: `${50 + Math.random() * 30}%` }} />
+                                    <div className='h-3 rounded bg-zinc-800 flex-1' style={{ maxWidth: `${LOADING_ROW_WIDTHS[i] ?? 70}%` }} />
                                     <div className='h-3 w-10 rounded bg-zinc-800' />
                                 </div>
                             ))}

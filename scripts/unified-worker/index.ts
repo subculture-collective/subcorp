@@ -12,6 +12,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import { orchestrateConversation } from '../../src/lib/roundtable/orchestrator';
 import { executeAgentSession } from '../../src/lib/tools/agent-session';
+import {
+    checkToolboxAvailable,
+    disableDockerBackedTools,
+} from '../../src/lib/tools/executor';
 import { createLogger } from '../../src/lib/logger';
 import { FORMATS } from '../../src/lib/roundtable/formats';
 import {
@@ -33,6 +37,19 @@ const log = createLogger({ service: 'unified-worker' });
 // ─── Config ───
 
 const WORKER_ID = `unified-${process.pid}`;
+const WORKER_HEARTBEAT_ENABLED = process.env.WORKER_HEARTBEAT_ENABLED !== 'false';
+const WORKER_HEARTBEAT_URL =
+    process.env.WORKER_HEARTBEAT_URL ??
+    'http://subcult-corp-app:3000/api/ops/heartbeat';
+const WORKER_HEARTBEAT_INTERVAL_MS = Number.parseInt(
+    process.env.WORKER_HEARTBEAT_INTERVAL_MS ?? '300000',
+    10,
+);
+const WORKER_HEARTBEAT_TIMEOUT_MS = Number.parseInt(
+    process.env.WORKER_HEARTBEAT_TIMEOUT_MS ?? '120000',
+    10,
+);
+let lastWorkerHeartbeatAttemptAt = 0;
 
 if (!process.env.DATABASE_URL) {
     log.fatal('Missing DATABASE_URL');
@@ -42,6 +59,65 @@ if (!process.env.DATABASE_URL) {
 if (!process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_ENABLED !== 'false') {
     log.fatal('Missing OPENROUTER_API_KEY (set OPENROUTER_ENABLED=false to run without OpenRouter)');
     process.exit(1);
+}
+
+async function triggerHeartbeatIfDue(): Promise<boolean> {
+    if (!WORKER_HEARTBEAT_ENABLED) return false;
+    if (!process.env.CRON_SECRET) {
+        log.warn('Worker-managed heartbeat skipped: missing CRON_SECRET');
+        return false;
+    }
+
+    const now = Date.now();
+    if (now - lastWorkerHeartbeatAttemptAt < WORKER_HEARTBEAT_INTERVAL_MS) {
+        return false;
+    }
+    lastWorkerHeartbeatAttemptAt = now;
+
+    const startedAt = Date.now();
+    try {
+        const response = await fetch(WORKER_HEARTBEAT_URL, {
+            headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
+            signal: AbortSignal.timeout(WORKER_HEARTBEAT_TIMEOUT_MS),
+        });
+        const body = await response.text();
+        const durationMs = Date.now() - startedAt;
+
+        if (!response.ok) {
+            log.warn('Worker-managed heartbeat failed', {
+                status: response.status,
+                durationMs,
+                body: body.slice(0, 500),
+            });
+            return false;
+        }
+
+        let summary: unknown = body.slice(0, 500);
+        try {
+            const parsed = JSON.parse(body) as {
+                status?: string;
+                triggers?: { fired?: number; evaluated?: number };
+                roundtable?: { enqueued?: string | null };
+                cron?: { fired?: number; evaluated?: number };
+            };
+            summary = {
+                status: parsed.status,
+                triggers: parsed.triggers,
+                roundtable: parsed.roundtable,
+                cron: parsed.cron,
+            };
+        } catch {
+            // Keep text preview.
+        }
+
+        log.info('Worker-managed heartbeat completed', { durationMs, summary });
+        return true;
+    } catch (err) {
+        log.warn('Worker-managed heartbeat exception', {
+            error: (err as Error).message,
+        });
+        return false;
+    }
 }
 
 // Direct DB connection for queue polling (separate from the app's pool)
@@ -1353,6 +1429,35 @@ async function sweepStaleAgentSessions(): Promise<boolean> {
     return stale.length > 0;
 }
 
+/** Sweep roundtables stuck in 'running' after worker/app restarts or abandoned voice chats */
+async function sweepStaleRoundtables(): Promise<boolean> {
+    const stale = await sql<{ id: string; format: string; topic: string }[]>`
+        UPDATE ops_roundtable_sessions
+        SET status = 'failed',
+            completed_at = NOW(),
+            metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                'sweptReason', 'Swept by worker — roundtable exceeded running timeout',
+                'sweptAt', NOW()
+            )
+        WHERE status = 'running'
+          AND started_at < NOW() - INTERVAL '4 hours'
+        RETURNING id, format, topic
+    `;
+
+    if (stale.length > 0) {
+        log.warn('Swept stale roundtables', {
+            count: stale.length,
+            sessions: stale.map(s => ({
+                id: s.id,
+                format: s.format,
+                topic: s.topic.slice(0, 120),
+            })),
+        });
+    }
+
+    return stale.length > 0;
+}
+
 /** Sweep mission steps stuck in 'running' with no active agent session (e.g. after worker restart) */
 async function sweepOrphanedMissionSteps(): Promise<boolean> {
     const orphaned = await sql<
@@ -1395,6 +1500,20 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
     }
 
     return orphaned.length > 0;
+}
+
+async function runMaintenanceTasks(): Promise<void> {
+    // Sweep stale agent sessions stuck in 'running' past their timeout
+    await sweepStaleAgentSessions();
+
+    // Sweep roundtables stuck in 'running' after restarts/timeouts
+    await sweepStaleRoundtables();
+
+    // Sweep orphaned mission steps (no active session, e.g. after worker restart)
+    await sweepOrphanedMissionSteps();
+
+    // Keep autonomous output moving even when host cron/timers are absent.
+    await triggerHeartbeatIfDue();
 }
 
 /** Check if all steps in a mission are done, finalize if so */
@@ -1581,6 +1700,11 @@ async function catchUpOrphanedMissions(): Promise<void> {
 async function pollLoop(): Promise<void> {
     await waitForDb();
 
+    const toolbox = await checkToolboxAvailable();
+    if (!toolbox.ok) {
+        disableDockerBackedTools(toolbox.reason);
+    }
+
     // Catch up on any stuck reviews from before the fix
     await catchUpStuckReviews();
 
@@ -1622,6 +1746,9 @@ async function pollLoop(): Promise<void> {
         });
     }
 
+    // Run maintenance once before any queue backlog can starve it.
+    await runMaintenanceTasks();
+
     while (running) {
         try {
             // Roundtables first — user questions should not be starved by agent sessions
@@ -1629,7 +1756,11 @@ async function pollLoop(): Promise<void> {
 
             // Agent sessions — high priority, check every loop
             const hadSession = await pollAgentSessions();
-            if (hadSession) continue; // Process back-to-back sessions
+            if (hadSession) {
+                // Do not let a long agent-session backlog starve sweep/heartbeat work.
+                await runMaintenanceTasks();
+                continue; // Process back-to-back sessions
+            }
 
             // Mission steps — check every other loop
             await pollMissionSteps();
@@ -1669,11 +1800,7 @@ async function pollLoop(): Promise<void> {
                 });
             }
 
-            // Sweep stale agent sessions stuck in 'running' past their timeout
-            await sweepStaleAgentSessions();
-
-            // Sweep orphaned mission steps (no active session, e.g. after worker restart)
-            await sweepOrphanedMissionSteps();
+            await runMaintenanceTasks();
 
             // Initiatives — check every other loop
             await pollInitiatives();

@@ -304,7 +304,7 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `7. Write a summary to ${outputDir}/${today}__evolution__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md\n` +
         `\nYour output is a MERGED PULL REQUEST with real code changes. Do not just describe what you would change.\n`,
 
-    github_issue: (ctx, _today, _outputDir) =>
+    github_issue: (ctx) =>
         `You are managing the subculture-collective GitHub organization.\n` +
         `Org: https://github.com/subculture-collective\n` +
         `Platform repo: https://github.com/subculture-collective/subcorp\n` +
@@ -317,7 +317,7 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `  gh label create --repo subculture-collective/subcorp "feature" --color 0075ca\n` +
         `\nCreate well-structured issues with clear titles, descriptions, acceptance criteria, and appropriate labels.\n`,
 
-    github_pr: (ctx, _today, _outputDir) =>
+    github_pr: (ctx) =>
         `You are managing code in the subculture-collective GitHub organization.\n` +
         `Org: https://github.com/subculture-collective\n` +
         `Platform repo: https://github.com/subculture-collective/subcorp\n` +
@@ -348,7 +348,7 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `5. If you find improvements to make, create detailed PRs with clear descriptions of what you changed and why.\n` +
         `6. Write findings to ${outputDir}/\n`,
 
-    publish_blog: (ctx, _today, _outputDir) =>
+    publish_blog: (ctx) =>
         `You are publishing content to the SUBCULT blog at https://blog.subcult.tv (Ghost CMS).\n` +
         `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
         `\nINSTRUCTIONS:\n` +
@@ -359,12 +359,19 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `4. Blog posts should be polished, on-brand, and provide genuine value to readers.\n` +
         `5. Topics: technology, AI, autonomy, open source, creative tools, underground culture.\n`,
 
-    notify_human: (ctx, _today, _outputDir) =>
+    notify_human: (ctx) =>
         `You need human assistance for a task you cannot complete autonomously.\n` +
         `\nRequest: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
         `\nINSTRUCTIONS:\n` +
         `Send a notification to the human operator via ntfy:\n` +
-        `  Use bash: curl -d "[Your request here]" http://172.20.0.9/subcult-agents\n` +
+        `  Use bash:\n` +
+        `  curl -sS -X POST "http://172.20.0.9/subcult-agents" \\\n` +
+        `    -H "Title: 🛠️ Agent needs human help" \\\n` +
+        `    -H "Priority: high" \\\n` +
+        `    -H "Tags: warning,robot_face,hand" \\\n` +
+        `    -H "Markdown: yes" \\\n` +
+        `    -d $'## Human action needed\\n\\n- **Task**: [task name]\\n- **Need**: [what human must do]\\n- **Tried**: [what you already tried]\\n- **Blocker**: [why blocked]\\n- **Next after help**: [what you will do next]'\n` +
+        `  Optional: if you must include JSON context, append a fenced code block instead of sending raw JSON as the whole message.\n` +
         `\nBe specific about what you need:\n` +
         `- What task requires human help\n` +
         `- What you've already tried\n` +

@@ -23,7 +23,12 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
 const OPENROUTER_EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 const OPENROUTER_EMBEDDING_DIMENSIONS = 1024;
 
-const EMBEDDING_TIMEOUT_MS = 15_000;
+// llama-line queues embedding requests too; allow queue wait + inference time.
+const EMBEDDING_TIMEOUT_MS = 120_000;
+const LLAMA_LINE_TERMINAL_STATUSES = new Set([
+    'ollama_unavailable',
+    'dropped_by_admin',
+]);
 
 /**
  * Get embedding vector via the configured provider.
@@ -65,9 +70,7 @@ async function getEmbeddingOllama(text: string): Promise<number[] | null> {
             return null;
         }
 
-        const data = (await response.json()) as {
-            data?: Array<{ embedding: number[] }>;
-        };
+        const data = await readEmbeddingResponse(response);
         return data.data?.[0]?.embedding ?? null;
     } catch {
         log.debug('Ollama embedding error (host unreachable?)', {
@@ -76,6 +79,35 @@ async function getEmbeddingOllama(text: string): Promise<number[] | null> {
         });
         return null;
     }
+}
+
+async function readEmbeddingResponse(
+    response: Response,
+): Promise<{ data?: Array<{ embedding: number[] }> }> {
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.includes('text/event-stream')) {
+        return (await response.json()) as { data?: Array<{ embedding: number[] }> };
+    }
+
+    const text = await response.text();
+    for (const line of text.split(/\r?\n/)) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice('data: '.length).trim();
+        if (!raw || raw === '[DONE]') continue;
+
+        const payload = JSON.parse(raw) as {
+            status?: string;
+            message?: string;
+            data?: Array<{ embedding: number[] }>;
+        };
+        if (payload.status === 'queued') continue;
+        if (payload.status && LLAMA_LINE_TERMINAL_STATUSES.has(payload.status)) {
+            throw new Error(payload.message ?? payload.status);
+        }
+        if (payload.data?.[0]?.embedding) return payload;
+    }
+
+    return {};
 }
 
 /** Embedding via OpenRouter (cloud). */

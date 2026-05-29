@@ -32,6 +32,10 @@ import {
     castVetoTool,
     createCastVetoExecute,
 } from './tools/cast-veto';
+import {
+    DOCKER_BACKED_TOOL_NAMES,
+    dockerBackedToolsEnabled,
+} from './executor';
 
 /** All registered native tools */
 const ALL_TOOLS: NativeTool[] = [
@@ -61,6 +65,7 @@ const ALL_TOOLS: NativeTool[] = [
 export function getAgentTools(agentId: AgentId, sessionId?: string): ToolDefinition[] {
     return ALL_TOOLS
         .filter(tool => tool.agents.includes(agentId))
+        .filter(tool => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name))
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         .map(({ agents: _agents, ...tool }) => {
             // Bind agentId into file_write's execute for path ACL enforcement
@@ -110,6 +115,7 @@ export function getDroidTools(droidId: string): ToolDefinition[] {
     const droidToolNames = ['file_read', 'file_write', 'bash', 'web_search', 'web_fetch'];
     return ALL_TOOLS
         .filter(tool => droidToolNames.includes(tool.name))
+        .filter(tool => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name))
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         .map(({ agents: _agents, ...tool }) => {
             if (tool.name === 'file_write') {
@@ -125,6 +131,7 @@ export function getDroidTools(droidId: string): ToolDefinition[] {
 export function getAgentToolNames(agentId: AgentId): string[] {
     return ALL_TOOLS
         .filter(tool => tool.agents.includes(agentId))
+        .filter(tool => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name))
         .map(tool => tool.name);
 }
 
@@ -132,6 +139,7 @@ export function getAgentToolNames(agentId: AgentId): string[] {
  * Get write-path prefixes for an agent, or empty array if file_write is not available.
  */
 export function getAgentWritePaths(agentId: AgentId): string[] {
+    if (!dockerBackedToolsEnabled()) return [];
     if (!fileWriteTool.agents.includes(agentId)) return [];
     return WRITE_ACLS[agentId] ?? [];
 }
@@ -140,5 +148,7 @@ export function getAgentWritePaths(agentId: AgentId): string[] {
  * List all registered tools.
  */
 export function listAllTools(): NativeTool[] {
-    return [...ALL_TOOLS];
+    return ALL_TOOLS.filter(tool =>
+        dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name),
+    );
 }

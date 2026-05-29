@@ -1,7 +1,7 @@
 // office3d/Office3DScene.tsx — main Three.js scene container with OrbitControls and fullscreen
 'use client';
 
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
@@ -38,7 +38,7 @@ function OfficeSceneContent({
 
     const isDragging = useRef(false);
     const { camera, gl } = useThree();
-    const controlsRef = useRef<any>(null);
+    const controlsRef = useRef<React.ElementRef<typeof OrbitControls> | null>(null);
     const dragTools = useRef({
         plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
         raycaster: new THREE.Raycaster(),
@@ -316,8 +316,7 @@ export function Office3DScene({ fullscreen, onToggleFullscreen }: {
 }) {
     const period = useTimeOfDay();
     const state = useOfficeState();
-    const [webglSupported, setWebglSupported] = useState(false);
-    useEffect(() => { setWebglSupported(checkWebGL()); }, []);
+    const [webglSupported] = useState(checkWebGL);
 
     const containerClass = fullscreen
         ? 'fixed inset-0 z-50 bg-[#11111b]'

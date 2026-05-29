@@ -80,7 +80,10 @@ export function AgentSprite({
     const groupRef = useRef<THREE.Group>(null);
     const smoothPos = useRef({ x: agent.position[0], z: agent.position[2] });
     const agentRef = useRef(agent);
-    agentRef.current = agent;
+
+    useEffect(() => {
+        agentRef.current = agent;
+    }, [agent]);
 
     const texture = useMemo(
         () => generateAgentTexture(agent.color, agent.skinColor),
@@ -186,7 +189,7 @@ export function AgentSprite({
                 )}
 
                 {/* Speech bubble (check timestamp expiry for immediate hide) */}
-                {agent.speechBubble && Date.now() < agent.speechExpiresAt && (
+                {agent.speechBubble && agent.speechExpiresAt > 0 && (
                     <SpeechBubble3D
                         text={agent.speechBubble}
                         color={agent.color}

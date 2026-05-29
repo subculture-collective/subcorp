@@ -11,7 +11,14 @@ import { getEmbedding } from '@/lib/llm/embeddings';
 
 const log = logger.child({ module: 'memory' });
 
-const MAX_MEMORIES_PER_AGENT = 200;
+const configuredMemoryCap = Number.parseInt(
+    process.env.MEMORY_MAX_PER_AGENT ?? '',
+    10,
+);
+const MAX_MEMORIES_PER_AGENT =
+    Number.isFinite(configuredMemoryCap) && configuredMemoryCap > 0 ?
+        configuredMemoryCap
+    :   null;
 
 export async function queryAgentMemories(
     query: MemoryQuery,
@@ -152,6 +159,8 @@ export async function writeMemory(input: MemoryInput): Promise<string | null> {
 }
 
 export async function enforceMemoryCap(agentId: string): Promise<void> {
+    if (MAX_MEMORIES_PER_AGENT === null) return;
+
     const [{ count }] = await sql<[{ count: number }]>`
         SELECT COUNT(*)::int as count FROM ops_agent_memory
         WHERE agent_id = ${agentId} AND superseded_by IS NULL

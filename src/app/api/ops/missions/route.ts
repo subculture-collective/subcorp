@@ -35,7 +35,12 @@ export async function GET(req: NextRequest) {
             FROM ops_missions m
             LEFT JOIN ops_mission_steps s ON s.mission_id = m.id
             WHERE 1=1
-            ${status ? sql`AND m.status = ${status}` : sql``}
+            ${
+                status === 'active' ?
+                    sql`AND m.status IN ('approved', 'running')`
+                : status ? sql`AND m.status = ${status}`
+                : sql``
+            }
             ${createdBy ? sql`AND m.created_by = ${createdBy}` : sql``}
             GROUP BY m.id
             ORDER BY m.created_at DESC

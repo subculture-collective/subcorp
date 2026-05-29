@@ -16,6 +16,9 @@ const VALID_TYPES = new Set<MemoryType>([
     'lesson',
 ]);
 
+const MEMORY_API_DEFAULT_LIMIT = 250;
+const MEMORY_API_MAX_LIMIT = 5000;
+
 export async function GET(req: NextRequest) {
     try {
         const { searchParams } = req.nextUrl;
@@ -27,14 +30,14 @@ export async function GET(req: NextRequest) {
         const activeOnly = searchParams.get('active_only') !== 'false'; // default true
 
         const limitParam = searchParams.get('limit');
-        let limit = 100;
+        let limit = MEMORY_API_DEFAULT_LIMIT;
         if (limitParam !== null) {
             const parsedLimit = parseInt(limitParam, 10);
             if (!Number.isNaN(parsedLimit) && parsedLimit > 0) {
                 limit = parsedLimit;
             }
         }
-        limit = Math.min(limit, 500);
+        limit = Math.min(limit, MEMORY_API_MAX_LIMIT);
 
         const offsetParam = searchParams.get('offset');
         let offset = 0;

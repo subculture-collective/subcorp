@@ -15,8 +15,6 @@ import { createVotingRoundtablePrompt } from './agent-proposal-voting';
 
 const log = logger.child({ module: 'triggers' });
 
-// Truncation limits for debate topics
-const RATIONALE_PREVIEW_LENGTH = 200;
 const TOPIC_MAX_LENGTH = 1000;
 
 /** Default thresholds loaded from ops_policy once per evaluation cycle */
@@ -1284,35 +1282,3 @@ async function checkProactiveBuild(
 }
 
 // ─── Proactive Org Exploration ───
-
-async function checkProactiveExploreOrg(
-    conditions: Record<string, unknown>,
-    targetAgent: string,
-): Promise<TriggerCheckResult> {
-    const skipProb = (conditions.skip_probability as number) ?? 0.15;
-    if (Math.random() < skipProb)
-        return { fired: false, reason: 'skipped by probability' };
-
-    const exploreTasks = [
-        'List all repos in subculture-collective org (gh repo list). Pick one you haven\'t explored. Read its README, issues, and recent PRs. Look for ways to contribute.',
-        'Check open issues across all subculture-collective repos (gh search issues --owner subculture-collective --state open). Pick one you can help with and either fix it or comment with a plan.',
-        'Review the subcults repo (subculture-collective/subcults). Read its development docs and issues. Propose or implement an improvement.',
-        'Explore the vod-tender repo. Read its README and source code. Look for bugs, missing features, or documentation gaps. Create an issue or PR.',
-        'Scan all org repos for stale PRs, missing documentation, or broken CI. Create issues for anything you find.',
-    ];
-    const task = exploreTasks[Math.floor(Math.random() * exploreTasks.length)];
-
-    return {
-        fired: true,
-        reason: 'Org exploration: contribute to subculture-collective repos',
-        proposal: {
-            agent_id: targetAgent,
-            title: 'Explore and contribute to org repos',
-            description: task,
-            proposed_steps: [
-                { kind: 'explore_repo' as const, assigned_agent: targetAgent, payload: { description: task } },
-            ],
-            source: 'trigger',
-        },
-    };
-}

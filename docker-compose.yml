@@ -21,9 +21,9 @@ services:
     environment:
       - LOG_FORMAT=pretty
     group_add:
-      - "987"
+      - "${DOCKER_SOCK_GID:-967}"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
       - workspace:/workspace
     labels:
       - com.centurylinklabs.watchtower.enable=false
@@ -41,9 +41,9 @@ services:
     environment:
       - LOG_FORMAT=pretty
     group_add:
-      - "987"
+      - "${DOCKER_SOCK_GID:-967}"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
       - workspace:/workspace
     labels:
       - com.centurylinklabs.watchtower.enable=false
@@ -74,9 +74,9 @@ services:
     environment:
       - LOG_FORMAT=pretty
     group_add:
-      - "987"
+      - "${DOCKER_SOCK_GID:-967}"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
       - workspace:/workspace
     labels:
       - com.centurylinklabs.watchtower.enable=false

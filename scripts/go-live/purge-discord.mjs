@@ -3,8 +3,8 @@
 // purge-discord.mjs — Delete all bot messages from Discord channels.
 //
 // Queries ops_discord_channels for enabled channels, then paginates through
-// each channel's messages and deletes only messages owned by this bot or
-// posted via webhooks:
+// each channel's messages and deletes only messages that existed before this
+// purge started and are owned by this bot or posted via this app's webhook:
 //   - Messages < 14 days old: bulk-delete (2-100 per call)
 //   - Messages >= 14 days old: individual DELETE
 //
@@ -26,6 +26,7 @@ const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const MAX_RETRIES = 3;
 const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
 let cachedBotUserId = null;
+const purgeStartedAt = Date.now();
 
 if (!BOT_TOKEN) {
     log.warn('DISCORD_BOT_TOKEN not set, skipping purge');
@@ -100,8 +101,17 @@ async function getBotUserId() {
     return cachedBotUserId;
 }
 
-function isOwnedByBot(message, botUserId) {
-    return Boolean(message.webhook_id) || message.author?.id === botUserId;
+function isOlderThanPurge(message) {
+    return new Date(message.timestamp).getTime() < purgeStartedAt;
+}
+
+function isOwnedByBot(message, botUserId, webhookId) {
+    if (message.author?.id === botUserId) return true;
+
+    // Prefer the exact app webhook for this channel. If legacy DB rows do not
+    // have webhook_id yet, retain the old broad webhook behavior so historical
+    // purge still works after logging the missing identifier at channel scope.
+    return webhookId ? message.webhook_id === webhookId : Boolean(message.webhook_id);
 }
 
 // ─── Message fetching ───
@@ -179,10 +189,17 @@ async function deleteMessage(channelId, messageId) {
     return true;
 }
 
-async function purgeChannel(channelId, channelName) {
+async function purgeChannel(channelId, channelName, webhookId) {
     const botUserId = await getBotUserId();
+    if (!webhookId) {
+        log.warn('Channel has no webhook_id; falling back to deleting all webhook messages', {
+            channel: channelName,
+            channelId,
+        });
+    }
+
     const messages = (await fetchAllMessages(channelId)).filter(message =>
-        isOwnedByBot(message, botUserId),
+        isOlderThanPurge(message) && isOwnedByBot(message, botUserId, webhookId),
     );
     if (messages.length === 0) {
         log.info('No messages', { channel: channelName });
@@ -246,18 +263,21 @@ async function main() {
     try {
         // Query enabled non-voice channels from DB
         const channels = await sql`
-            SELECT name, discord_channel_id, category
+            SELECT name, discord_channel_id, webhook_id, category
             FROM ops_discord_channels
             WHERE enabled = true AND category != 'voice'
             ORDER BY name
         `;
 
-        log.info('Channels to purge', { count: channels.length });
+        log.info('Channels to purge', {
+            count: channels.length,
+            preservingMessagesCreatedAtOrAfter: new Date(purgeStartedAt).toISOString(),
+        });
 
         let totalDeleted = 0;
         for (const ch of channels) {
             log.info('Purging channel', { channel: ch.name, id: ch.discord_channel_id, category: ch.category });
-            const count = await purgeChannel(ch.discord_channel_id, ch.name);
+            const count = await purgeChannel(ch.discord_channel_id, ch.name, ch.webhook_id);
             totalDeleted += count;
             await sleep(750);
         }

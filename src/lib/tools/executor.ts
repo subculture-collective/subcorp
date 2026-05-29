@@ -10,6 +10,50 @@ const MAX_STDOUT = 50 * 1024; // 50KB cap
 const MAX_STDERR = 10 * 1024; // 10KB cap
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+export const DOCKER_BACKED_TOOL_NAMES = new Set([
+    'bash',
+    'file_read',
+    'file_write',
+    'web_fetch',
+    'send_to_agent',
+    'spawn_droid',
+    'check_droid',
+]);
+
+export function dockerBackedToolsEnabled(): boolean {
+    return (
+        process.env.DOCKER_BACKED_TOOLS_ENABLED !== 'false' &&
+        process.env.TOOLBOX_TOOLS_ENABLED !== 'false'
+    );
+}
+
+export function disableDockerBackedTools(reason: string): void {
+    process.env.DOCKER_BACKED_TOOLS_ENABLED = 'false';
+    log.warn('Docker-backed tools disabled', { reason });
+}
+
+export async function checkToolboxAvailable(): Promise<{ ok: true } | { ok: false; reason: string }> {
+    if (!dockerBackedToolsEnabled()) {
+        return { ok: false, reason: 'Docker-backed tools disabled by environment' };
+    }
+
+    return new Promise(resolve => {
+        execFile('docker', ['exec', TOOLBOX_CONTAINER, 'true'], {
+            timeout: 5_000,
+            encoding: 'utf8',
+        }, (error, _stdout, stderr) => {
+            if (!error) {
+                resolve({ ok: true });
+                return;
+            }
+            resolve({
+                ok: false,
+                reason: (stderr || error.message || 'docker exec failed').trim(),
+            });
+        });
+    });
+}
+
 /** Extract the exit code from a child_process error. Defaults to 1 for unknown errors. */
 function getExitCode(error: Error): number {
     const err = error as unknown as Record<string, unknown>;
@@ -28,6 +72,15 @@ export async function execInToolbox(
     command: string,
     timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<ExecResult> {
+    if (!dockerBackedToolsEnabled()) {
+        return {
+            stdout: '',
+            stderr: 'Docker-backed tools are disabled for this executor runtime.',
+            exitCode: 126,
+            timedOut: false,
+        };
+    }
+
     return new Promise(resolve => {
         const args = [
             'exec',
@@ -50,6 +103,13 @@ export async function execInToolbox(
                     timedOut = true;
                 }
                 exitCode = getExitCode(error);
+                const message = `${stderr}\n${error.message}`;
+                if (message.includes('permission denied') || message.includes('Cannot connect to the Docker daemon')) {
+                    log.error('Docker-backed executor cannot reach Docker', {
+                        command: command.slice(0, 200),
+                        stderr: stderr.slice(0, 500),
+                    });
+                }
             }
 
             // Cap output

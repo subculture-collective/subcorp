@@ -2,7 +2,7 @@
 // Subrosa: binding vetoes (immediate halt)
 // Other agents: soft vetoes (trigger review hold)
 // Primus/human: can override any veto
-import { sql, jsonb } from '@/lib/db';
+import { sql } from '@/lib/db';
 import { getPolicy } from './policy';
 import { emitEvent } from './events';
 import { logger } from '@/lib/logger';

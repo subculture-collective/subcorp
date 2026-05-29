@@ -2,7 +2,6 @@
 // Integrates with roundtable sessions for structured voting debates.
 import { sql, jsonb } from '@/lib/db';
 import { emitEventAndCheckReactions } from './events';
-import { getVoice } from '@/lib/roundtable/voices';
 import { logger } from '@/lib/logger';
 import type {
     AgentProposal,

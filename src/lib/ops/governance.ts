@@ -38,6 +38,80 @@ type GovernanceVoteChoice = 'approve' | 'reject';
 
 const PROTECTED_POLICIES = new Set(['system_enabled', 'veto_authority']);
 
+const AUTO_APPROVE_ALLOWED_STEP_KINDS = [
+    'research_topic',
+    'scan_signals',
+    'draft_essay',
+    'draft_thread',
+    'audit_system',
+    'patch_code',
+    'distill_insight',
+    'document_lesson',
+    'critique_content',
+    'consolidate_memory',
+    'memory_archaeology',
+    'draft_product_spec',
+    'log_event',
+    'convene_roundtable',
+    'identify_assumption',
+    'review_policy',
+    'map_dependency',
+    'classify_pattern',
+    'trace_incentive',
+    'tag_memory',
+    'refine_narrative',
+    'propose_workflow',
+    'content_revision',
+    'write_issue',
+    'prepare_statement',
+    'escalate_risk',
+    'analyze_discourse',
+    'self_evolution',
+    'github_issue',
+    'github_pr',
+    'explore_repo',
+    'publish_blog',
+    'notify_human',
+    'create_pull_request',
+] as const;
+
+const POLICY_VALIDATORS: Record<string, (value: Record<string, unknown>) => string | null> = {
+    auto_approve(value) {
+        if (typeof value.enabled !== 'boolean') {
+            return 'auto_approve.enabled must be a boolean';
+        }
+
+        if (!Array.isArray(value.allowed_step_kinds)) {
+            return 'auto_approve.allowed_step_kinds must be an array';
+        }
+
+        const invalid = value.allowed_step_kinds.filter(
+            stepKind =>
+                typeof stepKind !== 'string' ||
+                !AUTO_APPROVE_ALLOWED_STEP_KINDS.includes(
+                    stepKind as (typeof AUTO_APPROVE_ALLOWED_STEP_KINDS)[number],
+                ),
+        );
+
+        if (invalid.length > 0) {
+            return `auto_approve.allowed_step_kinds contains invalid step kind(s): ${invalid.join(', ')}`;
+        }
+
+        return null;
+    },
+};
+
+function validatePolicyValue(
+    policyKey: string,
+    proposedValue: Record<string, unknown>,
+): void {
+    const validate = POLICY_VALIDATORS[policyKey];
+    const error = validate?.(proposedValue);
+    if (error) {
+        throw new Error(`Invalid value for policy "${policyKey}": ${error}`);
+    }
+}
+
 // ─── Create proposal ───
 
 export async function proposeGovernanceChange(
@@ -52,6 +126,8 @@ export async function proposeGovernanceChange(
             `Policy "${policyKey}" is protected and cannot be changed`,
         );
     }
+
+    validatePolicyValue(policyKey, proposedValue);
 
     // Check for duplicate active proposals on same policy
     const [existing] = await sql<[{ id: string }?]>`

@@ -4,6 +4,9 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { RoundtableTurn } from '@/lib/types';
+import { clientLogger } from '@/lib/client-logger';
+
+const log = clientLogger.child({ component: 'useTTS' });
 
 // Lazy imports — browser TTS modules reference window.speechSynthesis
 let _providerModule: typeof import('@/lib/tts/provider') | null = null;
@@ -88,13 +91,13 @@ async function fetchTTSAudio(
         });
         if (!res.ok) {
             const errBody = await res.text().catch(() => '');
-            console.warn(`[TTS] Synthesis failed (${res.status}):`, errBody);
+            log.warn('TTS synthesis failed', { status: res.status, body: errBody });
             return null;
         }
         return await res.blob();
     } catch (err) {
         if ((err as Error).name !== 'AbortError') {
-            console.warn('[TTS] Fetch error:', (err as Error).message);
+            log.warn('TTS fetch failed', { error: (err as Error).message });
         }
         return null;
     }

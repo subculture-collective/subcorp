@@ -48,12 +48,18 @@ interface SpeechRecognitionInstance extends EventTarget {
 
 type SpeechRecognitionCtor = new () => SpeechRecognitionInstance;
 
+interface SpeechRecognitionWindow extends Window {
+    SpeechRecognition?: SpeechRecognitionCtor;
+    webkitSpeechRecognition?: SpeechRecognitionCtor;
+}
+
 // Browser compat — SpeechRecognition is prefixed in most engines
 function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
     if (typeof window === 'undefined') return null;
+    const speechWindow = window as SpeechRecognitionWindow;
     return (
-        (window as any).SpeechRecognition ??
-        (window as any).webkitSpeechRecognition ??
+        speechWindow.SpeechRecognition ??
+        speechWindow.webkitSpeechRecognition ??
         null
     );
 }
@@ -82,17 +88,12 @@ export interface SpeechRecognitionControls {
 
 export function useSpeechRecognition(): [SpeechRecognitionState, SpeechRecognitionControls] {
     const [isListening, setIsListening] = useState(false);
-    const [isSupported, setIsSupported] = useState(false);
+    const [isSupported] = useState(() => getSpeechRecognitionCtor() !== null);
     const [transcript, setTranscript] = useState('');
     const [interimTranscript, setInterimTranscript] = useState('');
     const [error, setError] = useState<string | null>(null);
 
     const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-
-    // Detect support on mount
-    useEffect(() => {
-        setIsSupported(getSpeechRecognitionCtor() !== null);
-    }, []);
 
     const start = useCallback(() => {
         const Ctor = getSpeechRecognitionCtor();

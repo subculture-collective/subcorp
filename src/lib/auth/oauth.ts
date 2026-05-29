@@ -38,8 +38,6 @@ interface ProviderConfig {
 }
 
 function getProviderConfig(provider: OAuthProvider): ProviderConfig | null {
-    const base = process.env.AUTH_REDIRECT_BASE_URL ?? '';
-
     switch (provider) {
         case 'github':
             return {

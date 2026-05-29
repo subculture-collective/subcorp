@@ -23,7 +23,7 @@ export const memorySearchTool: NativeTool = {
             },
             limit: {
                 type: 'number',
-                description: 'Maximum results (default 10)',
+                description: 'Maximum results (default 25, max 250)',
             },
         },
         required: ['query'],
@@ -31,7 +31,8 @@ export const memorySearchTool: NativeTool = {
     execute: async (params) => {
         const query = params.query as string;
         const agentId = params.agent_id as string | undefined;
-        const limit = Math.min((params.limit as number) || 10, 25);
+        const requestedLimit = Number(params.limit) || 25;
+        const limit = Math.min(Math.max(requestedLimit, 1), 250);
 
         // Try vector search first
         const embedding = await getEmbedding(query);

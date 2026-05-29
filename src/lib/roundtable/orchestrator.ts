@@ -1016,9 +1016,6 @@ async function orchestrateVoiceChat(
         speaker: string,
         turnNumber: number,
     ): Promise<ConversationTurnEntry | null> {
-        const voice = getVoice(speaker);
-        const speakerName = voice?.displayName ?? speaker;
-
         let interactionType: string | undefined;
         if (history.length > 0) {
             const lastSpeaker = history[history.length - 1].speaker;

@@ -42,6 +42,8 @@ function useDroids(): DroidState[] {
 
     useEffect(() => {
         mountedRef.current = true;
+        // Initial droid fetch synchronizes external API state on mount.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         fetchDroids();
         return () => { mountedRef.current = false; };
     }, [fetchDroids]);
@@ -133,7 +135,7 @@ export function useOfficeState() {
     useEffect(() => {
         async function fetchMissions() {
             try {
-                const res = await fetch('/api/ops/missions?status=running&limit=20');
+                const res = await fetch('/api/ops/missions?status=active&limit=20');
                 if (!res.ok) {
                     log.error('Failed to fetch missions', { status: res.statusText });
                     return;

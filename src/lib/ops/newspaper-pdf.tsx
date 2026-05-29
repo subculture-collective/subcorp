@@ -146,6 +146,7 @@ function ArticleBlock({ article }: { article: NewspaperArticle }) {
     return (
         <View style={styles.article}>
             {article.ogImage && (
+                // eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image has no alt prop.
                 <Image src={article.ogImage} style={styles.articleImage} />
             )}
             <Text style={styles.articleTitle}>{article.title}</Text>
