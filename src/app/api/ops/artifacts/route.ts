@@ -49,14 +49,14 @@ const WORKSPACE_ROOT = '/workspace';
 const OUTPUT_ROOT = '/workspace/output';
 const CONTENT_PREVIEW_BYTES = 2 * 1024;
 const WORKSPACE_PREVIEW_BYTES = 128;
-const MAX_WORKSPACE_FILES = 200;
+const MAX_WORKSPACE_FILES = 500;
 const FIND_DELIMITER = '__SUBCORP_ARTIFACT__';
 const log = logger.child({ module: 'ops-artifacts-route' });
 
 function clampLimit(raw: string | null): number {
     const parsed = parseInt(raw ?? '80', 10);
     if (Number.isNaN(parsed)) return 80;
-    return Math.max(1, Math.min(parsed, 200));
+    return Math.max(1, Math.min(parsed, 500));
 }
 
 function shellEscape(value: string): string {
@@ -152,7 +152,6 @@ async function listWorkspaceOutputFiles(limit: number): Promise<WorkspaceFileRow
     const command =
         `if [ ! -d ${shellEscape(OUTPUT_ROOT)} ]; then exit 0; fi; ` +
         `find ${shellEscape(OUTPUT_ROOT)} -type f ` +
-        `\( -name '*.md' -o -name '*.txt' -o -name '*.json' \) ` +
         `-printf '%T@\\t%s\\t%p\\n' 2>/dev/null | sort -nr | head -n ${effectiveLimit}`;
 
     const result = await execInToolbox(command, 10_000);
