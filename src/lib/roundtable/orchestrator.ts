@@ -785,7 +785,6 @@ export async function orchestrateConversation(
                 ],
                 temperature: effectiveTemperature,
                 maxTokens: format.maxTokensPerTurn,
-                model: session.model ?? undefined,
                 trackingContext: {
                     agentId: speaker,
                     context: `roundtable:${session.format}`,
@@ -1058,7 +1057,6 @@ async function orchestrateVoiceChat(
                 ],
                 temperature: format.temperature,
                 maxTokens: format.maxTokensPerTurn,
-                model: session.model ?? undefined,
                 trackingContext: {
                     agentId: speaker,
                     context: 'roundtable:voice_chat',
@@ -1246,12 +1244,11 @@ export async function enqueueConversation(options: {
     participants: string[];
     scheduleSlot?: string;
     scheduledFor?: string;
-    model?: string;
     source?: string;
     metadata?: Record<string, unknown>;
 }): Promise<string> {
     const [row] = await sql<[{ id: string }]>`
-        INSERT INTO ops_roundtable_sessions (format, topic, participants, status, schedule_slot, scheduled_for, model, source, metadata)
+        INSERT INTO ops_roundtable_sessions (format, topic, participants, status, schedule_slot, scheduled_for, source, metadata)
         VALUES (
             ${options.format},
             ${options.topic},
@@ -1259,7 +1256,6 @@ export async function enqueueConversation(options: {
             'pending',
             ${options.scheduleSlot ?? null},
             ${options.scheduledFor ?? new Date().toISOString()},
-            ${options.model ?? null},
             ${options.source ?? null},
             ${jsonb(options.metadata ?? {})}
         )

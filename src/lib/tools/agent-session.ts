@@ -408,7 +408,6 @@ async function runAgentToolLoop(opts: {
             messages,
             temperature: 0.7,
             maxTokens: 16_000,
-            model: session.model ?? undefined,
             tools: tools.length > 0 ? tools : undefined,
             maxToolRounds: 20,
             trackingContext: { agentId, context: 'agent_session', sessionId: session.id },

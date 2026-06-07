@@ -343,7 +343,6 @@ export interface RoundtableSession {
     status: SessionStatus;
     scheduled_for?: string;
     schedule_slot?: string;
-    model?: string;
     source?: string;
     turn_count: number;
     metadata: Record<string, unknown>;
@@ -379,7 +378,7 @@ export interface LLMGenerateOptions {
     messages: LLMMessage[];
     temperature?: number;
     maxTokens?: number;
-    model?: string; // Override default model for this request
+    model?: string; // Internal explicit override; prefer MODEL_ROUTING_* env for job assignment
     tools?: ToolDefinition[];
     maxToolRounds?: number;
     trackingContext?: {

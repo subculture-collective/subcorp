@@ -32,7 +32,7 @@ services:
   subcorp-worker:
     build: .
     container_name: subcorp-worker
-    command: ['node', 'scripts/unified-worker/dist/index.js']
+    command: ["node", "scripts/unified-worker/dist/index.js"]
     networks: [projects, dev]
     dns:
       - 10.0.0.200
@@ -40,6 +40,7 @@ services:
     env_file: .env
     environment:
       - LOG_FORMAT=pretty
+      - WORKER_HEARTBEAT_ENABLED=false
     group_add:
       - "${DOCKER_SOCK_GID:-967}"
     volumes:
@@ -65,7 +66,7 @@ services:
   subcorp-sanctum:
     build: .
     container_name: subcorp-sanctum
-    command: ['node', 'scripts/sanctum-server/dist/server.js']
+    command: ["node", "scripts/sanctum-server/dist/server.js"]
     networks: [projects, dev]
     dns:
       - 10.0.0.200

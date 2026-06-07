@@ -364,18 +364,12 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `\nINSTRUCTIONS:\n` +
         `Send a notification to the human operator via ntfy:\n` +
         `  Use bash:\n` +
-        `  curl -sS -X POST "http://172.20.0.9/subcorp-agents" \
-` +
-        `    -H "Title: 🛠️ Agent needs human help" \
-` +
-        `    -H "Priority: high" \
-` +
-        `    -H "Tags: warning,robot_face,hand" \
-` +
-        `    -H "Markdown: yes" \
-` +
-        `    -d $'## Human action needed\n\n- **Task**: [task name]\n- **Need**: [what human must do]\n- **Tried**: [what you already tried]\n- **Blocker**: [why blocked]\n- **Next after help**: [what you will do next]'
-` +
+        `  curl -sS -X POST "http://172.20.0.9/subcorp-agents" \\\n` +
+        `    -H "Title: 🛠️ Agent needs human help" \\\n` +
+        `    -H "Priority: high" \\\n` +
+        `    -H "Tags: warning,robot_face,hand" \\\n` +
+        `    -H "Markdown: yes" \\\n` +
+        `    -d $'## Human action needed\\n\\n- **Task**: [task name]\\n- **Need**: [what human must do]\\n- **Tried**: [what you already tried]\\n- **Blocker**: [why blocked]\\n- **Next after help**: [what you will do next]'\n` +
         `  Optional: if you must include JSON context, append a fenced code block instead of sending raw JSON as the whole message.\n` +
         `\nBe specific about what you need:\n` +
         `- What task requires human help\n` +

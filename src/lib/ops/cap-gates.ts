@@ -3,7 +3,7 @@ import { sql } from '@/lib/db';
 import type { ProposalInput, GateResult } from '../types';
 import { getPolicy } from './policy';
 
-const MAX_CONCURRENT_MISSIONS = 25;
+const MAX_CONCURRENT_MISSIONS = 50;
 const MAX_DAILY_STEPS_PER_AGENT = 200;
 
 export async function checkCapGates(input: ProposalInput): Promise<GateResult> {

@@ -87,7 +87,7 @@ INSERT INTO ops_policy (key, value, description) VALUES (
         "soft_veto_agents": ["chora", "thaum", "praxis", "mux", "primus"],
         "override_agents": ["primus"],
         "default_expiry_hours": 72,
-        "protected_step_kinds": ["patch_code"]
+        "protected_step_kinds": ["update_directive"]
     }'::jsonb,
     'Veto authority configuration — binding agents can halt proposals/missions, soft vetoes trigger review holds'
 ) ON CONFLICT (key) DO UPDATE SET

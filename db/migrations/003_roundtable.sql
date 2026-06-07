@@ -1,5 +1,5 @@
 -- 003: Roundtable conversation system
--- Consolidated from: 009, 010, 016b (model col), 023 (source col), 029b (daily digests), 047 (voice_chat+agent_design)
+-- Consolidated from: 009, 010, 023 (source col), 029b (daily digests), 047 (voice_chat+agent_design)
 
 -- ── Roundtable Sessions ──
 CREATE TABLE IF NOT EXISTS ops_roundtable_sessions (
@@ -16,8 +16,6 @@ CREATE TABLE IF NOT EXISTS ops_roundtable_sessions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   started_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ,
-  -- 016b: per-conversation model override
-  model TEXT,
   -- 023: session origin tracking
   source TEXT
 );
@@ -33,7 +31,6 @@ ALTER TABLE ops_roundtable_sessions ADD CONSTRAINT ops_roundtable_sessions_forma
   ));
 
 -- Add columns idempotently for existing DBs
-ALTER TABLE ops_roundtable_sessions ADD COLUMN IF NOT EXISTS model TEXT;
 DO $$ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns

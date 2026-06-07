@@ -1,4 +1,4 @@
-# Dynamic Systems Proposals — Subcult-Corp
+# Dynamic Systems Proposals — subcorp
 
 > Evaluation and improvement proposals for hardcoded configuration systems.
 > Created: 2026-02-14

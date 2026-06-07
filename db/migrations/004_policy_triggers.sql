@@ -70,7 +70,6 @@ CREATE TABLE IF NOT EXISTS ops_cron_schedules (
     prompt TEXT NOT NULL,
     timeout_seconds INTEGER DEFAULT 300,
     max_tool_rounds INTEGER DEFAULT 15,
-    model TEXT,
     enabled BOOLEAN DEFAULT true,
     last_fired_at TIMESTAMPTZ,
     next_fire_at TIMESTAMPTZ,

@@ -22,9 +22,9 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
 /**
  * Master switch for OpenRouter. Set OPENROUTER_ENABLED=false to route ALL calls
  * through Ollama only. When disabled, OpenRouter is never called — not even as fallback.
- * Default: true (for backward compat). Set to false when running Ollama-only.
+ * Default: false. This service should normally use llama-line/Ollama only.
  */
-const OPENROUTER_ENABLED = process.env.OPENROUTER_ENABLED !== 'false';
+const OPENROUTER_ENABLED = process.env.OPENROUTER_ENABLED === 'true';
 
 /** Normalize model ID — strip erroneous openrouter/ prefix (only openrouter/auto is valid with that prefix) */
 function normalizeModel(id: string): string {
@@ -72,16 +72,10 @@ const LLM_TEXT_TOTAL_BUDGET_MS = 75_000;
 const LLM_TOOL_TOTAL_BUDGET_MS = 90_000;
 
 /**
- * Local Ollama fallback chain used when a context resolves only cloud models
- * and OpenRouter is disabled. Adjustable via OLLAMA_FALLBACK_MODELS.
+ * Local Ollama fallback chain used only when OLLAMA_MODEL is not set.
+ * Keep the default single-model to avoid surprise traffic to stale models.
  */
-const DEFAULT_OLLAMA_FALLBACK_MODELS = [
-    'qwen3:14b',
-    'gemma4:latest',
-    'qwen2.5-coder:14b',
-    'qwen3.5:latest',
-    
-];
+const DEFAULT_OLLAMA_FALLBACK_MODELS = ['qwen3:14b'];
 
 const OLLAMA_FALLBACK_MODELS = (
     process.env.OLLAMA_FALLBACK_MODELS ??
@@ -249,13 +243,12 @@ function getClient(): OpenRouter {
 /** Re-export the singleton for direct SDK access when needed */
 export { getClient as getOpenRouterClient };
 
-// ─── Ollama (cloud via ollama.com + local network) ───
+// ─── Ollama-compatible local broker (llama-line/Ollama) ───
 // Set OLLAMA_ENABLED=false to disable all Ollama paths (defaults to true when credentials exist)
 
 const OLLAMA_ENABLED = process.env.OLLAMA_ENABLED !== 'false';
 const OLLAMA_LOCAL_URL =
     OLLAMA_ENABLED ? (process.env.OLLAMA_BASE_URL ?? '') : '';
-const OLLAMA_CLOUD_URL = 'https://ollama.com';
 const OLLAMA_API_KEY = OLLAMA_ENABLED ? (process.env.OLLAMA_API_KEY ?? '') : '';
 // Timeouts are generous to accommodate llama-line broker queue wait times.
 // The broker serialises requests; a busy queue can add minutes of wait before inference starts.
@@ -305,12 +298,29 @@ function isLocalModelId(model?: string): boolean {
     return normalized.includes(':') && !normalized.includes('/');
 }
 
+const LLAMA_LINE_MODEL_PREFIXES = (
+    process.env.LLAMA_LINE_MODEL_PREFIXES ?? 'openai/gpt-,github-copilot/'
+)
+    .split(',')
+    .map(prefix => prefix.trim())
+    .filter(Boolean);
+
+function isLlamaLineRoutedModel(model?: string): boolean {
+    if (!model) return false;
+    const normalized = normalizeModel(model);
+    return LLAMA_LINE_MODEL_PREFIXES.some(prefix => normalized.startsWith(prefix));
+}
+
+function isOllamaRoutedModel(model?: string): boolean {
+    return isLocalModelId(model) || isLlamaLineRoutedModel(model);
+}
+
 function canUseOpenRouter(): boolean {
     return OPENROUTER_ENABLED && !!OPENROUTER_API_KEY;
 }
 
 function shouldTryOllamaFirst(model?: string): boolean {
-    return !canUseOpenRouter() || isLocalModelId(model);
+    return !canUseOpenRouter() || isOllamaRoutedModel(model);
 }
 
 function getRemainingBudget(deadlineAt: number): number {
@@ -441,12 +451,11 @@ async function filterReachableLocalOllamaModels(
 }
 
 /**
- * Ordered fallback chain — cloud models first (free, capable), local models as fallback.
- * Cloud models hit ollama.com with API key auth.
- * Local models hit the network Ollama instance.
+ * Ordered fallback chain for Ollama-compatible inference.
+ * Models hit OLLAMA_BASE_URL, which should normally be the llama-line broker.
  *
  * When OLLAMA_MODEL is set in env, only that model is used for local calls
- * (skips the hardcoded fallback list).
+ * unless a caller explicitly requests a different model.
  */
 function getOllamaModels(): OllamaModelSpec[] {
     return getOllamaModelsWithFallback();
@@ -467,47 +476,23 @@ function dedupeModelSpecs(models: OllamaModelSpec[]): OllamaModelSpec[] {
 }
 
 function getOllamaModelsWithFallback(preferredModel?: string): OllamaModelSpec[] {
-    const cloudModels: OllamaModelSpec[] = [];
     const localModels: OllamaModelSpec[] = [];
-    const preferLocalFirst = isLocalModelId(preferredModel) || !canUseOpenRouter();
 
-    // Cloud models via ollama.com (fast, capable, free)
-    if (OLLAMA_API_KEY) {
-        cloudModels.push(
-            {
-                model: 'deepseek-v3.2:cloud',
-                baseUrl: OLLAMA_CLOUD_URL,
-                apiKey: OLLAMA_API_KEY,
-            },
-            {
-                model: 'kimi-k2.5:cloud',
-                baseUrl: OLLAMA_CLOUD_URL,
-                apiKey: OLLAMA_API_KEY,
-            },
-            {
-                model: 'gemini-3-flash-preview:latest',
-                baseUrl: OLLAMA_CLOUD_URL,
-                apiKey: OLLAMA_API_KEY,
-            },
-        );
-    }
-
-    // Local/network models via OLLAMA_BASE_URL
+    // Local/network models via OLLAMA_BASE_URL.
+    // OLLAMA_MODEL is the single default. The fallback list is only used when
+    // no default is configured, so hardcoded stale models cannot leak traffic.
     if (OLLAMA_LOCAL_URL) {
-        const localModelIds = [
-            ...(preferredModel ? [preferredModel] : []),
-            ...OLLAMA_FALLBACK_MODELS,
-            ...(OLLAMA_MODEL ? [OLLAMA_MODEL] : []),
-        ];
+        const localModelIds =
+            preferredModel ? [preferredModel]
+            : OLLAMA_MODEL ? [OLLAMA_MODEL]
+            : OLLAMA_FALLBACK_MODELS;
 
         for (const model of localModelIds) {
             localModels.push({ model, baseUrl: OLLAMA_LOCAL_URL, apiKey: OLLAMA_API_KEY || undefined });
         }
     }
 
-    return dedupeModelSpecs(
-        preferLocalFirst ? [...localModels, ...cloudModels] : [...cloudModels, ...localModels],
-    );
+    return dedupeModelSpecs(localModels);
 }
 
 /** Strip thinking blocks from reasoning model output.
@@ -753,7 +738,7 @@ async function ollamaChat(
     },
 ): Promise<OllamaChatResult | null> {
     const preferredModel =
-        options?.model && options.model.includes(':') ? options.model : undefined;
+        options?.model && isOllamaRoutedModel(options.model) ? options.model : undefined;
     const models = getOllamaModelsWithFallback(preferredModel);
     if (models.length === 0) return null;
 
@@ -1418,7 +1403,16 @@ export async function llmGenerate(
     const systemMessage = messages.find(m => m.role === 'system');
     const conversationMessages = messages.filter(m => m.role !== 'system');
 
-    const preferOllamaFirst = shouldTryOllamaFirst(model);
+    let resolvedOllamaModel = model;
+    if (!resolvedOllamaModel && trackingContext?.context) {
+        try {
+            const routed = await resolveModels(trackingContext.context);
+            const ollamaCandidate = routed.find((m: string) => m.includes(':'));
+            if (ollamaCandidate) resolvedOllamaModel = ollamaCandidate;
+        } catch { /* use default */ }
+    }
+
+    const preferOllamaFirst = shouldTryOllamaFirst(resolvedOllamaModel);
     const hasToolsDefined = tools && tools.length > 0;
     if (preferOllamaFirst) {
         const ollamaText = await tryOllamaFirst(
@@ -1427,13 +1421,13 @@ export async function llmGenerate(
             maxTokens,
             startTime,
             trackingContext,
-            model,
+            resolvedOllamaModel,
             totalDeadlineAt,
         );
         if (ollamaText) return ollamaText;
-        if (isLocalModelId(model)) {
-            log.warn('Explicit local model request failed; skipping cloud fallback', {
-                model,
+        if (isOllamaRoutedModel(resolvedOllamaModel)) {
+            log.warn('Explicit Ollama/llama-line model request failed; skipping cloud fallback', {
+                model: resolvedOllamaModel,
                 context: trackingContext?.context,
             });
             return '';
@@ -2084,8 +2078,6 @@ export async function llmGenerateWithTools(
         agentId: trackingContext?.agentId,
     });
 
-    const preferOllamaFirst = shouldTryOllamaFirst(model);
-
     // ── Try Ollama first — WITH tool support ──
     // Resolve context-specific Ollama model if no explicit model given
     let resolvedModel = model;
@@ -2096,6 +2088,7 @@ export async function llmGenerateWithTools(
             if (ollamaCandidate) resolvedModel = ollamaCandidate;
         } catch { /* use default */ }
     }
+    const preferOllamaFirst = shouldTryOllamaFirst(resolvedModel);
     if (preferOllamaFirst) {
         const ollamaResult = await ollamaChat(messages, temperature, {
             maxTokens,
@@ -2120,8 +2113,8 @@ export async function llmGenerateWithTools(
             return { text: ollamaResult.text, toolCalls: ollamaResult.toolCalls };
         }
 
-        if (isLocalModelId(resolvedModel)) {
-            log.warn('Explicit local tool-call model failed; skipping cloud fallback', {
+        if (isOllamaRoutedModel(resolvedModel)) {
+            log.warn('Explicit Ollama/llama-line tool-call model failed; skipping cloud fallback', {
                 model: resolvedModel,
                 context: trackingContext?.context,
             });

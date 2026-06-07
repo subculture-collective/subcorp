@@ -80,14 +80,10 @@ export async function POST(req: NextRequest) {
                 );
             }
 
-            const model =
-                typeof body.model === 'string' ? body.model.trim() : undefined;
-
             const sessionId = await enqueueConversation({
                 format,
                 topic: body.topic.trim(),
                 participants: body.participants,
-                model: model || undefined,
             });
 
             return NextResponse.json(

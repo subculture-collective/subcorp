@@ -177,14 +177,13 @@ export async function evaluateCronSchedules(): Promise<{
             // Enqueue agent session
             await sql`
                 INSERT INTO ops_agent_sessions (
-                    agent_id, prompt, source, source_id, model,
+                    agent_id, prompt, source, source_id,
                     timeout_seconds, max_tool_rounds
                 ) VALUES (
                     ${schedule.agent_id},
                     ${schedule.prompt},
                     'cron',
                     ${schedule.id},
-                    ${schedule.model ?? null},
                     ${schedule.timeout_seconds},
                     ${schedule.max_tool_rounds}
                 )

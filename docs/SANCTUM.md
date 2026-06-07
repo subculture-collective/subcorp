@@ -386,7 +386,8 @@ Manages WebSocket connection, message state, typing indicators, and whisper mode
 # Server
 SANCTUM_WS_PORT=3011                    # WebSocket server port
 DATABASE_URL=postgresql://...           # PostgreSQL connection
-OPENROUTER_API_KEY=sk-...              # LLM API key
+OLLAMA_BASE_URL=http://10.0.0.50:11434  # llama-line/Ollama broker
+OLLAMA_API_KEY=...                      # llama-line client key
 
 # Client (Next.js)
 NEXT_PUBLIC_SANCTUM_WS_PORT=3011       # WebSocket client port
@@ -501,7 +502,7 @@ LOG_LEVEL=debug npm run sanctum
 
 ### Agents not responding
 
-- Verify `OPENROUTER_API_KEY` is set
+- Verify `OLLAMA_BASE_URL` and `OLLAMA_API_KEY` are set
 - Check database connectivity
 - Inspect agent router logs for classification decisions
 

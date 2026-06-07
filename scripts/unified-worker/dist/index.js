@@ -800,111 +800,51 @@ var init_logger = __esm({
 });
 
 // src/lib/llm/model-routing.ts
-async function syncEnvToDb() {
-  if (envSynced) return;
-  envSynced = true;
-  const entries = [];
-  for (const [key, value] of Object.entries(process.env)) {
-    if (!key.startsWith(ENV_PREFIX) || !value) continue;
-    const rawContext = key.slice(ENV_PREFIX.length);
-    if (!rawContext) continue;
-    const context = rawContext.toLowerCase().replace(/__/g, ":");
-    const models = value.split(",").map((m) => m.trim()).filter(Boolean);
-    if (models.length > 0) {
-      entries.push({ context, models });
-    }
-  }
-  if (entries.length === 0) return;
-  for (const { context, models } of entries) {
-    try {
-      await sql`
-                INSERT INTO ops_model_routing (context, models, description, updated_at)
-                VALUES (${context}, ${models}, ${"Set via MODEL_ROUTING env var"}, NOW())
-                ON CONFLICT (context) DO UPDATE SET
-                    models = EXCLUDED.models,
-                    description = EXCLUDED.description,
-                    updated_at = NOW()
-            `;
-      cache.delete(context);
-      logger.info("Model routing updated from env", { context, models });
-    } catch (error) {
-      logger.error("Failed to sync model routing env var", { context, models, error });
-    }
-  }
-}
 function normalizeContext2(context) {
   return context.replace(/-/g, "_");
 }
-async function resolveModels(context) {
-  await syncEnvToDb();
-  if (!context) {
-    return await lookupOrDefault("default");
+function parseModels(value) {
+  const models = value?.split(",").map((model) => model.trim()).filter(Boolean);
+  return models && models.length > 0 ? models : null;
+}
+function envKeyToContext(key) {
+  return key.slice(ENV_PREFIX.length).toLowerCase().replace(/__/g, ":");
+}
+function loadEnvRoutes() {
+  const routes = /* @__PURE__ */ new Map();
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.startsWith(ENV_PREFIX) || CONTROL_ENV_KEYS.has(key)) continue;
+    const models = parseModels(value);
+    if (!models) continue;
+    routes.set(envKeyToContext(key), models);
   }
+  return routes;
+}
+async function resolveModels(context) {
+  if (!MODEL_ROUTING_ENABLED) return DEFAULT_MODELS;
+  const routes = loadEnvRoutes();
+  if (!context) return routes.get("default") ?? DEFAULT_MODELS;
   const normalized = normalizeContext2(context);
-  const exact = await lookupCached(normalized);
+  const exact = routes.get(normalized);
   if (exact) return exact;
   const colonIdx = normalized.indexOf(":");
   if (colonIdx > 0) {
     const prefix = normalized.slice(0, colonIdx);
-    const prefixResult = await lookupCached(prefix);
+    const prefixResult = routes.get(prefix);
     if (prefixResult) return prefixResult;
   }
-  return await lookupOrDefault("default");
+  return routes.get("default") ?? DEFAULT_MODELS;
 }
-async function lookupCached(context) {
-  const cached = cache.get(context);
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    return cached.models.length > 0 ? cached.models : null;
-  }
-  try {
-    const [row] = await sql`
-            SELECT models FROM ops_model_routing WHERE context = ${context}
-        `;
-    if (!row || !row.models || row.models.length === 0) {
-      cache.set(context, { models: [], ts: Date.now() });
-      return null;
-    }
-    cache.set(context, { models: row.models, ts: Date.now() });
-    return row.models;
-  } catch (error) {
-    logger.error(
-      "resolveModels: failed to query ops_model_routing; falling back to default models",
-      { error, context }
-    );
-    cache.set(context, { models: [], ts: Date.now() });
-    return null;
-  }
-}
-async function lookupOrDefault(context) {
-  const result = await lookupCached(context);
-  return result ?? DEFAULT_MODELS;
-}
-var DEFAULT_MODELS, ENV_PREFIX, CACHE_TTL_MS, cache, envSynced;
+var DEFAULT_MODELS, ENV_PREFIX, CONTROL_ENV_KEYS, MODEL_ROUTING_ENABLED;
 var init_model_routing = __esm({
   "src/lib/llm/model-routing.ts"() {
     "use strict";
-    init_db();
-    init_logger();
     DEFAULT_MODELS = [
-      "openai/gpt-oss-120b",
-      // fast, cheap ($0.10/M), strong general-purpose
-      "deepseek/deepseek-v3.2",
-      // fast, cheap ($0.14/M avg), good tool calling
-      "google/gemini-2.5-flash",
-      // fast, cheap ($0.15/M avg), 1M context
-      "qwen/qwen3-235b-a22b",
-      // good quality, cheap ($0.14/M avg)
-      "moonshotai/kimi-k2.5",
-      // strong reasoning, moderate cost ($0.60/M avg)
-      "anthropic/claude-haiku-4.5",
-      // reliable, moderate cost ($1/$5)
-      "anthropic/claude-sonnet-4.5"
-      // last resort — highest quality, highest cost
+      process.env.MODEL_ROUTING_DEFAULT || process.env.OLLAMA_MODEL || "qwen3:14b"
     ];
     ENV_PREFIX = "MODEL_ROUTING_";
-    CACHE_TTL_MS = 3e4;
-    cache = /* @__PURE__ */ new Map();
-    envSynced = false;
+    CONTROL_ENV_KEYS = /* @__PURE__ */ new Set(["MODEL_ROUTING_ENABLED"]);
+    MODEL_ROUTING_ENABLED = process.env.MODEL_ROUTING_ENABLED !== "false";
   }
 });
 
@@ -992,11 +932,19 @@ function isLocalModelId(model) {
   const normalized = normalizeModel(model);
   return normalized.includes(":") && !normalized.includes("/");
 }
+function isLlamaLineRoutedModel(model) {
+  if (!model) return false;
+  const normalized = normalizeModel(model);
+  return LLAMA_LINE_MODEL_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+function isOllamaRoutedModel(model) {
+  return isLocalModelId(model) || isLlamaLineRoutedModel(model);
+}
 function canUseOpenRouter() {
   return OPENROUTER_ENABLED && !!OPENROUTER_API_KEY;
 }
 function shouldTryOllamaFirst(model) {
-  return !canUseOpenRouter() || isLocalModelId(model);
+  return !canUseOpenRouter() || isOllamaRoutedModel(model);
 }
 function getRemainingBudget(deadlineAt) {
   return Math.max(0, deadlineAt - Date.now());
@@ -1099,41 +1047,14 @@ function dedupeModelSpecs(models) {
   return deduped;
 }
 function getOllamaModelsWithFallback(preferredModel) {
-  const cloudModels = [];
   const localModels = [];
-  const preferLocalFirst = isLocalModelId(preferredModel) || !canUseOpenRouter();
-  if (OLLAMA_API_KEY) {
-    cloudModels.push(
-      {
-        model: "deepseek-v3.2:cloud",
-        baseUrl: OLLAMA_CLOUD_URL,
-        apiKey: OLLAMA_API_KEY
-      },
-      {
-        model: "kimi-k2.5:cloud",
-        baseUrl: OLLAMA_CLOUD_URL,
-        apiKey: OLLAMA_API_KEY
-      },
-      {
-        model: "gemini-3-flash-preview:latest",
-        baseUrl: OLLAMA_CLOUD_URL,
-        apiKey: OLLAMA_API_KEY
-      }
-    );
-  }
   if (OLLAMA_LOCAL_URL) {
-    const localModelIds = [
-      ...preferredModel ? [preferredModel] : [],
-      ...OLLAMA_FALLBACK_MODELS,
-      ...OLLAMA_MODEL ? [OLLAMA_MODEL] : []
-    ];
+    const localModelIds = preferredModel ? [preferredModel] : OLLAMA_MODEL ? [OLLAMA_MODEL] : OLLAMA_FALLBACK_MODELS;
     for (const model of localModelIds) {
       localModels.push({ model, baseUrl: OLLAMA_LOCAL_URL, apiKey: OLLAMA_API_KEY || void 0 });
     }
   }
-  return dedupeModelSpecs(
-    preferLocalFirst ? [...localModels, ...cloudModels] : [...cloudModels, ...localModels]
-  );
+  return dedupeModelSpecs(localModels);
 }
 function stripThinking(text) {
   return text.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/<\|channel>thought\n[\s\S]*?<channel\|>/g, "").trim();
@@ -1268,7 +1189,7 @@ function filterPhantomToolCalls(toolCalls, context) {
   return toolCalls;
 }
 async function ollamaChat(messages, temperature, options) {
-  const preferredModel = options?.model && options.model.includes(":") ? options.model : void 0;
+  const preferredModel = options?.model && isOllamaRoutedModel(options.model) ? options.model : void 0;
   const models = getOllamaModelsWithFallback(preferredModel);
   if (models.length === 0) return null;
   const maxTokens = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
@@ -1744,7 +1665,16 @@ async function llmGenerate(options) {
   });
   const systemMessage = messages.find((m) => m.role === "system");
   const conversationMessages = messages.filter((m) => m.role !== "system");
-  const preferOllamaFirst = shouldTryOllamaFirst(model);
+  let resolvedOllamaModel = model;
+  if (!resolvedOllamaModel && trackingContext?.context) {
+    try {
+      const routed = await resolveModels(trackingContext.context);
+      const ollamaCandidate = routed.find((m) => m.includes(":"));
+      if (ollamaCandidate) resolvedOllamaModel = ollamaCandidate;
+    } catch {
+    }
+  }
+  const preferOllamaFirst = shouldTryOllamaFirst(resolvedOllamaModel);
   const hasToolsDefined = tools && tools.length > 0;
   if (preferOllamaFirst) {
     const ollamaText = await tryOllamaFirst(
@@ -1753,13 +1683,13 @@ async function llmGenerate(options) {
       maxTokens,
       startTime,
       trackingContext,
-      model,
+      resolvedOllamaModel,
       totalDeadlineAt
     );
     if (ollamaText) return ollamaText;
-    if (isLocalModelId(model)) {
-      log.warn("Explicit local model request failed; skipping cloud fallback", {
-        model,
+    if (isOllamaRoutedModel(resolvedOllamaModel)) {
+      log.warn("Explicit Ollama/llama-line model request failed; skipping cloud fallback", {
+        model: resolvedOllamaModel,
         context: trackingContext?.context
       });
       return "";
@@ -2228,7 +2158,6 @@ async function llmGenerateWithTools(options) {
     context: trackingContext?.context,
     agentId: trackingContext?.agentId
   });
-  const preferOllamaFirst = shouldTryOllamaFirst(model);
   let resolvedModel = model;
   if (!resolvedModel && trackingContext?.context) {
     try {
@@ -2238,6 +2167,7 @@ async function llmGenerateWithTools(options) {
     } catch {
     }
   }
+  const preferOllamaFirst = shouldTryOllamaFirst(resolvedModel);
   if (preferOllamaFirst) {
     const ollamaResult = await ollamaChat(messages, temperature, {
       maxTokens,
@@ -2261,8 +2191,8 @@ async function llmGenerateWithTools(options) {
       );
       return { text: ollamaResult.text, toolCalls: ollamaResult.toolCalls };
     }
-    if (isLocalModelId(resolvedModel)) {
-      log.warn("Explicit local tool-call model failed; skipping cloud fallback", {
+    if (isOllamaRoutedModel(resolvedModel)) {
+      log.warn("Explicit Ollama/llama-line tool-call model failed; skipping cloud fallback", {
         model: resolvedModel,
         context: trackingContext?.context
       });
@@ -2436,7 +2366,7 @@ function extractJson(text) {
   }
   return null;
 }
-var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TEXT_TIMEOUT_MS, OPENROUTER_TEXT_BUDGET_MS, OPENROUTER_TOOL_TIMEOUT_MS, OPENROUTER_TOOL_BUDGET_MS, OPENROUTER_MAX_INDIVIDUAL_FALLBACKS, LLM_TEXT_TOTAL_BUDGET_MS, LLM_TOOL_TOTAL_BUDGET_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_CLOUD_URL, OLLAMA_API_KEY, OLLAMA_TEXT_TIMEOUT_MS, OLLAMA_PREFERRED_TEXT_TIMEOUT_MS, OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS, OLLAMA_TOOL_TIMEOUT_MS, OLLAMA_BUDGET_MS, OLLAMA_TAGS_TIMEOUT_MS, OLLAMA_MODEL_CACHE_TTL_MS, OLLAMA_MODEL, ollamaModelCatalogCache;
+var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TEXT_TIMEOUT_MS, OPENROUTER_TEXT_BUDGET_MS, OPENROUTER_TOOL_TIMEOUT_MS, OPENROUTER_TOOL_BUDGET_MS, OPENROUTER_MAX_INDIVIDUAL_FALLBACKS, LLM_TEXT_TOTAL_BUDGET_MS, LLM_TOOL_TOTAL_BUDGET_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_API_KEY, OLLAMA_TEXT_TIMEOUT_MS, OLLAMA_PREFERRED_TEXT_TIMEOUT_MS, OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS, OLLAMA_TOOL_TIMEOUT_MS, OLLAMA_BUDGET_MS, OLLAMA_TAGS_TIMEOUT_MS, OLLAMA_MODEL_CACHE_TTL_MS, OLLAMA_MODEL, ollamaModelCatalogCache, LLAMA_LINE_MODEL_PREFIXES;
 var init_client = __esm({
   "src/lib/llm/client.ts"() {
     "use strict";
@@ -2447,7 +2377,7 @@ var init_client = __esm({
     init_model_routing();
     log = logger.child({ module: "llm" });
     OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? "";
-    OPENROUTER_ENABLED = process.env.OPENROUTER_ENABLED !== "false";
+    OPENROUTER_ENABLED = process.env.OPENROUTER_ENABLED === "true";
     MAX_MODELS_ARRAY = 3;
     OLLAMA_DEFAULT_MAX_TOKENS = 16384;
     OPENROUTER_CHAT_TIMEOUT_MS = 3e4;
@@ -2458,12 +2388,7 @@ var init_client = __esm({
     OPENROUTER_MAX_INDIVIDUAL_FALLBACKS = 2;
     LLM_TEXT_TOTAL_BUDGET_MS = 75e3;
     LLM_TOOL_TOTAL_BUDGET_MS = 9e4;
-    DEFAULT_OLLAMA_FALLBACK_MODELS = [
-      "qwen3:14b",
-      "gemma4:latest",
-      "qwen2.5-coder:14b",
-      "qwen3.5:latest"
-    ];
+    DEFAULT_OLLAMA_FALLBACK_MODELS = ["qwen3:14b"];
     OLLAMA_FALLBACK_MODELS = (process.env.OLLAMA_FALLBACK_MODELS ?? DEFAULT_OLLAMA_FALLBACK_MODELS.join(",")).split(",").map((model) => model.trim()).filter(Boolean);
     TOOL_PARAM_ALIASES = {
       file_write: {
@@ -2521,7 +2446,6 @@ var init_client = __esm({
     _client = null;
     OLLAMA_ENABLED = process.env.OLLAMA_ENABLED !== "false";
     OLLAMA_LOCAL_URL = OLLAMA_ENABLED ? process.env.OLLAMA_BASE_URL ?? "" : "";
-    OLLAMA_CLOUD_URL = "https://ollama.com";
     OLLAMA_API_KEY = OLLAMA_ENABLED ? process.env.OLLAMA_API_KEY ?? "" : "";
     OLLAMA_TEXT_TIMEOUT_MS = 6e5;
     OLLAMA_PREFERRED_TEXT_TIMEOUT_MS = 6e5;
@@ -2532,15 +2456,13 @@ var init_client = __esm({
     OLLAMA_MODEL_CACHE_TTL_MS = 3e4;
     OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "";
     ollamaModelCatalogCache = null;
+    LLAMA_LINE_MODEL_PREFIXES = (process.env.LLAMA_LINE_MODEL_PREFIXES ?? "openai/gpt-,github-copilot/").split(",").map((prefix) => prefix.trim()).filter(Boolean);
   }
 });
 
 // src/lib/llm/embeddings.ts
 async function getEmbedding(text) {
-  if (EMBEDDING_PROVIDER === "ollama") {
-    return getEmbeddingOllama(text);
-  }
-  return getEmbeddingOpenRouter(text);
+  return getEmbeddingOllama(text);
 }
 async function getEmbeddingOllama(text) {
   if (!EMBEDDING_OLLAMA_URL) return null;
@@ -2596,48 +2518,15 @@ async function readEmbeddingResponse(response) {
   }
   return {};
 }
-async function getEmbeddingOpenRouter(text) {
-  if (!OPENROUTER_API_KEY2) return null;
-  try {
-    const response = await fetch(
-      "https://openrouter.ai/api/v1/embeddings",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${OPENROUTER_API_KEY2}`
-        },
-        body: JSON.stringify({
-          model: OPENROUTER_EMBEDDING_MODEL,
-          input: text,
-          dimensions: OPENROUTER_EMBEDDING_DIMENSIONS
-        }),
-        signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS)
-      }
-    );
-    if (!response.ok) {
-      log2.debug("OpenRouter embedding request failed", { status: response.status });
-      return null;
-    }
-    const data = await response.json();
-    return data.data?.[0]?.embedding ?? null;
-  } catch {
-    return null;
-  }
-}
-var log2, EMBEDDING_PROVIDER, EMBEDDING_OLLAMA_URL, OLLAMA_EMBEDDING_MODEL, EMBEDDING_OLLAMA_API_KEY, OPENROUTER_API_KEY2, OPENROUTER_EMBEDDING_MODEL, OPENROUTER_EMBEDDING_DIMENSIONS, EMBEDDING_TIMEOUT_MS, LLAMA_LINE_TERMINAL_STATUSES;
+var log2, EMBEDDING_OLLAMA_URL, OLLAMA_EMBEDDING_MODEL, EMBEDDING_OLLAMA_API_KEY, EMBEDDING_TIMEOUT_MS, LLAMA_LINE_TERMINAL_STATUSES;
 var init_embeddings = __esm({
   "src/lib/llm/embeddings.ts"() {
     "use strict";
     init_logger();
     log2 = logger.child({ module: "embeddings" });
-    EMBEDDING_PROVIDER = process.env.EMBEDDING_PROVIDER ?? "ollama";
     EMBEDDING_OLLAMA_URL = process.env.EMBEDDING_OLLAMA_URL ?? "http://localhost:11434";
     OLLAMA_EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "bge-m3";
     EMBEDDING_OLLAMA_API_KEY = process.env.OLLAMA_API_KEY ?? process.env.EMBEDDING_OLLAMA_API_KEY ?? "";
-    OPENROUTER_API_KEY2 = process.env.OPENROUTER_API_KEY ?? "";
-    OPENROUTER_EMBEDDING_MODEL = "openai/text-embedding-3-small";
-    OPENROUTER_EMBEDDING_DIMENSIONS = 1024;
     EMBEDDING_TIMEOUT_MS = Number.parseInt(
       process.env.EMBEDDING_TIMEOUT_MS ?? "5000",
       10
@@ -3015,9 +2904,9 @@ var init_client2 = __esm({
 function buildWebhookUrl(webhookId, webhookToken) {
   return `https://discord.com/api/webhooks/${webhookId}/${webhookToken}`;
 }
-async function syncEnvToDb2() {
-  if (envSynced2) return;
-  envSynced2 = true;
+async function syncEnvToDb() {
+  if (envSynced) return;
+  envSynced = true;
   const guildId = process.env.DISCORD_GUILD_ID;
   if (!guildId) return;
   for (const [key, value] of Object.entries(process.env)) {
@@ -3047,7 +2936,7 @@ async function syncEnvToDb2() {
   }
 }
 async function getWebhookUrl(channelName) {
-  await syncEnvToDb2();
+  await syncEnvToDb();
   const cached = channelCache.get(channelName);
   if (cached) {
     if (!cached.enabled) return null;
@@ -3100,7 +2989,7 @@ async function getWebhookUrl(channelName) {
 function getChannelForFormat(format) {
   return FORMAT_CHANNEL_MAP[format];
 }
-var log5, FORMAT_CHANNEL_MAP, ENV_PREFIX2, envSynced2, channelCache;
+var log5, FORMAT_CHANNEL_MAP, ENV_PREFIX2, envSynced, channelCache;
 var init_channels = __esm({
   "src/lib/discord/channels.ts"() {
     "use strict";
@@ -3129,7 +3018,7 @@ var init_channels = __esm({
       voice_chat: "roundtable"
     };
     ENV_PREFIX2 = "DISCORD_CHANNEL_";
-    envSynced2 = false;
+    envSynced = false;
     channelCache = /* @__PURE__ */ new Map();
   }
 });
@@ -3394,7 +3283,7 @@ __export(policy_exports, {
 });
 async function getPolicy(key) {
   const cached = policyCache.get(key);
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS2) {
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.value;
   }
   const [row] = await sql`
@@ -3418,12 +3307,12 @@ async function setPolicy(key, value, description) {
 function clearPolicyCache() {
   policyCache.clear();
 }
-var CACHE_TTL_MS2, policyCache;
+var CACHE_TTL_MS, policyCache;
 var init_policy = __esm({
   "src/lib/ops/policy.ts"() {
     "use strict";
     init_db();
-    CACHE_TTL_MS2 = 3e4;
+    CACHE_TTL_MS = 3e4;
     policyCache = /* @__PURE__ */ new Map();
   }
 });
@@ -3492,7 +3381,7 @@ var init_cap_gates = __esm({
     "use strict";
     init_db();
     init_policy();
-    MAX_CONCURRENT_MISSIONS = 25;
+    MAX_CONCURRENT_MISSIONS = 50;
     MAX_DAILY_STEPS_PER_AGENT = 200;
   }
 });
@@ -5603,7 +5492,7 @@ async function deriveVoiceModifiers(agentId) {
   if (stats.total < 5) {
     voiceModifierCache.set(agentId, {
       modifiers: [],
-      expiresAt: Date.now() + CACHE_TTL_MS3
+      expiresAt: Date.now() + CACHE_TTL_MS2
     });
     return [];
   }
@@ -5635,7 +5524,7 @@ async function deriveVoiceModifiers(agentId) {
   const result = modifiers.slice(0, 3);
   voiceModifierCache.set(agentId, {
     modifiers: result,
-    expiresAt: Date.now() + CACHE_TTL_MS3
+    expiresAt: Date.now() + CACHE_TTL_MS2
   });
   return result;
 }
@@ -5686,7 +5575,7 @@ async function aggregateMemoryStats(agentId) {
   stats.top_tags = [...stats.tags.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([tag]) => tag);
   return stats;
 }
-var MODIFIER_INSTRUCTIONS, voiceModifierCache, CACHE_TTL_MS3;
+var MODIFIER_INSTRUCTIONS, voiceModifierCache, CACHE_TTL_MS2;
 var init_voice_evolution = __esm({
   "src/lib/ops/voice-evolution.ts"() {
     "use strict";
@@ -5702,7 +5591,7 @@ var init_voice_evolution = __esm({
       opinionated: "Don't hedge. State your preference and defend it."
     };
     voiceModifierCache = /* @__PURE__ */ new Map();
-    CACHE_TTL_MS3 = 10 * 6e4;
+    CACHE_TTL_MS2 = 10 * 6e4;
   }
 });
 
@@ -5826,7 +5715,7 @@ var init_executor = __esm({
 
 // src/lib/ops/prime-directive.ts
 async function loadPrimeDirective() {
-  if (cachedDirective !== null && Date.now() - cacheTime < CACHE_TTL_MS4) {
+  if (cachedDirective !== null && Date.now() - cacheTime < CACHE_TTL_MS3) {
     return cachedDirective;
   }
   const result = await execInToolbox(`cat '${DIRECTIVE_PATH}' 2>/dev/null || echo ''`, 5e3);
@@ -5838,13 +5727,13 @@ async function loadPrimeDirective() {
   cacheTime = Date.now();
   return cachedDirective;
 }
-var DIRECTIVE_PATH, CACHE_TTL_MS4, cachedDirective, cacheTime;
+var DIRECTIVE_PATH, CACHE_TTL_MS3, cachedDirective, cacheTime;
 var init_prime_directive = __esm({
   "src/lib/ops/prime-directive.ts"() {
     "use strict";
     init_executor();
     DIRECTIVE_PATH = "/workspace/shared/prime-directive.md";
-    CACHE_TTL_MS4 = 5 * 60 * 1e3;
+    CACHE_TTL_MS3 = 5 * 60 * 1e3;
     cachedDirective = null;
     cacheTime = 0;
   }
@@ -6125,7 +6014,7 @@ var init_scratchpad = __esm({
 
 // src/lib/ops/situational-briefing.ts
 async function buildBriefing(agentId) {
-  const cached = cache2.get(agentId);
+  const cached = cache.get(agentId);
   if (cached && Date.now() < cached.expires) {
     return cached.text;
   }
@@ -6255,7 +6144,7 @@ ${propLines.join("\n")}`);
 ${stepLines.join("\n")}`);
   }
   const text = sections.length > 0 ? sections.join("\n\n") : "No recent activity.";
-  cache2.set(agentId, { text, expires: Date.now() + CACHE_TTL_MS5 });
+  cache.set(agentId, { text, expires: Date.now() + CACHE_TTL_MS4 });
   return text;
 }
 function timeAgo(date) {
@@ -6266,14 +6155,14 @@ function timeAgo(date) {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
 }
-var CACHE_TTL_MS5, cache2;
+var CACHE_TTL_MS4, cache;
 var init_situational_briefing = __esm({
   "src/lib/ops/situational-briefing.ts"() {
     "use strict";
     init_db();
     init_agents();
-    CACHE_TTL_MS5 = 5 * 60 * 1e3;
-    cache2 = /* @__PURE__ */ new Map();
+    CACHE_TTL_MS4 = 5 * 60 * 1e3;
+    cache = /* @__PURE__ */ new Map();
   }
 });
 
@@ -7188,7 +7077,6 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
         ],
         temperature: effectiveTemperature,
         maxTokens: format.maxTokensPerTurn,
-        model: session.model ?? void 0,
         trackingContext: {
           agentId: speaker,
           context: `roundtable:${session.format}`,
@@ -7373,7 +7261,6 @@ async function orchestrateVoiceChat(session) {
         ],
         temperature: format.temperature,
         maxTokens: format.maxTokensPerTurn,
-        model: session.model ?? void 0,
         trackingContext: {
           agentId: speaker,
           context: "roundtable:voice_chat",
@@ -7508,7 +7395,7 @@ async function orchestrateVoiceChat(session) {
 }
 async function enqueueConversation(options) {
   const [row] = await sql`
-        INSERT INTO ops_roundtable_sessions (format, topic, participants, status, schedule_slot, scheduled_for, model, source, metadata)
+        INSERT INTO ops_roundtable_sessions (format, topic, participants, status, schedule_slot, scheduled_for, source, metadata)
         VALUES (
             ${options.format},
             ${options.topic},
@@ -7516,7 +7403,6 @@ async function enqueueConversation(options) {
             'pending',
             ${options.scheduleSlot ?? null},
             ${options.scheduledFor ?? (/* @__PURE__ */ new Date()).toISOString()},
-            ${options.model ?? null},
             ${options.source ?? null},
             ${jsonb(options.metadata ?? {})}
         )
@@ -8942,13 +8828,12 @@ Request: ${ctx.payload.description || ctx.missionTitle}
 INSTRUCTIONS:
 Send a notification to the human operator via ntfy:
   Use bash:
-  curl -sS -X POST "http://172.20.0.9/subcorp-agents"     -H "Title: \u{1F6E0}\uFE0F Agent needs human help"     -H "Priority: high"     -H "Tags: warning,robot_face,hand"     -H "Markdown: yes"     -d $'## Human action needed
-
-- **Task**: [task name]
-- **Need**: [what human must do]
-- **Tried**: [what you already tried]
-- **Blocker**: [why blocked]
-- **Next after help**: [what you will do next]'
+  curl -sS -X POST "http://172.20.0.9/subcorp-agents" \\
+    -H "Title: \u{1F6E0}\uFE0F Agent needs human help" \\
+    -H "Priority: high" \\
+    -H "Tags: warning,robot_face,hand" \\
+    -H "Markdown: yes" \\
+    -d $'## Human action needed\\n\\n- **Task**: [task name]\\n- **Need**: [what human must do]\\n- **Tried**: [what you already tried]\\n- **Blocker**: [why blocked]\\n- **Next after help**: [what you will do next]'
   Optional: if you must include JSON context, append a fenced code block instead of sending raw JSON as the whole message.
 
 Be specific about what you need:
@@ -9529,9 +9414,9 @@ var WRITE_ACLS = {
   chora: [],
   subrosa: [],
   thaum: [],
-  praxis: ["agents/praxis/", "output/", "shared/"],
-  mux: ["agents/mux/", "output/", "shared/"],
-  primus: ["agents/primus/", "output/", "shared/"]
+  praxis: ["agents/praxis/", "output/", "shared/", "projects/"],
+  mux: ["agents/mux/", "output/", "shared/", "projects/"],
+  primus: ["agents/primus/", "output/", "shared/", "projects/"]
 };
 var log25 = createLogger({ service: "file_write" });
 var DROID_PREFIX = "droids/";
@@ -10698,7 +10583,6 @@ async function runAgentToolLoop(opts) {
       messages,
       temperature: 0.7,
       maxTokens: 16e3,
-      model: session.model ?? void 0,
       tools: tools.length > 0 ? tools : void 0,
       maxToolRounds: 20,
       trackingContext: { agentId, context: "agent_session", sessionId: session.id }
@@ -11493,10 +11377,6 @@ if (!process.env.DATABASE_URL) {
   log36.fatal("Missing DATABASE_URL");
   process.exit(1);
 }
-if (!process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_ENABLED !== "false") {
-  log36.fatal("Missing OPENROUTER_API_KEY (set OPENROUTER_ENABLED=false to run without OpenRouter)");
-  process.exit(1);
-}
 async function triggerHeartbeatIfDue() {
   if (!WORKER_HEARTBEAT_ENABLED) return false;
   if (!process.env.CRON_SECRET) {
@@ -12073,19 +11953,10 @@ async function dispatchMissionStep(step) {
         });
       }
     }
-    const CODING_STEP_KINDS = /* @__PURE__ */ new Set([
-      "patch_code",
-      "self_evolution",
-      "github_pr",
-      "github_issue",
-      "create_pull_request",
-      "draft_product_spec"
-    ]);
-    const stepModel = CODING_STEP_KINDS.has(step.kind) ? "qwen2.5-coder:14b" : null;
     const [session] = await sql2`
             INSERT INTO ops_agent_sessions (
                 agent_id, prompt, source, source_id,
-                timeout_seconds, max_tool_rounds, status, model
+                timeout_seconds, max_tool_rounds, status
             ) VALUES (
                 ${agentId},
                 ${prompt},
@@ -12093,8 +11964,7 @@ async function dispatchMissionStep(step) {
                 ${step.mission_id},
                 1800,
                 30,
-                'pending',
-                ${stepModel}
+                'pending'
             )
             RETURNING id
         `;
@@ -12863,12 +12733,12 @@ async function pollLoop() {
     try {
       await pollRoundtables();
       const hadSession = await pollAgentSessions();
+      await pollMissionSteps();
+      await finalizeMissionSteps();
       if (hadSession) {
         await runMaintenanceTasks();
         continue;
       }
-      await pollMissionSteps();
-      await finalizeMissionSteps();
       const publishResult = await publishApprovedDrafts();
       if (publishResult.published > 0 || publishResult.failed > 0) {
         log36.info("Content publish sweep complete", {
@@ -12916,7 +12786,6 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 log36.info("Unified worker started", {
   workerId: WORKER_ID,
   database: !!process.env.DATABASE_URL,
-  openrouter: process.env.OPENROUTER_ENABLED !== "false" && !!process.env.OPENROUTER_API_KEY,
   ollama: process.env.OLLAMA_ENABLED !== "false" ? process.env.OLLAMA_BASE_URL || "no-url" : "disabled",
   braveSearch: !!process.env.BRAVE_API_KEY
 });

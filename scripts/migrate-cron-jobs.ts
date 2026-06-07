@@ -26,7 +26,6 @@ interface CronJob {
     prompt: string;
     timeout_seconds: number;
     max_tool_rounds: number;
-    model?: string;
 }
 
 // Jobs migrated from OpenClaw — prompts rewritten to be explicit per MEMORY.md best practice
@@ -118,7 +117,6 @@ Use web_search for 2-3 targeted brand monitoring queries. Report findings with c
 Write to /workspace/briefings/weekly-digest.md using file_write.`,
         timeout_seconds: 600,
         max_tool_rounds: 15,
-        model: 'anthropic/claude-sonnet-4.5',
     },
     {
         name: 'Agent Dream',
@@ -287,7 +285,6 @@ async function main() {
                 prompt: job.prompt,
                 timeout_seconds: job.timeout_seconds,
                 max_tool_rounds: job.max_tool_rounds,
-                model: job.model ?? null,
                 enabled: true,
                 next_fire_at: nextFireAt.toISOString(),
             })}
@@ -298,7 +295,6 @@ async function main() {
                 prompt = EXCLUDED.prompt,
                 timeout_seconds = EXCLUDED.timeout_seconds,
                 max_tool_rounds = EXCLUDED.max_tool_rounds,
-                model = EXCLUDED.model,
                 enabled = EXCLUDED.enabled,
                 next_fire_at = EXCLUDED.next_fire_at,
                 updated_at = NOW()

@@ -18,9 +18,9 @@ export const WRITE_ACLS: Record<AgentId, string[]> = {
     chora: [],
     subrosa: [],
     thaum: [],
-    praxis: ['agents/praxis/', 'output/', 'shared/'],
-    mux: ['agents/mux/', 'output/', 'shared/'],
-    primus: ['agents/primus/', 'output/', 'shared/'],
+    praxis: ['agents/praxis/', 'output/', 'shared/', 'projects/'],
+    mux: ['agents/mux/', 'output/', 'shared/', 'projects/'],
+    primus: ['agents/primus/', 'output/', 'shared/', 'projects/'],
 };
 
 const log = createLogger({ service: 'file_write' });

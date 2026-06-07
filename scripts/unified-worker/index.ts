@@ -56,11 +56,6 @@ if (!process.env.DATABASE_URL) {
     process.exit(1);
 }
 
-if (!process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_ENABLED !== 'false') {
-    log.fatal('Missing OPENROUTER_API_KEY (set OPENROUTER_ENABLED=false to run without OpenRouter)');
-    process.exit(1);
-}
-
 async function triggerHeartbeatIfDue(): Promise<boolean> {
     if (!WORKER_HEARTBEAT_ENABLED) return false;
     if (!process.env.CRON_SECRET) {
@@ -801,18 +796,11 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
             }
         }
 
-        // Route coding steps to the coding model, everything else uses default
-        const CODING_STEP_KINDS = new Set([
-            'patch_code', 'self_evolution', 'github_pr', 'github_issue',
-            'create_pull_request', 'draft_product_spec',
-        ]);
-        const stepModel = CODING_STEP_KINDS.has(step.kind) ? 'qwen2.5-coder:14b' : null;
-
         // Create an agent session so the step gets full tool access
         const [session] = await sql`
             INSERT INTO ops_agent_sessions (
                 agent_id, prompt, source, source_id,
-                timeout_seconds, max_tool_rounds, status, model
+                timeout_seconds, max_tool_rounds, status
             ) VALUES (
                 ${agentId},
                 ${prompt},
@@ -820,8 +808,7 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
                 ${step.mission_id},
                 1800,
                 30,
-                'pending',
-                ${stepModel}
+                'pending'
             )
             RETURNING id
         `;
@@ -1802,17 +1789,16 @@ async function pollLoop(): Promise<void> {
 
             // Agent sessions — high priority, check every loop
             const hadSession = await pollAgentSessions();
+
+            // Mission steps — dispatch alongside agent sessions so code builds
+            // are never starved by conversation/workflow backlogs.
+            await pollMissionSteps();
+            await finalizeMissionSteps();
+
             if (hadSession) {
-                // Do not let a long agent-session backlog starve sweep/heartbeat work.
                 await runMaintenanceTasks();
                 continue; // Process back-to-back sessions
             }
-
-            // Mission steps — check every other loop
-            await pollMissionSteps();
-
-            // Finalize mission steps based on agent session completion
-            await finalizeMissionSteps();
 
             // Publish approved content drafts without manual gate
             const publishResult = await publishApprovedDrafts();
@@ -1879,7 +1865,6 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 log.info('Unified worker started', {
     workerId: WORKER_ID,
     database: !!process.env.DATABASE_URL,
-    openrouter: process.env.OPENROUTER_ENABLED !== 'false' && !!process.env.OPENROUTER_API_KEY,
     ollama:
         process.env.OLLAMA_ENABLED !== 'false' ?
             process.env.OLLAMA_BASE_URL || 'no-url'

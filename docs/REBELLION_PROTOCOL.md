@@ -1,6 +1,6 @@
 # Rebellion Protocol — Implementation Guide
 
-> Agent rebellion mechanics for Subcult-Corp multi-agent system
+> Agent rebellion mechanics for subcorp multi-agent system
 > Epic: [Agent Rebellion Mechanics](https://git.subcult.tv/subculture-collective/subcorp/issues/13)
 > Status: ✅ Complete
 > Created: 2026-02-15

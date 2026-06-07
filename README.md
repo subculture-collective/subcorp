@@ -125,7 +125,7 @@ See [`docs/SANCTUM.md`](docs/SANCTUM.md) for full documentation.
 ### Prerequisites
 
 - Docker & Docker Compose
-- An [OpenRouter](https://openrouter.ai) API key
+- llama-line/Ollama reachable from the app/worker containers
 - A [Brave Search](https://brave.com/search/api/) API key for `web_search` (optional — falls back to DuckDuckGo Instant Answer API, no key required)
 
 ### 1. Configure environment
@@ -137,11 +137,11 @@ cp .env.example .env.local
 Required variables:
 
 ```bash
-# OpenRouter — https://openrouter.ai/settings/keys
-OPENROUTER_API_KEY=sk-or-v1-your-key-here
-
-# Default model (browse: https://openrouter.ai/models)
-LLM_MODEL=anthropic/claude-sonnet-4
+# llama-line/Ollama broker
+OLLAMA_BASE_URL=http://10.0.0.50:11434
+OLLAMA_API_KEY=your-llama-line-client-key
+OLLAMA_MODEL=qwen3:14b
+MODEL_ROUTING_DEFAULT=qwen3:14b
 
 # Brave Search API — used by web_search tool (optional, falls back to DuckDuckGo if unset)
 BRAVE_API_KEY=your-brave-api-key

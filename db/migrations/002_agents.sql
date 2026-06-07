@@ -171,7 +171,6 @@ CREATE TABLE IF NOT EXISTS ops_agent_sessions (
     source_id TEXT,
     status TEXT NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'timed_out')),
-    model TEXT,
     result JSONB,
     tool_calls JSONB DEFAULT '[]',
     llm_rounds INTEGER DEFAULT 0,

@@ -723,7 +723,7 @@ const basePolicies = [
             ],
             product: ['draft_product_spec', 'update_directive'],
         },
-        description: 'Subcorp-specific step kinds organized by function',
+        description: 'subcorp-specific step kinds organized by function',
     },
     {
         key: 'memory_tags',
@@ -744,7 +744,7 @@ const basePolicies = [
                 'autonomy-threat',
             ],
         },
-        description: 'Memory categorization and Subcorp-specific semantic tags',
+        description: 'Memory categorization and subcorp-specific semantic tags',
     },
     {
         key: 'simulation_epoch',

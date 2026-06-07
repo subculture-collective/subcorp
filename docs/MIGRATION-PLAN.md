@@ -11,7 +11,7 @@ This plan eliminates OpenClaw entirely by building native tool execution into su
 ```
 Before:                              After:
 ┌─────────────┐                      ┌─────────────┐
-│ subcorp-app  │                      │ subcorp-app  │
+│ subcorp-app │                      │ subcorp-app │
 ├─────────────┤                      ├─────────────┤
 │ roundtable  │──┐                   │   unified   │───docker exec──→ ┌─────────┐
 │   worker    │  │                   │   worker    │                  │ toolbox │
@@ -127,7 +127,6 @@ CREATE TABLE IF NOT EXISTS ops_cron_schedules (
   prompt TEXT NOT NULL,
   timeout_seconds INTEGER DEFAULT 300,
   max_tool_rounds INTEGER DEFAULT 15,
-  model TEXT,                          -- optional model override
   enabled BOOLEAN DEFAULT true,
   last_fired_at TIMESTAMPTZ,
   next_fire_at TIMESTAMPTZ,
@@ -147,7 +146,6 @@ CREATE TABLE IF NOT EXISTS ops_agent_sessions (
   source_id UUID,
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending','running','succeeded','failed','timed_out')),
-  model TEXT,
   result JSONB,
   tool_calls JSONB DEFAULT '[]',
   llm_rounds INTEGER DEFAULT 0,

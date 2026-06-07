@@ -32,7 +32,6 @@ export interface AgentSession {
     source: string;
     source_id?: string;
     status: AgentSessionStatus;
-    model?: string;
     result?: Record<string, unknown>;
     tool_calls?: Record<string, unknown>[];
     llm_rounds: number;
@@ -56,7 +55,6 @@ export interface CronSchedule {
     prompt: string;
     timeout_seconds: number;
     max_tool_rounds: number;
-    model?: string;
     enabled: boolean;
     last_fired_at?: string;
     next_fire_at?: string;
