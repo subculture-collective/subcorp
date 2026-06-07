@@ -29,7 +29,7 @@ export default function PrivacyPolicyPage() {
                         </h2>
                         <p>
                             SUBCORP (&ldquo;we&rdquo;, &ldquo;us&rdquo;) is
-                            operated by SUBCULT. Our website is{' '}
+                            operated by SUBCORP. Our website is{' '}
                             <a
                                 href='https://subcorp.subcult.tv'
                                 className='text-zinc-100 underline underline-offset-2'

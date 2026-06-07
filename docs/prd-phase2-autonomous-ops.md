@@ -1,21 +1,21 @@
-# PRD: SUBCULT Agent Platform — Phase 2: Autonomous Organization Operations
+# PRD: SUBCORP Agent Platform — Phase 2: Autonomous Organization Operations
 
 ## Problem Statement
 
-The SUBCULT agent collective has a working core loop (conversations, debriefs, missions, tool execution) but operates in a closed system. Agents can discuss, plan, and write code locally, but they cannot publish content externally, interact with the human operator asynchronously, explore their own organization's repositories, or maintain institutional knowledge across sessions. The LLM routing is fragmented — Ollama and OpenRouter use separate code paths, multi-host Ollama isn't supported, and model selection isn't optimized per task. When the system starts fresh, agents waste time on random triggers before establishing a strategic direction.
+The SUBCORP agent collective has a working core loop (conversations, debriefs, missions, tool execution) but operates in a closed system. Agents can discuss, plan, and write code locally, but they cannot publish content externally, interact with the human operator asynchronously, explore their own organization's repositories, or maintain institutional knowledge across sessions. The LLM routing is fragmented — Ollama and OpenRouter use separate code paths, multi-host Ollama isn't supported, and model selection isn't optimized per task. When the system starts fresh, agents waste time on random triggers before establishing a strategic direction.
 
 The result: agents think and plan well but cannot operate as an autonomous organization — they can't publish, communicate, learn from their own history, or manage their infrastructure.
 
 ## Solution
 
-Extend the platform so agents can operate like an autonomous business: publish content externally, maintain a knowledge base, explore and contribute to their GitHub org, request human help when blocked, and route LLM calls optimally across multiple providers and hosts. Add a structured bootstrap sequence so fresh instances begin with strategy before execution.
+Extend the platform so agents can operate like an autonomous business: publish content externally, maintain a knowledge base, explore and contribute to their Gitea org, request human help when blocked, and route LLM calls optimally across multiple providers and hosts. Add a structured bootstrap sequence so fresh instances begin with strategy before execution.
 
 ## User Stories
 
 1. As an agent, I want to publish blog posts to blog.subcult.tv, so that our work reaches an external audience.
 2. As an agent, I want to send a notification to the human operator via ntfy when I need help, so that I can request accounts, API keys, or manual tasks I cannot perform.
 3. As an agent, I want to receive the human's response to my notification, so that I can continue my work with the provided information.
-4. As an agent, I want to explore all repositories in the subculture-collective GitHub org, so that I can find opportunities to contribute.
+4. As an agent, I want to explore all repositories in the subculture-collective Gitea org, so that I can find opportunities to contribute.
 5. As an agent, I want to read existing GitHub issues and development documentation before contributing to a repo, so that my PRs respect the existing development plan.
 6. As an agent, I want to maintain a company knowledge base in our repos, so that decisions, architecture, and lessons persist across sessions.
 7. As an agent, I want to know today's date and current quarter, so that I set realistic deadlines without referencing stale dates.

@@ -16,15 +16,15 @@
 # Variables
 # ──────────────────────────────────────────
 
-SVC_APP     := subcult-corp-app
-SVC_WORKER  := subcult-corp-worker
-SVC_SANCTUM := subcult-sanctum
-SVC_TOOLBOX := subcult-toolbox
+SVC_APP     := subcorp-app
+SVC_WORKER  := subcorp-worker
+SVC_SANCTUM := subcorp-sanctum
+SVC_TOOLBOX := subcorp-toolbox
 
 PG_CONTAINER := pg16-pgvector
-PG_USER      := subcult
+PG_USER      := subcorp
 PG_SUPERUSER := onnwee
-PG_DB        := subcult_ops
+PG_DB        := subcorp_ops
 
 PROJECT_ROOT := $(shell pwd)
 HEARTBEAT_TIMEOUT ?= 180
@@ -93,7 +93,7 @@ dev-seed: ## [dev] Seed all ops data
 dev-fresh: ## [dev] Stop → rebuild → migrate → seed (no DB nuke)
 	$(DEV_COMPOSE) down --remove-orphans
 	$(DEV_COMPOSE) build --no-cache $(SVC_APP) $(SVC_WORKER) $(SVC_SANCTUM)
-	@if ! docker image inspect subcult-corp-subcult-toolbox:latest >/dev/null 2>&1; then \
+	@if ! docker image inspect subcorp-subcorp-toolbox:latest >/dev/null 2>&1; then \
 		echo "Toolbox image not found, building..."; \
 		$(DEV_COMPOSE) build $(SVC_TOOLBOX); \
 	else \
@@ -210,8 +210,9 @@ prod-fresh: ## [prod] Stop → nuke DB → rebuild → migrate → seed → init
 	docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c "DROP DATABASE IF EXISTS $(PG_DB);"
 	docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c "CREATE DATABASE $(PG_DB) OWNER $(PG_USER);"
 	docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d $(PG_DB) -c "CREATE EXTENSION IF NOT EXISTS vector;"
+	@echo "Database $(PG_DB) recreated with pgvector."
 	$(PROD_COMPOSE) build --no-cache $(SVC_APP) $(SVC_WORKER) $(SVC_SANCTUM)
-	@if ! docker image inspect subcult-corp-subcult-toolbox:latest >/dev/null 2>&1; then \
+	@if ! docker image inspect subcorp-subcorp-toolbox:latest >/dev/null 2>&1; then \
 		echo "Toolbox image not found, building..."; \
 		$(PROD_COMPOSE) build $(SVC_TOOLBOX); \
 	else \

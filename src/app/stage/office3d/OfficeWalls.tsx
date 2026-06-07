@@ -59,7 +59,7 @@ function Poster() {
         ctx.fillStyle = COLORS.accent;
         ctx.font = 'bold 14px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('SUBCULT', 64, 50);
+        ctx.fillText('SUBCORP', 64, 50);
 
         ctx.fillStyle = COLORS.overlay0;
         ctx.font = '10px monospace';

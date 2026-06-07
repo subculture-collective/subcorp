@@ -187,7 +187,7 @@ function createLoggerInternal(bindings: LogContext): Logger {
 // ── Exports ─────────────────────────────────────────────────
 
 /** Root logger instance. Use logger.child({ module: 'xxx' }) to scope. */
-export const logger = createLoggerInternal({ service: 'subcult' });
+export const logger = createLoggerInternal({ service: 'subcorp' });
 
 /**
  * Create a standalone logger — useful for workers and scripts

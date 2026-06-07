@@ -40,7 +40,7 @@ const WORKER_ID = `unified-${process.pid}`;
 const WORKER_HEARTBEAT_ENABLED = process.env.WORKER_HEARTBEAT_ENABLED !== 'false';
 const WORKER_HEARTBEAT_URL =
     process.env.WORKER_HEARTBEAT_URL ??
-    'http://subcult-corp-app:3000/api/ops/heartbeat';
+    'http://subcorp-app:3000/api/ops/heartbeat';
 const WORKER_HEARTBEAT_INTERVAL_MS = Number.parseInt(
     process.env.WORKER_HEARTBEAT_INTERVAL_MS ?? '300000',
     10,

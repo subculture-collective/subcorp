@@ -11,7 +11,7 @@ This plan eliminates OpenClaw entirely by building native tool execution into su
 ```
 Before:                              After:
 ┌─────────────┐                      ┌─────────────┐
-│ subcult-app │                      │ subcult-app │
+│ subcorp-app  │                      │ subcorp-app  │
 ├─────────────┤                      ├─────────────┤
 │ roundtable  │──┐                   │   unified   │───docker exec──→ ┌─────────┐
 │   worker    │  │                   │   worker    │                  │ toolbox │
@@ -89,7 +89,7 @@ src/lib/tools/
 **`executor.ts`** — core docker exec wrapper:
 
 - `execInToolbox(command, timeoutMs)` → `{ stdout, stderr, exitCode, timedOut }`
-- Uses `child_process.execFile('docker', ['exec', 'subcult-toolbox', 'bash', '-c', command])`
+- Uses `child_process.execFile('docker', ['exec', 'subcorp-toolbox', 'bash', '-c', command])`
 - Output capped at 50KB (stdout) and 10KB (stderr) to avoid flooding LLM context
 - Default timeout: 30s
 
@@ -240,7 +240,7 @@ services:
 
     worker: # replaces 3 separate workers
         build: .
-        container_name: subcult-worker
+        container_name: subcorp-worker
         restart: unless-stopped
         command: ['node', 'scripts/unified-worker/dist/index.js']
         depends_on:
@@ -254,7 +254,7 @@ services:
     toolbox: # NEW: agent execution environment
         build:
             context: docker/toolbox
-        container_name: subcult-toolbox
+        container_name: subcorp-toolbox
         restart: unless-stopped
         volumes:
             - workspace:/workspace
@@ -408,7 +408,7 @@ tmuxai (github.com/alvinunreal/tmuxai) could provide a richer agent experience i
 6. Check roundtables still work (unchanged polling, now in unified worker)
 7. Check missions still work (unchanged polling, now in unified worker)
 8. Memory search: agent uses `memory_search` tool, gets pgvector results
-9. Toolbox resilience: `docker restart subcult-toolbox` → next tool call works
+9. Toolbox resilience: `docker restart subcorp-toolbox` → next tool call works
 
 ## Risks
 

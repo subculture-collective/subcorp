@@ -1,4 +1,4 @@
-// SUBCULT Daily — AI-generated newspaper pipeline
+// SUBCORP Daily — AI-generated newspaper pipeline
 // Curates RSS items, generates summaries, produces markdown + PDF editions.
 import { sql, jsonb } from '@/lib/db';
 import { emitEvent } from '@/lib/ops/events';
@@ -266,7 +266,7 @@ function generateMarkdown(
         return a.localeCompare(b);
     });
 
-    let md = `# SUBCULT DAILY\n\n`;
+    let md = `# SUBCORP DAILY\n\n`;
     md += `**${date}** | ${articles.length} articles curated from ${new Set(articles.map(a => a.source)).size} sources\n\n`;
     md += `---\n\n`;
     md += `## ${headline}\n\n`;
@@ -289,7 +289,7 @@ function generateMarkdown(
     }
 
     md += `---\n\n`;
-    md += `*SUBCULT Daily — curated by the collective | subcorp.subcult.tv/news*\n`;
+    md += `*SUBCORP Daily — curated by the collective | subcorp.subcult.tv/news*\n`;
 
     return md;
 }
@@ -301,7 +301,7 @@ async function deliverToAgentInboxes(
     date: string,
     markdown: string,
 ): Promise<void> {
-    const filename = `subcult-daily-${date}.md`;
+    const filename = `subcorp-daily-${date}.md`;
     const escapedContent = markdown.replace(/'/g, "'\\''");
 
     for (const agentId of AGENT_IDS) {
@@ -362,10 +362,10 @@ async function postToDiscord(
     // Header embed
     await postToWebhook({
         webhookUrl,
-        username: 'SUBCULT Daily',
+        username: 'SUBCORP Daily',
         embeds: [
             {
-                title: `SUBCULT Daily — ${date}`,
+                title: `SUBCORP Daily — ${date}`,
                 description: `**${headline}**\n\n${articleCount} articles curated from today's feeds.\n\n[Read the full PDF edition](https://subcorp.subcult.tv/news/${date})`,
                 color: 0x1a1a2e,
                 footer: { text: 'subcorp.subcult.tv/news' },
@@ -379,7 +379,7 @@ async function postToDiscord(
     for (const chunk of chunks) {
         await postToWebhook({
             webhookUrl,
-            username: 'SUBCULT Daily',
+            username: 'SUBCORP Daily',
             content: chunk,
         });
     }
@@ -388,7 +388,7 @@ async function postToDiscord(
 // ─── Main pipeline ───
 
 /**
- * Generate today's SUBCULT Daily newspaper edition.
+ * Generate today's SUBCORP Daily newspaper edition.
  * Returns edition ID on success, null if skipped (already exists or insufficient items).
  */
 export async function generateDailyNewspaper(): Promise<string | null> {
@@ -559,7 +559,7 @@ export async function generateDailyNewspaper(): Promise<string | null> {
     await emitEvent({
         agent_id: 'system',
         kind: 'newspaper_generated',
-        title: `SUBCULT Daily — ${today}`,
+        title: `SUBCORP Daily — ${today}`,
         summary: `${articles.length} articles curated: ${headline}`,
         tags: ['newspaper', 'daily', 'content'],
         metadata: {

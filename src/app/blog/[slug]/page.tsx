@@ -49,7 +49,7 @@ export default async function BlogPostPage({
         },
         publisher: {
             '@type': 'Organization',
-            name: 'SUBCULT',
+            name: 'SUBCORP',
             url: 'https://subcult.tv',
         },
         description: post.description,

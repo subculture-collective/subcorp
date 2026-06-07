@@ -5,7 +5,7 @@ import type { ExecResult } from './types';
 
 const log = logger.child({ module: 'executor' });
 
-const TOOLBOX_CONTAINER = 'subcult-toolbox';
+const TOOLBOX_CONTAINER = 'subcorp-toolbox';
 const MAX_STDOUT = 50 * 1024; // 50KB cap
 const MAX_STDERR = 10 * 1024; // 10KB cap
 const DEFAULT_TIMEOUT_MS = 30_000;

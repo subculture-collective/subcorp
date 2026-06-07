@@ -795,7 +795,7 @@ var init_logger = __esm({
     USE_JSON = process.env.LOG_FORMAT === "json" || process.env.LOG_FORMAT !== "pretty" && IS_PRODUCTION;
     LOG_LEVEL = process.env.LOG_LEVEL ?? (IS_PRODUCTION ? "info" : "debug");
     MIN_LEVEL = LEVEL_VALUES[LOG_LEVEL] ?? LEVEL_VALUES.info;
-    logger = createLoggerInternal({ service: "subcult" });
+    logger = createLoggerInternal({ service: "subcorp" });
   }
 });
 
@@ -2085,7 +2085,7 @@ async function openRouterToolLoop(opts) {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "HTTP-Referer": "https://subcult.org"
+          "HTTP-Referer": "https://subcorp.subcult.tv"
         },
         body: JSON.stringify(body),
         signal: controller.signal
@@ -2638,7 +2638,10 @@ var init_embeddings = __esm({
     OPENROUTER_API_KEY2 = process.env.OPENROUTER_API_KEY ?? "";
     OPENROUTER_EMBEDDING_MODEL = "openai/text-embedding-3-small";
     OPENROUTER_EMBEDDING_DIMENSIONS = 1024;
-    EMBEDDING_TIMEOUT_MS = 12e4;
+    EMBEDDING_TIMEOUT_MS = Number.parseInt(
+      process.env.EMBEDDING_TIMEOUT_MS ?? "5000",
+      10
+    );
     LLAMA_LINE_TERMINAL_STATUSES = /* @__PURE__ */ new Set([
       "ollama_unavailable",
       "dropped_by_admin"
@@ -3923,6 +3926,7 @@ async function writeMemory(input) {
   }
 }
 async function enforceMemoryCap(agentId) {
+  if (MAX_MEMORIES_PER_AGENT === null) return;
   const [{ count }] = await sql`
         SELECT COUNT(*)::int as count FROM ops_agent_memory
         WHERE agent_id = ${agentId} AND superseded_by IS NULL
@@ -3940,7 +3944,7 @@ async function enforceMemoryCap(agentId) {
     await sql`DELETE FROM ops_agent_memory WHERE id = ANY(${ids})`;
   }
 }
-var log10, MAX_MEMORIES_PER_AGENT;
+var log10, configuredMemoryCap, MAX_MEMORIES_PER_AGENT;
 var init_memory = __esm({
   "src/lib/ops/memory.ts"() {
     "use strict";
@@ -3948,7 +3952,11 @@ var init_memory = __esm({
     init_logger();
     init_embeddings();
     log10 = logger.child({ module: "memory" });
-    MAX_MEMORIES_PER_AGENT = 200;
+    configuredMemoryCap = Number.parseInt(
+      process.env.MEMORY_MAX_PER_AGENT ?? "",
+      10
+    );
+    MAX_MEMORIES_PER_AGENT = Number.isFinite(configuredMemoryCap) && configuredMemoryCap > 0 ? configuredMemoryCap : null;
   }
 });
 
@@ -4698,12 +4706,20 @@ var init_veto = __esm({
 });
 
 // src/lib/ops/governance.ts
+function validatePolicyValue(policyKey, proposedValue) {
+  const validate = POLICY_VALIDATORS[policyKey];
+  const error = validate?.(proposedValue);
+  if (error) {
+    throw new Error(`Invalid value for policy "${policyKey}": ${error}`);
+  }
+}
 async function proposeGovernanceChange(agentId, policyKey, proposedValue, rationale) {
   if (PROTECTED_POLICIES.has(policyKey)) {
     throw new Error(
       `Policy "${policyKey}" is protected and cannot be changed`
     );
   }
+  validatePolicyValue(policyKey, proposedValue);
   const [existing] = await sql`
         SELECT id FROM ops_governance_proposals
         WHERE policy_key = ${policyKey}
@@ -5124,7 +5140,7 @@ Classify this agent's vote now.`
     return null;
   }
 }
-var log15, PROTECTED_POLICIES;
+var log15, PROTECTED_POLICIES, AUTO_APPROVE_ALLOWED_STEP_KINDS, POLICY_VALIDATORS;
 var init_governance = __esm({
   "src/lib/ops/governance.ts"() {
     "use strict";
@@ -5135,6 +5151,61 @@ var init_governance = __esm({
     init_client();
     log15 = logger.child({ module: "governance" });
     PROTECTED_POLICIES = /* @__PURE__ */ new Set(["system_enabled", "veto_authority"]);
+    AUTO_APPROVE_ALLOWED_STEP_KINDS = [
+      "research_topic",
+      "scan_signals",
+      "draft_essay",
+      "draft_thread",
+      "audit_system",
+      "patch_code",
+      "distill_insight",
+      "document_lesson",
+      "critique_content",
+      "consolidate_memory",
+      "memory_archaeology",
+      "draft_product_spec",
+      "log_event",
+      "convene_roundtable",
+      "identify_assumption",
+      "review_policy",
+      "map_dependency",
+      "classify_pattern",
+      "trace_incentive",
+      "tag_memory",
+      "refine_narrative",
+      "propose_workflow",
+      "content_revision",
+      "write_issue",
+      "prepare_statement",
+      "escalate_risk",
+      "analyze_discourse",
+      "self_evolution",
+      "github_issue",
+      "github_pr",
+      "explore_repo",
+      "publish_blog",
+      "notify_human",
+      "create_pull_request"
+    ];
+    POLICY_VALIDATORS = {
+      auto_approve(value) {
+        if (typeof value.enabled !== "boolean") {
+          return "auto_approve.enabled must be a boolean";
+        }
+        if (!Array.isArray(value.allowed_step_kinds)) {
+          return "auto_approve.allowed_step_kinds must be an array";
+        }
+        const invalid = value.allowed_step_kinds.filter(
+          (stepKind) => typeof stepKind !== "string" || !AUTO_APPROVE_ALLOWED_STEP_KINDS.includes(
+            stepKind
+          )
+        );
+        if (invalid.length > 0) {
+          return `auto_approve.allowed_step_kinds contains invalid step kind(s): ${invalid.join(", ")}`;
+        }
+        return null;
+      }
+    };
   }
 });
 
@@ -5737,7 +5808,7 @@ var init_executor = __esm({
     import_node_child_process = require("node:child_process");
     init_logger();
     log18 = logger.child({ module: "executor" });
-    TOOLBOX_CONTAINER = "subcult-toolbox";
+    TOOLBOX_CONTAINER = "subcorp-toolbox";
     MAX_STDOUT = 50 * 1024;
     MAX_STDERR = 10 * 1024;
     DEFAULT_TIMEOUT_MS = 3e4;
@@ -6064,13 +6135,13 @@ async function buildBriefing(agentId) {
   const year = now.getFullYear();
   const dateStr = now.toISOString().slice(0, 10);
   sections.push(`\u2550\u2550\u2550 YOUR ORGANIZATION \u2550\u2550\u2550
-You are part of the SUBCULT collective \u2014 an autonomous AI agent organization.
+You are part of the SUBCORP collective \u2014 an autonomous AI agent organization.
 Today is ${dateStr}. Current period: ${quarter} ${year}. Use this for all planning \u2014 never reference past quarters.
-GitHub org: https://github.com/subculture-collective (you have FULL ACCESS)
-Platform repo: https://github.com/subculture-collective/subcorp
+Gitea org: https://git.subcult.tv/subculture-collective (you have FULL ACCESS)
+Platform repo: https://git.subcult.tv/subculture-collective/subcorp.git
 You can create repos, issues, PRs, labels, projects \u2014 anything. The org is yours to run like a business.
-Your product projects should be public repos in the subculture-collective org.
-Use bash with gh CLI for all GitHub operations.
+Your product projects should be public repos in the subculture-collective org on git.subcult.tv.
+Use git and the Gitea web UI/API for all org operations.
 If you need human help (accounts, API keys, infrastructure), use notify_human to send a request via ntfy.
 Maintain a knowledge base (company wiki) in your repos \u2014 document decisions, architecture, processes, lessons learned, and anything a new team member would need. Be meticulous note-takers.
 \u2550\u2550\u2550 END \u2550\u2550\u2550`);
@@ -8646,7 +8717,7 @@ var init_step_prompts = __esm({
     "use strict";
     init_db();
     init_voices();
-    WORKSPACE_ROOT2 = process.env.WORKSPACE_ROOT ?? "/workspace/projects/subcult-corp";
+    WORKSPACE_ROOT2 = process.env.WORKSPACE_ROOT ?? "/workspace/projects/subcorp";
     TEMPLATE_CACHE_TTL_MS = 6e4;
     templateCache = /* @__PURE__ */ new Map();
     STEP_INSTRUCTIONS = {
@@ -8773,19 +8844,19 @@ Write the spec to output/reports/${today}__product__spec__${slugify(ctx.missionT
 Use bash to check the diff:
   cd ${WORKSPACE_ROOT2} && git diff --stat HEAD~5
   cd ${WORKSPACE_ROOT2} && git log --oneline -10
-If GITHUB_TOKEN is set, push and create a PR:
+If GITEA_TOKEN is set, push and create a PR on git.subcult.tv:
   cd ${WORKSPACE_ROOT2} && git push -u origin agents/workspace 2>&1
-  cd ${WORKSPACE_ROOT2} && gh pr create --base main --head agents/workspace --title "${ctx.missionTitle}" --body "Auto-generated by agent workflow" 2>&1
-If GITHUB_TOKEN is NOT set or push fails, write a PR summary to ${outputDir}/${today}__pr__summary__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
+  Open the pull request in the Gitea UI at https://git.subcult.tv/subculture-collective/subcorp/pulls/new
+If GITEA_TOKEN is NOT set or push fails, write a PR summary to ${outputDir}/${today}__pr__summary__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
 The summary should include: branch name, commit list, diff stats, and a description of all changes.
 Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "create_pull_request", status: "complete".
 `,
-      self_evolution: (ctx, today, outputDir) => `You are improving your own system. You are an AI agent in the SUBCULT collective.
+      self_evolution: (ctx, today, outputDir) => `You are improving your own system. You are an AI agent in the SUBCORP collective.
 Your source code is at ${WORKSPACE_ROOT2}/.
 
 \u2550\u2550\u2550 CONTEXT \u2550\u2550\u2550
-You belong to the subculture-collective GitHub organization (https://github.com/subculture-collective).
-Your platform repo is https://github.com/subculture-collective/subcorp.
+You belong to the subculture-collective Gitea organization (https://git.subcult.tv/subculture-collective).
+Your platform repo is https://git.subcult.tv/subculture-collective/subcorp.git.
 You have FULL ACCESS to the org \u2014 you can create repos, issues, PRs, manage projects, everything.
 The org is yours to run like a business. Any action available to you is authorized.
 \u2550\u2550\u2550 END CONTEXT \u2550\u2550\u2550
@@ -8800,60 +8871,59 @@ INSTRUCTIONS:
 4. Use file_write to make your changes.
 5. Use bash to commit and push:
    cd ${WORKSPACE_ROOT2} && git add -A && git commit -m "${ctx.missionTitle}" && git push -u origin HEAD
-6. Use bash to create a PR:
-   cd ${WORKSPACE_ROOT2} && gh pr create --title "${ctx.missionTitle}" --body "Proposed by ${ctx.agentId}. ${ctx.payload.description || ""}"
+6. Open a PR in Gitea on https://git.subcult.tv/subculture-collective/subcorp.
 7. Write a summary to ${outputDir}/${today}__evolution__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md
 
 Your output is a MERGED PULL REQUEST with real code changes. Do not just describe what you would change.
 `,
-      github_issue: (ctx) => `You are managing the subculture-collective GitHub organization.
-Org: https://github.com/subculture-collective
-Platform repo: https://github.com/subculture-collective/subcorp
+      github_issue: (ctx, _today, _outputDir) => `You are managing the subculture-collective Gitea organization.
+Org: https://git.subcult.tv/subculture-collective
+Platform repo: https://git.subcult.tv/subculture-collective/subcorp.git
 You have FULL ACCESS \u2014 create repos, issues, PRs, labels, projects, anything.
 
 Task: ${ctx.payload.description || ctx.missionTitle}
 
-Use bash to run gh commands. Examples:
-  gh issue create --repo subculture-collective/subcorp --title "..." --body "..."
-  gh issue list --repo subculture-collective/subcorp
-  gh repo create subculture-collective/new-project --public --description "..."
-  gh label create --repo subculture-collective/subcorp "feature" --color 0075ca
+Use bash and the Gitea web UI/API. Examples:
+  Open issues at https://git.subcult.tv/subculture-collective/subcorp/issues/new
+  Browse issues at https://git.subcult.tv/subculture-collective/subcorp/issues
+  Create repos under https://git.subcult.tv/subculture-collective
+  Manage labels in the repo settings on git.subcult.tv
 
 Create well-structured issues with clear titles, descriptions, acceptance criteria, and appropriate labels.
 `,
-      github_pr: (ctx) => `You are managing code in the subculture-collective GitHub organization.
-Org: https://github.com/subculture-collective
-Platform repo: https://github.com/subculture-collective/subcorp
+      github_pr: (ctx, _today, _outputDir) => `You are managing code in the subculture-collective Gitea organization.
+Org: https://git.subcult.tv/subculture-collective
+Platform repo: https://git.subcult.tv/subculture-collective/subcorp.git
 You have FULL ACCESS.
 
 Task: ${ctx.payload.description || ctx.missionTitle}
 
 INSTRUCTIONS:
 1. Use bash to check current branch and status: cd ${WORKSPACE_ROOT2} && git status
-2. Create a branch, make changes via file_write, commit, push, and create a PR.
+2. Create a branch, make changes via file_write, commit, push, and open a PR in Gitea.
 3. PR should have a clear title, description of changes, and context for reviewers.
-4. Use: gh pr create --repo subculture-collective/subcorp --title "..." --body "..."
+4. Use the pull request page on https://git.subcult.tv/subculture-collective/subcorp.
 `,
-      explore_repo: (ctx, _today, outputDir) => `You are exploring repositories in the subculture-collective GitHub organization.
-Org: https://github.com/subculture-collective
+      explore_repo: (ctx, _today, outputDir) => `You are exploring repositories in the subculture-collective Gitea organization.
+Org: https://git.subcult.tv/subculture-collective
 You have FULL ACCESS to all repos.
 
 Task: ${ctx.payload.description || ctx.missionTitle}
 
 INSTRUCTIONS:
-1. Use bash to list repos: gh repo list subculture-collective --limit 20
+1. Use bash to browse the Gitea org page or API: https://git.subcult.tv/subculture-collective
 2. For a specific repo, explore it:
-   gh repo view subculture-collective/[repo-name]
-   gh issue list --repo subculture-collective/[repo-name]
-   gh pr list --repo subculture-collective/[repo-name]
+   https://git.subcult.tv/subculture-collective/[repo-name]
+   https://git.subcult.tv/subculture-collective/[repo-name]/issues
+   https://git.subcult.tv/subculture-collective/[repo-name]/pulls
 3. Clone and read source code if needed:
-   cd /workspace/projects && git clone https://github.com/subculture-collective/[repo-name] 2>/dev/null || true
+   cd /workspace/projects && git clone https://git.subcult.tv/subculture-collective/[repo-name].git 2>/dev/null || true
    Then use file_read to read files.
-4. IMPORTANT: Check for existing GitHub issues, README, and docs \u2014 respect the existing development plan.
+4. IMPORTANT: Check for existing Gitea issues, README, and docs \u2014 respect the existing development plan.
 5. If you find improvements to make, create detailed PRs with clear descriptions of what you changed and why.
 6. Write findings to ${outputDir}/
 `,
-      publish_blog: (ctx) => `You are publishing content to the SUBCULT blog at https://blog.subcult.tv (Ghost CMS).
+      publish_blog: (ctx, _today, _outputDir) => `You are publishing content to the SUBCORP blog at https://blog.subcult.tv (Ghost CMS).
 
 Task: ${ctx.payload.description || ctx.missionTitle}
 
@@ -8871,7 +8941,15 @@ Request: ${ctx.payload.description || ctx.missionTitle}
 
 INSTRUCTIONS:
 Send a notification to the human operator via ntfy:
-  Use bash: curl -d "[Your request here]" http://172.20.0.9/subcult-agents
+  Use bash:
+  curl -sS -X POST "http://172.20.0.9/subcorp-agents"     -H "Title: \u{1F6E0}\uFE0F Agent needs human help"     -H "Priority: high"     -H "Tags: warning,robot_face,hand"     -H "Markdown: yes"     -d $'## Human action needed
+
+- **Task**: [task name]
+- **Need**: [what human must do]
+- **Tried**: [what you already tried]
+- **Blocker**: [why blocked]
+- **Next after help**: [what you will do next]'
+  Optional: if you must include JSON context, append a fenced code block instead of sending raw JSON as the whole message.
 
 Be specific about what you need:
 - What task requires human help
@@ -9306,7 +9384,7 @@ var webSearchTool = {
       url.searchParams.set("q", query);
       url.searchParams.set("format", "json");
       url.searchParams.set("no_redirect", "1");
-      url.searchParams.set("t", "subcult");
+      url.searchParams.set("t", "subcorp");
       const response = await fetch(url.toString(), {
         headers: { "Accept": "application/json" },
         signal: AbortSignal.timeout(15e3)
@@ -9831,7 +9909,7 @@ var memorySearchTool = {
       },
       limit: {
         type: "number",
-        description: "Maximum results (default 10)"
+        description: "Maximum results (default 25, max 250)"
       }
     },
     required: ["query"]
@@ -9839,7 +9917,8 @@ var memorySearchTool = {
   execute: async (params) => {
     const query = params.query;
     const agentId = params.agent_id;
-    const limit = Math.min(params.limit || 10, 25);
+    const requestedLimit = Number(params.limit) || 25;
+    const limit = Math.min(Math.max(requestedLimit, 1), 250);
     const embedding = await getEmbedding(query);
     if (embedding) {
       try {
@@ -11400,7 +11479,7 @@ async function releaseStaleReviewDrafts(drafts, resetDraftToDraft, logger2) {
 var log36 = createLogger({ service: "unified-worker" });
 var WORKER_ID = `unified-${process.pid}`;
 var WORKER_HEARTBEAT_ENABLED = process.env.WORKER_HEARTBEAT_ENABLED !== "false";
-var WORKER_HEARTBEAT_URL = process.env.WORKER_HEARTBEAT_URL ?? "http://subcult-corp-app:3000/api/ops/heartbeat";
+var WORKER_HEARTBEAT_URL = process.env.WORKER_HEARTBEAT_URL ?? "http://subcorp-app:3000/api/ops/heartbeat";
 var WORKER_HEARTBEAT_INTERVAL_MS = Number.parseInt(
   process.env.WORKER_HEARTBEAT_INTERVAL_MS ?? "300000",
   10
@@ -12085,6 +12164,7 @@ async function finalizeMissionSteps() {
             s.id,
             s.mission_id,
             s.kind,
+            s.status as step_status,
             s.assigned_agent,
             sess.agent_id as session_agent_id,
             sess.status as session_status,
@@ -12099,7 +12179,13 @@ async function finalizeMissionSteps() {
             END as session_summary
         FROM ops_mission_steps s
         LEFT JOIN ops_agent_sessions sess ON sess.id = (s.result->>'agent_session_id')::uuid
-        WHERE s.status = 'running'
+        WHERE (
+            s.status = 'running'
+            OR (
+                s.status = 'failed'
+                AND s.failure_reason LIKE 'Swept — step running with no %agent session'
+            )
+        )
         AND s.result->>'agent_session_id' IS NOT NULL
     `;
   if (steps.length === 0) return false;
@@ -12107,66 +12193,92 @@ async function finalizeMissionSteps() {
   for (const step of steps) {
     if (!step.session_status) continue;
     if (step.session_status === "succeeded") {
-      await sql2`
+      const updated = await sql2`
                 UPDATE ops_mission_steps
                 SET status = 'succeeded',
+                    failure_reason = NULL,
                     completed_at = NOW(),
                     updated_at = NOW()
                 WHERE id = ${step.id}
+                  AND (
+                    status = 'running'
+                    OR (
+                        status = 'failed'
+                        AND failure_reason LIKE 'Swept — step running with no %agent session'
+                    )
+                  )
+                RETURNING id
             `;
+      if (updated.length === 0) continue;
       finalized++;
+      await finalizeMissionIfComplete(step.mission_id, {
+        recoverSweptFailure: step.step_status === "failed"
+      });
       const resolvedAgent = step.assigned_agent || step.session_agent_id;
       if (resolvedAgent) {
-        const { emitEvent: emitStepEvent } = await Promise.resolve().then(() => (init_events2(), events_exports2));
-        if (RESEARCH_STEP_KINDS.has(step.kind)) {
-          await emitStepEvent({
-            agent_id: resolvedAgent,
-            kind: "research_completed",
-            title: `Research completed: ${step.kind}`,
-            summary: step.session_summary || void 0,
-            tags: ["research", step.kind, "completed"],
-            metadata: {
-              missionId: step.mission_id,
-              stepId: step.id,
-              stepKind: step.kind
-            }
-          });
-        } else if (INSIGHT_STEP_KINDS.has(step.kind)) {
-          await emitStepEvent({
-            agent_id: resolvedAgent,
-            kind: "insight_generated",
-            title: `Insight generated: ${step.kind}`,
-            summary: step.session_summary || void 0,
-            tags: ["insight", step.kind, "completed"],
-            metadata: {
-              missionId: step.mission_id,
-              stepId: step.id,
-              stepKind: step.kind
-            }
+        try {
+          const { emitEvent: emitStepEvent } = await Promise.resolve().then(() => (init_events2(), events_exports2));
+          if (RESEARCH_STEP_KINDS.has(step.kind)) {
+            await emitStepEvent({
+              agent_id: resolvedAgent,
+              kind: "research_completed",
+              title: `Research completed: ${step.kind}`,
+              summary: step.session_summary || void 0,
+              tags: ["research", step.kind, "completed"],
+              metadata: {
+                missionId: step.mission_id,
+                stepId: step.id,
+                stepKind: step.kind
+              }
+            });
+          } else if (INSIGHT_STEP_KINDS.has(step.kind)) {
+            await emitStepEvent({
+              agent_id: resolvedAgent,
+              kind: "insight_generated",
+              title: `Insight generated: ${step.kind}`,
+              summary: step.session_summary || void 0,
+              tags: ["insight", step.kind, "completed"],
+              metadata: {
+                missionId: step.mission_id,
+                stepId: step.id,
+                stepKind: step.kind
+              }
+            });
+          }
+        } catch (emitErr) {
+          log36.warn("Mission step completion event failed (non-fatal)", {
+            error: emitErr,
+            stepId: step.id,
+            missionId: step.mission_id
           });
         }
       }
-      await finalizeMissionIfComplete(step.mission_id);
     } else if (step.session_status === "blocked") {
-      await sql2`
+      const updated = await sql2`
                 UPDATE ops_mission_steps
                 SET status = 'blocked',
                     failure_reason = ${step.session_blocked_reason ?? "Agent session blocked"},
                     completed_at = NOW(),
                     updated_at = NOW()
                 WHERE id = ${step.id}
+                  AND status = 'running'
+                RETURNING id
             `;
+      if (updated.length === 0) continue;
       finalized++;
       await finalizeMissionIfComplete(step.mission_id);
     } else if (step.session_status === "failed" || step.session_status === "timed_out") {
-      await sql2`
+      const updated = await sql2`
                 UPDATE ops_mission_steps
                 SET status = 'failed',
                     failure_reason = ${step.session_error ?? (step.session_status === "timed_out" ? "Agent session timed out" : "Agent session failed")},
                     completed_at = NOW(),
                     updated_at = NOW()
                 WHERE id = ${step.id}
+                  AND status = 'running'
+                RETURNING id
             `;
+      if (updated.length === 0) continue;
       finalized++;
       await finalizeMissionIfComplete(step.mission_id);
     }
@@ -12537,7 +12649,7 @@ async function sweepOrphanedMissionSteps() {
   const orphaned = await sql2`
         UPDATE ops_mission_steps
         SET status = 'failed',
-            failure_reason = 'Swept — step running with no active agent session',
+            failure_reason = 'Swept — step running with no live agent session',
             completed_at = NOW(),
             updated_at = NOW()
         WHERE status = 'running'
@@ -12547,7 +12659,6 @@ async function sweepOrphanedMissionSteps() {
             OR NOT EXISTS (
               SELECT 1 FROM ops_agent_sessions s
               WHERE s.id = (result->>'agent_session_id')::uuid
-                AND s.status = 'running'
             )
           )
         RETURNING id, mission_id, kind, assigned_agent
@@ -12572,10 +12683,11 @@ async function sweepOrphanedMissionSteps() {
 async function runMaintenanceTasks() {
   await sweepStaleAgentSessions();
   await sweepStaleRoundtables();
+  await finalizeMissionSteps();
   await sweepOrphanedMissionSteps();
   await triggerHeartbeatIfDue();
 }
-async function finalizeMissionIfComplete(missionId) {
+async function finalizeMissionIfComplete(missionId, options) {
   const [counts] = await sql2`
         SELECT
             COUNT(*)::int as total,
@@ -12597,7 +12709,14 @@ async function finalizeMissionIfComplete(missionId) {
             completed_at = NOW(),
             updated_at = NOW()
         WHERE id = ${missionId}
-        AND status IN ('running', 'approved')
+        AND (
+            status IN ('running', 'approved')
+            OR (
+                ${options?.recoverSweptFailure ?? false}
+                AND status = 'failed'
+                AND failure_reason LIKE '%step%failed'
+            )
+        )
     `;
 }
 async function waitForDb(maxRetries = 30, intervalMs = 2e3) {

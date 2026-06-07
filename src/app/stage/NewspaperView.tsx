@@ -1,4 +1,4 @@
-// NewspaperView — browse and view SUBCULT Daily newspaper editions with PDF viewer
+// NewspaperView — browse and view SUBCORP Daily newspaper editions with PDF viewer
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -85,7 +85,7 @@ export function NewspaperView() {
                 <div className='flex items-center gap-2'>
                     <NewspaperIcon size={18} className='text-zinc-400' />
                     <span className='text-sm font-medium text-zinc-200'>
-                        SUBCULT Daily
+                        SUBCORP Daily
                     </span>
                 </div>
 
@@ -115,7 +115,7 @@ export function NewspaperView() {
                 {pdfUrl && selected?.has_pdf && (
                     <a
                         href={pdfUrl}
-                        download={`subcult-daily-${selectedDate}.pdf`}
+                        download={`subcorp-daily-${selectedDate}.pdf`}
                         className='flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors px-2 py-1 border border-zinc-800 rounded-lg'
                     >
                         <DownloadIcon size={12} />

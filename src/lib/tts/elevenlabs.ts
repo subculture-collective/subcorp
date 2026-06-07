@@ -17,7 +17,7 @@ const VOICE_ID_MAP: Record<string, string> = {
 
 // ─── Pronunciation Dictionary ───
 // Uploaded via ElevenLabs API — contains IPA for agent names + project vocab
-// PLS source: src/lib/tts/subcult-dictionary.pls
+// PLS source: src/lib/tts/subcorp-dictionary.pls
 const PRONUNCIATION_DICTIONARY = {
     id: 'T4J4acgqOqGRunucNgJI',
     versionId: 'g1QwEizFIrzvEAsPWLNP',

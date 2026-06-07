@@ -196,7 +196,7 @@ async function checkTrigger(
             const skipProb = (conditions.skip_probability as number) ?? 0.1;
             if (Math.random() < skipProb)
                 return { fired: false };
-            const topics = (conditions.topics as string[]) ?? ['SUBCULT product launches', 'agent operations insights', 'tech culture commentary', 'creative tooling'];
+            const topics = (conditions.topics as string[]) ?? ['SUBCORP product launches', 'agent operations insights', 'tech culture commentary', 'creative tooling'];
             const topic = topics[Math.floor(Math.random() * topics.length)];
             return {
                 fired: true,
@@ -1078,7 +1078,7 @@ async function checkCodeSprintReady(
             description: `Recent planning sessions produced actionable tasks. Sprint to implement them.`,
             proposed_steps: [
                 { kind: 'patch_code', assigned_agent: 'praxis', payload: { description: 'Read recent planning artifacts from /workspace/output/ and implement the highest-priority task. Create the product repo at /workspace/projects/ if it does not exist. Write real source code files.' } },
-                { kind: 'github_pr', assigned_agent: 'mux', payload: { description: 'If code was written, create a branch, commit, push, and open a PR on https://github.com/subculture-collective.' } },
+                { kind: 'github_pr', assigned_agent: 'mux', payload: { description: 'If code was written, create a branch, commit, push, and open a PR on https://git.subcult.tv/subculture-collective/subcorp.git.' } },
             ],
             source: 'trigger',
         },
@@ -1240,7 +1240,7 @@ async function checkSelfEvolutionNeeded(
             description: `Multiple improvement signals detected (${signalDetails.join(', ')}). Time to analyze and address systemic issues.`,
             proposed_steps: [
                 { kind: 'convene_roundtable', payload: { format: 'deep_dive', topic: 'Read our source code and identify the single most impactful improvement we can make. Be specific — name the file, the function, and the change.', participants: ['chora', 'praxis', 'thaum'] } },
-                { kind: 'self_evolution', assigned_agent: 'praxis', payload: { description: 'Based on the roundtable discussion, implement the top improvement. Create a branch, make the change, commit, push, and open a PR on https://github.com/subculture-collective/subcorp.' } },
+                { kind: 'self_evolution', assigned_agent: 'praxis', payload: { description: 'Based on the roundtable discussion, implement the top improvement. Create a branch, make the change, commit, push, and open a PR on https://git.subcult.tv/subculture-collective/subcorp.git.' } },
             ],
             source: 'trigger',
         },
@@ -1258,9 +1258,9 @@ async function checkProactiveBuild(
         return { fired: false, reason: 'skipped by probability' };
 
     const buildTasks = [
-        'Create the product project repo on GitHub (gh repo create subculture-collective/[product-name] --public) if it does not exist. Then create initial project files: package.json, tsconfig.json, README.md, and src/index.ts.',
+        'Create the product project repo on Gitea (git.subcult.tv/subculture-collective/[product-name].git) if it does not exist. Then create initial project files: package.json, tsconfig.json, README.md, and src/index.ts.',
         'Read recent product specs and planning artifacts from /workspace/output/. Pick the most concrete feature and implement it in code. Create source files in /workspace/projects/.',
-        'Check if any product code exists in /workspace/projects/ (other than subcult-corp). If yes, read it and add the next feature. If no, bootstrap the project from the latest product spec.',
+        'Check if any product code exists in /workspace/projects/ (other than subcorp). If yes, read it and add the next feature. If no, bootstrap the project from the latest product spec.',
         'Write TypeScript source code for the core module of our product. Read any existing specs from /workspace/output/ for guidance. Focus on data models and core logic.',
         'Create a REST API server for our product. Read existing source files first, then add HTTP endpoints using Node built-in http module.',
     ];
@@ -1282,3 +1282,35 @@ async function checkProactiveBuild(
 }
 
 // ─── Proactive Org Exploration ───
+
+async function checkProactiveExploreOrg(
+    conditions: Record<string, unknown>,
+    targetAgent: string,
+): Promise<TriggerCheckResult> {
+    const skipProb = (conditions.skip_probability as number) ?? 0.15;
+    if (Math.random() < skipProb)
+        return { fired: false, reason: 'skipped by probability' };
+
+    const exploreTasks = [
+        'List all repos in subculture-collective org on git.subcult.tv. Pick one you haven\'t explored. Read its README, issues, and recent PRs. Look for ways to contribute.',
+        'Check open issues across all subculture-collective repos on git.subcult.tv. Pick one you can help with and either fix it or comment with a plan.',
+        'Review the subcults repo (git.subcult.tv/subculture-collective/subcults.git). Read its development docs and issues. Propose or implement an improvement.',
+        'Explore the vod-tender repo. Read its README and source code. Look for bugs, missing features, or documentation gaps. Create an issue or PR.',
+        'Scan all org repos for stale PRs, missing documentation, or broken CI. Create issues for anything you find.',
+    ];
+    const task = exploreTasks[Math.floor(Math.random() * exploreTasks.length)];
+
+    return {
+        fired: true,
+        reason: 'Org exploration: contribute to subculture-collective repos',
+        proposal: {
+            agent_id: targetAgent,
+            title: 'Explore and contribute to org repos',
+            description: task,
+            proposed_steps: [
+                { kind: 'explore_repo' as const, assigned_agent: targetAgent, payload: { description: task } },
+            ],
+            source: 'trigger',
+        },
+    };
+}

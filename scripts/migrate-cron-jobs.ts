@@ -90,11 +90,11 @@ Use web_search with 3-4 specific technical queries. Rate each finding's importan
         max_tool_rounds: 10,
     },
     {
-        name: 'Subcult Watch',
+        name: 'Subcorp Watch',
         agent_id: 'chora',
         cron_expression: '0 19 * * *', // 2pm CT
         prompt: `Monitor for mentions and developments related to our brand and adjacent projects. Search for:
-1. Any mentions of "subcult" in tech/AI contexts
+1. Any mentions of "subcorp" in tech/AI contexts
 2. Competitor activity in autonomous agent systems
 3. Multi-agent framework developments
 4. AI orchestration and workflow automation news

@@ -19,6 +19,6 @@ See the root `Makefile` and `docker-compose.yml` for full details.
 
 ## Legacy
 
-The old systemd-based per-worker deployment (subcult-roundtable, subcult-initiative,
-subcult-step-worker) has been retired. All worker functionality is now handled by
+The old systemd-based per-worker deployment (subcorp-roundtable, subcorp-initiative,
+subcorp-step-worker) has been retired. All worker functionality is now handled by
 the unified worker container.

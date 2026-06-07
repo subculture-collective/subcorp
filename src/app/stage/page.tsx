@@ -62,7 +62,7 @@ const VALID_VIEWS: ViewMode[] = [
     'newsletter',
 ];
 
-const LAST_VIEW_KEY = 'subcult-last-view';
+const LAST_VIEW_KEY = 'subcorp-last-view';
 
 function isValidView(v: string | null): v is ViewMode {
     return v !== null && VALID_VIEWS.includes(v as ViewMode);

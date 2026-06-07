@@ -217,7 +217,7 @@ function TranscriptDocument({ data }: { data: TranscriptData }) {
 
                 {/* Footer */}
                 <Text style={styles.footer} fixed>
-                    SUBCULT COLLECTIVE | Session {data.sessionId.slice(0, 8)} | Generated {new Date().toISOString().slice(0, 10)}
+                    SUBCORP COLLECTIVE | Session {data.sessionId.slice(0, 8)} | Generated {new Date().toISOString().slice(0, 10)}
                 </Text>
             </Page>
         </Document>

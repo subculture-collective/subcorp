@@ -82,7 +82,7 @@ export const webSearchTool: NativeTool = {
             url.searchParams.set('q', query);
             url.searchParams.set('format', 'json');
             url.searchParams.set('no_redirect', '1');
-            url.searchParams.set('t', 'subcult');
+            url.searchParams.set('t', 'subcorp');
 
             const response = await fetch(url.toString(), {
                 headers: { 'Accept': 'application/json' },

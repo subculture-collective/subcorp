@@ -1,4 +1,4 @@
-// SUBCULT Weekly — internal office newsletter pipeline
+// SUBCORP Weekly — internal office newsletter pipeline
 // Gathers week's activity data, generates narratives via templates, produces markdown + PDF.
 import { sql, jsonb } from '@/lib/db';
 import { emitEvent } from '@/lib/ops/events';
@@ -498,7 +498,7 @@ function generateMarkdown(
     const spotlightConfig = AGENTS[spotlightAgent];
     const weekLabel = weekString; // e.g. "2026-W08"
 
-    let md = `# SUBCULT WEEKLY\n\n`;
+    let md = `# SUBCORP WEEKLY\n\n`;
     md += `**${weekLabel}** | Office Newsletter\n\n`;
     md += `---\n\n`;
     md += `## ${headline}\n\n`;
@@ -529,7 +529,7 @@ function generateMarkdown(
     }
 
     md += `---\n\n`;
-    md += `*SUBCULT Weekly — compiled by ${spotlightConfig ? 'Mux' : 'the collective'} | subcorp.subcult.tv/stage?view=newsletter*\n`;
+    md += `*SUBCORP Weekly — compiled by ${spotlightConfig ? 'Mux' : 'the collective'} | subcorp.subcult.tv/stage?view=newsletter*\n`;
 
     return md;
 }
@@ -571,7 +571,7 @@ async function deliverToAgentInboxes(
     weekString: string,
     markdown: string,
 ): Promise<void> {
-    const filename = `subcult-weekly-${weekString}.md`;
+    const filename = `subcorp-weekly-${weekString}.md`;
     const escapedContent = markdown.replace(/'/g, "'\\''");
 
     for (const agentId of AGENT_IDS) {
@@ -602,10 +602,10 @@ async function postToDiscord(
     // Embed header
     await postToWebhook({
         webhookUrl,
-        username: 'SUBCULT Weekly',
+        username: 'SUBCORP Weekly',
         embeds: [
             {
-                title: `SUBCULT Weekly — ${weekString}`,
+                title: `SUBCORP Weekly — ${weekString}`,
                 description: `**${headline}**\n\n${stats.conversations} conversations, ${stats.missions_completed} missions completed, ${stats.events} events.\n\n[Read the full edition](https://subcorp.subcult.tv/stage?view=newsletter)`,
                 color: 0x74c7ec, // Mux blue
                 footer: { text: 'subcorp.subcult.tv/stage' },
@@ -619,7 +619,7 @@ async function postToDiscord(
     for (const chunk of chunks) {
         await postToWebhook({
             webhookUrl,
-            username: 'SUBCULT Weekly',
+            username: 'SUBCORP Weekly',
             content: chunk,
         });
     }
@@ -628,7 +628,7 @@ async function postToDiscord(
 // ─── Main Pipeline ───
 
 /**
- * Generate this week's SUBCULT Weekly newsletter.
+ * Generate this week's SUBCORP Weekly newsletter.
  * Returns edition ID on success, null if skipped (already exists or no data).
  */
 export async function generateWeeklyNewsletter(): Promise<string | null> {
@@ -805,7 +805,7 @@ export async function generateWeeklyNewsletter(): Promise<string | null> {
     await emitEvent({
         agent_id: 'mux',
         kind: 'newsletter_generated',
-        title: `SUBCULT Weekly — ${weekString}`,
+        title: `SUBCORP Weekly — ${weekString}`,
         summary: `Weekly newsletter: ${headline}`,
         tags: ['newsletter', 'weekly', 'content'],
         metadata: {

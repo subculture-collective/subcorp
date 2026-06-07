@@ -2,7 +2,7 @@
 
 ## Executive summary
 
-This research used the two enabled connectors—entity["company","GitHub","code hosting platform"] and entity["company","Hugging Face","ml platform"]—in the order requested. The primary codebase analyzed was the public repo **entity["organization","subculture-collective","github org"]/subcorp**. fileciteturn30file2L1-L1
+This research used the two enabled connectors—entity["company","GitHub","code hosting platform"] and entity["company","Hugging Face","ml platform"]—in the order requested. The primary codebase analyzed was the public repo **https://git.subcult.tv/subculture-collective/subcorp.git**. fileciteturn30file2L1-L1
 
 The repo already contains a “Stage” dashboard and an “Office” view that renders a pixel-art styled office scene using **SVG primitives** (rects/lines/text) and simulates agents moving/animating with a lightweight state machine. The home route redirects to `/stage`, and the stage page composes three view modes: signal feed, missions, and office. fileciteturn90file0L1-L1 fileciteturn70file1L1-L1 fileciteturn99file0L1-L1
 
@@ -183,7 +183,7 @@ In practice, that means you should prioritize explicitly permissive licenses (CC
 
 ### Recommended marketplaces and libraries (shortlist)
 
-Because I cannot directly verify each pack’s current license text from non-GitHub sources in this environment, treat the list below as a **curation starting point** and verify licenses per-pack before adoption:
+Because I cannot directly verify each pack’s current license text from non-Gitea sources in this environment, treat the list below as a **curation starting point** and verify licenses per-pack before adoption:
 
 - itch.io (large supply of pixel office/interior packs; licensing varies per creator)
 - OpenGameArt (often CC-BY / CC0; verify each asset)
@@ -209,7 +209,7 @@ Start with a data model that supports both “single office” today and “mult
 
 ```json
 {
-    "buildingId": "subcult_hq",
+    "buildingId": "subcorp_hq",
     "floors": [
         {
             "floorId": "F1",
@@ -494,15 +494,15 @@ Given that sprite work involves binary sources and generated outputs, treat asse
 
 ```text
 subcorp (primary repo)
-- https://github.com/subculture-collective/subcorp
+- https://git.subcult.tv/subculture-collective/subcorp
 
 Key subcorp files referenced
-- https://github.com/subculture-collective/subcorp/blob/main/src/app/stage/OfficeRoom.tsx
-- https://github.com/subculture-collective/subcorp/blob/main/src/app/stage/page.tsx
-- https://github.com/subculture-collective/subcorp/blob/main/src/lib/agents.ts
-- https://github.com/subculture-collective/subcorp/blob/main/db/migrations/014_ops_agent_registry.sql
-- https://github.com/subculture-collective/subcorp/blob/main/workspace/ROUNDTABLE.md
-- https://github.com/subculture-collective/subcorp/blob/main/Makefile
+- https://git.subcult.tv/subculture-collective/subcorp/blob/main/src/app/stage/OfficeRoom.tsx
+- https://git.subcult.tv/subculture-collective/subcorp/blob/main/src/app/stage/page.tsx
+- https://git.subcult.tv/subculture-collective/subcorp/blob/main/src/lib/agents.ts
+- https://git.subcult.tv/subculture-collective/subcorp/blob/main/db/migrations/014_ops_agent_registry.sql
+- https://git.subcult.tv/subculture-collective/subcorp/blob/main/workspace/ROUNDTABLE.md
+- https://git.subcult.tv/subculture-collective/subcorp/blob/main/Makefile
 
 Sprite tool reference (Aseprite)
 - https://github.com/aseprite/aseprite/blob/main/README.md

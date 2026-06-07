@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Heartbeat cron script — calls /api/ops/heartbeat via docker compose exec.
-# Install: crontab -e → */2 * * * * /mnt/spektr/server/projects/subcult-corp/scripts/heartbeat-cron.sh >> /tmp/subcult-heartbeat.log 2>&1
+# Install: crontab -e → */2 * * * * /mnt/spektr/server/projects/subcorp/scripts/heartbeat-cron.sh >> /tmp/subcorp-heartbeat.log 2>&1
 
 set -euo pipefail
 
-SERVICE="subcult-corp-app"
+SERVICE="subcorp-app"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="$PROJECT_ROOT/.env"

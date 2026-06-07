@@ -55,7 +55,7 @@ export default async function EditionPage({
         },
         publisher: {
             '@type': 'Organization',
-            name: 'SUBCULT',
+            name: 'SUBCORP',
             url: 'https://subcult.tv',
         },
         url: `https://subcorp.subcult.tv/news/${date}`,
@@ -95,7 +95,7 @@ export default async function EditionPage({
                             <span>&middot;</span>
                             <a
                                 href={pdfUrl}
-                                download={`subcult-daily-${date}.pdf`}
+                                download={`subcorp-daily-${date}.pdf`}
                                 className='text-zinc-400 hover:text-zinc-200 transition-colors underline underline-offset-2'
                             >
                                 Download PDF

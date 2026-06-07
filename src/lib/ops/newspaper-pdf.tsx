@@ -1,4 +1,4 @@
-// SUBCULT Daily — PDF newspaper renderer
+// SUBCORP Daily — PDF newspaper renderer
 // Uses @react-pdf/renderer for pure Node.js PDF generation (no Chromium).
 import React from 'react';
 import {
@@ -212,7 +212,7 @@ function NewspaperDocument({
             <Page size="LETTER" style={styles.page}>
                 {/* Masthead */}
                 <View style={styles.masthead}>
-                    <Text style={styles.mastheadTitle}>SUBCULT DAILY</Text>
+                    <Text style={styles.mastheadTitle}>SUBCORP DAILY</Text>
                 </View>
                 <View style={styles.mastheadRule} />
                 <View style={styles.mastheadRuleThin} />

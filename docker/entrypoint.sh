@@ -26,7 +26,7 @@ fi
 
 # Configure git and gh for agent operations
 if command -v git >/dev/null 2>&1; then
-    git config --global user.name "subcult-agents"
+    git config --global user.name "subcorp-agents"
     git config --global user.email "subcorp@subcult.tv"
     git config --global init.defaultBranch main
 fi

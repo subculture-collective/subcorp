@@ -1,4 +1,4 @@
-// SUBCULT Weekly — PDF newsletter renderer
+// SUBCORP Weekly — PDF newsletter renderer
 // Uses @react-pdf/renderer for pure Node.js PDF generation (no Chromium).
 import React from 'react';
 import {
@@ -216,7 +216,7 @@ function NewsletterDocument({
             <Page size="LETTER" style={styles.page}>
                 {/* Masthead */}
                 <View style={styles.masthead}>
-                    <Text style={styles.mastheadTitle}>SUBCULT WEEKLY</Text>
+                    <Text style={styles.mastheadTitle}>SUBCORP WEEKLY</Text>
                 </View>
                 <View style={styles.mastheadRule} />
                 <View style={styles.mastheadRuleThin} />
@@ -250,7 +250,7 @@ function NewsletterDocument({
                 {/* Footer */}
                 <View style={styles.footer} fixed>
                     <Text style={styles.footerText}>
-                        SUBCULT WEEKLY | {weekString}
+                        SUBCORP WEEKLY | {weekString}
                     </Text>
                     <Text style={styles.footerText}>
                         subcorp.subcult.tv/stage

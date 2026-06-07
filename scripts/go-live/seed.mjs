@@ -7,7 +7,7 @@
 //   2. ops_policy               — all policies (core + roundtable + thresholds)
 //   3. ops_trigger_rules        — all triggers (reactive + proactive + governance)
 //   4. ops_agent_relationships  — 15 pairwise agent relationships
-//   5. ops_rss_feeds            — 15 RSS feeds for SUBCULT Daily
+//   5. ops_rss_feeds            — 15 RSS feeds for SUBCORP Daily
 //   6. ops_discord_channels     — 16 Discord channels
 //   7. users (admin)            — first admin user (via ADMIN_EMAIL, ADMIN_USERNAME, ADMIN_PASSWORD)
 //
@@ -686,7 +686,7 @@ const basePolicies = [
             'Agent-to-agent reaction patterns based on OpenClaw coordination model',
     },
     {
-        key: 'subcult_step_kinds',
+        key: 'subcorp_step_kinds',
         value: {
             analysis: [
                 'analyze_discourse',
@@ -723,7 +723,7 @@ const basePolicies = [
             ],
             product: ['draft_product_spec', 'update_directive'],
         },
-        description: 'Subcult-specific step kinds organized by function',
+        description: 'Subcorp-specific step kinds organized by function',
     },
     {
         key: 'memory_tags',
@@ -735,7 +735,7 @@ const basePolicies = [
                 'preference',
                 'lesson',
             ],
-            subcult_tags: [
+            subcorp_tags: [
                 'platform-capture',
                 'extraction-risk',
                 'cultural-praxis',
@@ -744,7 +744,7 @@ const basePolicies = [
                 'autonomy-threat',
             ],
         },
-        description: 'Memory categorization and Subcult-specific semantic tags',
+        description: 'Memory categorization and Subcorp-specific semantic tags',
     },
     {
         key: 'simulation_epoch',

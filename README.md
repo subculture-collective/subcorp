@@ -152,7 +152,7 @@ GHOST_ADMIN_API_KEY=your-ghost-admin-key
 
 # PostgreSQL (used by Docker Compose)
 POSTGRES_PASSWORD=your-secure-password
-DATABASE_URL=postgresql://subcult:your-secure-password@postgres:5432/subcult_ops
+DATABASE_URL=postgresql://subcorp:your-secure-password@postgres:5432/subcorp_ops
 
 # Cron auth
 CRON_SECRET=$(openssl rand -hex 32)
@@ -389,7 +389,7 @@ deploy/systemd/               # systemd service files (legacy)
 
 ## Roadmap
 
-Development is tracked across 17 epics and 114 issues. See [issue #114](https://github.com/subculture-collective/subcorp/issues/114) for the full roadmap in dependency order.
+Development is tracked across 17 epics and 114 issues. See [issue #114](https://git.subcult.tv/subculture-collective/subcorp/issues/114) for the full roadmap in dependency order.
 
 | Phase | Epic                           | Status      |
 | ----- | ------------------------------ | ----------- |

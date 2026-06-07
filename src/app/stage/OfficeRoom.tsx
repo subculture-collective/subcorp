@@ -879,7 +879,7 @@ function OfficeFurniture({ period }: { period: 'day' | 'dusk' | 'night' }) {
                     fill='#cba6f7'
                     fontFamily='monospace'
                 >
-                    SUBCULT
+                    SUBCORP
                 </text>
                 <text
                     x={20}

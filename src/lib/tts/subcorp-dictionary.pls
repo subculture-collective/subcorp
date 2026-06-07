@@ -77,18 +77,6 @@
   </lexeme>
   <!-- Project vocabulary -->
   <lexeme>
-    <grapheme>Subcult</grapheme>
-    <phoneme>ˈsʌb kʌlt</phoneme>
-  </lexeme>
-  <lexeme>
-    <grapheme>subcult</grapheme>
-    <phoneme>ˈsʌb kʌlt</phoneme>
-  </lexeme>
-  <lexeme>
-    <grapheme>SUBCULT</grapheme>
-    <phoneme>ˈsʌb kʌlt</phoneme>
-  </lexeme>
-  <lexeme>
     <grapheme>Subcorp</grapheme>
     <phoneme>ˈsʌb kɔːɹp</phoneme>
   </lexeme>

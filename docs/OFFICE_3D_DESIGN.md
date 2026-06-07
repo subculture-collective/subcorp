@@ -115,7 +115,7 @@ useMemories()    ──→ Agent detail panel
 - [ ] Create server rack with blinking LEDs
 - [ ] Create plants (simple low-poly)
 - [ ] Create wall clock
-- [ ] Create poster ("SUBCULT / AUTONOMY THROUGH ALIGNMENT")
+- [ ] Create poster ("SUBCORP / AUTONOMY THROUGH ALIGNMENT")
 - [ ] Create whiteboard with live data texture
 
 ### Phase 3: Agents

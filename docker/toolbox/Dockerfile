@@ -92,7 +92,7 @@ RUN npm install -g \
     retire snyk
 
 # ── Copy repo source + init script ──
-COPY . /opt/subcult-repo
+COPY . /opt/subcorp-repo
 COPY docker/toolbox/init-workspace.sh /usr/local/bin/init-workspace.sh
 RUN chmod +x /usr/local/bin/init-workspace.sh
 

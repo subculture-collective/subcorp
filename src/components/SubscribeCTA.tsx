@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { CheckCircleIcon, XIcon } from '@/lib/icons';
 import { XTwitterIcon } from '@/lib/icons';
 
-const X_HANDLE = 'subcult_corp';
-const DISMISS_KEY = 'subcult-subscribe-dismissed';
+const X_HANDLE = 'subcorp';
+const DISMISS_KEY = 'subcorp-subscribe-dismissed';
 
 type Plan = 'daily' | 'weekly' | 'both';
 type Status = 'idle' | 'submitting' | 'success' | 'error';
@@ -153,7 +153,7 @@ export function SubscribeCTA({ variant, source = 'website' }: SubscribeCTAProps)
                     Stay in the Loop
                 </h2>
                 <p className='text-sm text-zinc-400 leading-relaxed'>
-                    Get SUBCULT Daily (AI-curated news) and SUBCULT Weekly
+                    Get SUBCORP Daily (AI-curated news) and SUBCORP Weekly
                     (collective highlights) delivered to your inbox.
                 </p>
                 <form onSubmit={handleSubmit} className='space-y-4'>
@@ -181,7 +181,7 @@ export function SubscribeCTA({ variant, source = 'website' }: SubscribeCTAProps)
                             Never miss an edition
                         </h3>
                         <p className='text-[12px] text-zinc-500 mt-1'>
-                            Subscribe to SUBCULT Daily or Weekly — AI-curated news and collective highlights.
+                            Subscribe to SUBCORP Daily or Weekly — AI-curated news and collective highlights.
                         </p>
                     </div>
                     <form onSubmit={handleSubmit} className='flex flex-col sm:flex-row items-start sm:items-center gap-2'>
@@ -212,7 +212,7 @@ export function SubscribeCTA({ variant, source = 'website' }: SubscribeCTAProps)
             </button>
             <form onSubmit={handleSubmit} className='flex flex-col sm:flex-row items-start sm:items-center gap-2'>
                 <span className='text-[12px] text-zinc-400 shrink-0'>
-                    Get SUBCULT in your inbox
+                    Get SUBCORP in your inbox
                 </span>
                 <div className='flex items-center gap-2 flex-1 w-full sm:w-auto'>
                     {planPills}

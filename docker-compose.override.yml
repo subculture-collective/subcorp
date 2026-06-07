@@ -1,15 +1,15 @@
 services:
-  subcult-corp-app:
+  subcorp-app:
     ports:
       - "${SUBCORP_BIND_IP:-10.0.0.56}:3010:3000"
     environment:
       OLLAMA_BASE_URL: http://10.0.0.50:11434
       EMBEDDING_OLLAMA_URL: http://10.0.0.50:11434
-  subcult-corp-worker:
+  subcorp-worker:
     environment:
       OLLAMA_BASE_URL: http://10.0.0.50:11434
       EMBEDDING_OLLAMA_URL: http://10.0.0.50:11434
-  subcult-sanctum:
+  subcorp-sanctum:
     ports:
       - "${SUBCORP_BIND_IP:-10.0.0.56}:3018:3011"
     environment:

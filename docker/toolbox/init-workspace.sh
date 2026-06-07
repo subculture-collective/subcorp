@@ -16,8 +16,8 @@ mkdir -p /workspace/shared/manifests
 mkdir -p /workspace/droids
 
 # ── Set up repo copy for agents ──
-REPO_SRC=/opt/subcult-repo
-REPO_DST=/workspace/projects/subcult-corp
+REPO_SRC=/opt/subcorp-repo
+REPO_DST=/workspace/projects/subcorp
 BRANCH=agents/workspace
 
 if [ -d "$REPO_SRC" ]; then
@@ -28,14 +28,14 @@ if [ -d "$REPO_SRC" ]; then
     cd "$REPO_DST"
     git init -q
     git config user.email "agents@subcult.tv"
-    git config user.name "Subcult Agents"
+    git config user.name "Subcorp Agents"
     git add -A
     git commit -q -m "Initial: synced from build $(date -Iseconds)"
     git checkout -q -b "$BRANCH"
 
     # Set up GitHub remote if token is available
     if [ -n "${GITHUB_TOKEN:-}" ]; then
-        git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/onnwee/subcult-corp.git" 2>/dev/null || true
+        git remote add origin "https://x-access-token:${GITHUB_TOKEN}@git.subcult.tv/subculture-collective/subcorp.git" 2>/dev/null || true
         echo "GitHub remote configured for $REPO_DST"
     fi
 

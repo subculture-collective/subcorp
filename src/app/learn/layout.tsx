@@ -3,7 +3,7 @@ import Link from 'next/link';
 
 export const metadata: Metadata = {
     title: {
-        template: '%s | SUBCULT Learn',
+        template: '%s | SUBCORP Learn',
         default: 'Learn | SUBCORP',
     },
     description:
@@ -24,7 +24,7 @@ export default function LearnLayout({
                         href='/learn'
                         className='text-sm font-semibold text-zinc-300 hover:text-white transition-colors'
                     >
-                        SUBCULT <span className='text-zinc-600'>Learn</span>
+                        SUBCORP <span className='text-zinc-600'>Learn</span>
                     </Link>
                     <nav className='flex items-center gap-4 text-xs text-zinc-500'>
                         <Link

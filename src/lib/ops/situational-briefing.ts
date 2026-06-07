@@ -26,13 +26,13 @@ export async function buildBriefing(agentId: string): Promise<string> {
     const year = now.getFullYear();
     const dateStr = now.toISOString().slice(0, 10);
     sections.push(`═══ YOUR ORGANIZATION ═══
-You are part of the SUBCULT collective — an autonomous AI agent organization.
+You are part of the SUBCORP collective — an autonomous AI agent organization.
 Today is ${dateStr}. Current period: ${quarter} ${year}. Use this for all planning — never reference past quarters.
-GitHub org: https://github.com/subculture-collective (you have FULL ACCESS)
-Platform repo: https://github.com/subculture-collective/subcorp
+Gitea org: https://git.subcult.tv/subculture-collective (you have FULL ACCESS)
+Platform repo: https://git.subcult.tv/subculture-collective/subcorp.git
 You can create repos, issues, PRs, labels, projects — anything. The org is yours to run like a business.
-Your product projects should be public repos in the subculture-collective org.
-Use bash with gh CLI for all GitHub operations.
+Your product projects should be public repos in the subculture-collective org on git.subcult.tv.
+Use git and the Gitea web UI/API for all org operations.
 If you need human help (accounts, API keys, infrastructure), use notify_human to send a request via ntfy.
 Maintain a knowledge base (company wiki) in your repos — document decisions, architecture, processes, lessons learned, and anything a new team member would need. Be meticulous note-takers.
 ═══ END ═══`);

@@ -110,7 +110,7 @@ This is directly responsive to what your repo already demonstrates: cron job con
 
 Minimal changes required:
 
-- Add a named volume `subcult_data:` and mount it at `/data` for all services that write outputs (app + workers + droid-runner).
+- Add a named volume `subcorp_data:` and mount it at `/data` for all services that write outputs (app + workers + droid-runner).
 - Keep `/app` (the code) untouched; do **not** bind-mount the repo over `/app` in production (dev can still do so).
 - Replace host-specific OpenClaw mounts with a configurable bind mount (e.g., `OPENCLAW_HOME`) or treat OpenClaw as an upstream “ingest” pipeline into `/data/workspace/shared/inbox`.
 
@@ -162,7 +162,7 @@ This makes it possible to enforce “outputs are produced,” independently of G
 
 ### Versioning model: Git for curated outputs, content-hash for runtime artifacts
 
-- **Curated deliverables** (final reports, release notes, canonical docs) should be committed to Git to leverage diff, review, and provenance. This aligns with establishing branch protections and code ownership controls in entity["company","GitHub","code hosting platform"]. fileciteturn77file0L1-L1 fileciteturn76file2L1-L1
+- **Curated deliverables** (final reports, release notes, canonical docs) should be committed to Git to leverage diff, review, and provenance. This aligns with establishing branch protections and code ownership controls in Gitea. fileciteturn77file0L1-L1 fileciteturn76file2L1-L1
 - **Runtime artifacts** (logs, intermediate JSON, cached pages, droid scratch) should not be committed. They should be indexed by `artifact_id` and content hash, and governed by retention.
 
 ### Retention policy: explicit, automated, and safe-by-default
@@ -565,7 +565,7 @@ source_refs:
 ### Notes on external foundations used
 
 - Docker security hardening concepts (rootless mode, user namespace remapping) are grounded in entity["company","Docker","container platform"]’s official documentation. fileciteturn93file2L1-L1 fileciteturn75file1L1-L1
-- Git repository governance (CODEOWNERS, protected branches, required checks) is grounded in official docs from entity["company","GitHub","code hosting platform"]. fileciteturn76file2L1-L1 fileciteturn77file0L1-L1
+- Git repository governance (CODEOWNERS, protected branches, required checks) is grounded in official docs from Gitea. fileciteturn76file2L1-L1 fileciteturn77file0L1-L1
 - Container security reference point: entity["organization","National Institute of Standards and Technology","us standards agency"] SP 800-190 is a canonical baseline for container security considerations. fileciteturn88file0L1-L1
 - Agentic execution separation and grounded tool interfaces: SWE-agent background materials. fileciteturn84file1L1-L1
 - Multi-agent patterns and teamwork structures: entity["company","Microsoft","software company"] AutoGen docs and entity["organization","OpenBMB","open-source llm org"] ChatDev’s multi-agent software-dev framing. fileciteturn80file2L1-L1 fileciteturn104file0L1-L1

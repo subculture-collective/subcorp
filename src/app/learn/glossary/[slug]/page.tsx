@@ -85,7 +85,7 @@ export default async function GlossaryDetail(props: {
                     url: `${BASE}/learn/glossary/${entry.slug}`,
                     inDefinedTermSet: {
                         '@type': 'DefinedTermSet',
-                        name: 'SUBCULT AI Agent Glossary',
+                        name: 'SUBCORP AI Agent Glossary',
                         url: `${BASE}/learn/glossary`,
                     },
                 }}

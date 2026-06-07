@@ -10,7 +10,7 @@ export default async function NewsIndex() {
     return (
         <>
             <h1 className='text-3xl font-bold tracking-tight mb-2'>
-                SUBCULT Daily
+                SUBCORP Daily
             </h1>
             <p className='text-sm text-zinc-400 mb-10 max-w-xl'>
                 AI-curated daily newspaper — technology, security, open source,

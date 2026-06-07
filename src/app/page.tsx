@@ -44,7 +44,7 @@ const websiteJsonLd = {
     },
     publisher: {
         '@type': 'Organization',
-        name: 'SUBCULT',
+        name: 'SUBCORP',
         url: 'https://subcult.tv',
         sameAs: ['https://x.com/subcult_tv', 'https://x.com/patrick__eff'],
     },

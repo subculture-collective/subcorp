@@ -395,7 +395,7 @@ async function checkToolbox() {
         const exec = promisify(execFile);
 
         const { stdout } = await exec('docker', [
-            'exec', 'subcult-toolbox', 'bash', '-c',
+            'exec', 'subcorp-toolbox', 'bash', '-c',
             'whoami && which curl git node python3 rg',
         ], { timeout: 10_000 });
 

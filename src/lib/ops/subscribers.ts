@@ -1,4 +1,4 @@
-// Subscriber management — SUBCULT Weekly / Daily newsletter
+// Subscriber management — SUBCORP Weekly / Daily newsletter
 import { sql } from '@/lib/db';
 
 export type SubscribePlan = 'daily' | 'weekly' | 'both';

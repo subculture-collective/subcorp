@@ -30,7 +30,7 @@ export async function GET(
         return new NextResponse(new Uint8Array(pdfBuffer), {
             headers: {
                 'Content-Type': 'application/pdf',
-                'Content-Disposition': `inline; filename="subcult-daily-${date}.pdf"`,
+                'Content-Disposition': `inline; filename="subcorp-daily-${date}.pdf"`,
                 'Cache-Control': 'public, max-age=86400',
             },
         });

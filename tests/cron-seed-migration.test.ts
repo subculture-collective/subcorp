@@ -2,7 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const WORKSPACE_ROOT = '/mnt/spektr/server/projects/subcult-corp';
+const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? process.cwd();
 const SQL_PATH = path.join(
   WORKSPACE_ROOT,
   'db/migrations/017_seed_cron_schedules.sql',

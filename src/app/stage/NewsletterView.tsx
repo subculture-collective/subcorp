@@ -1,4 +1,4 @@
-// NewsletterView — browse and view SUBCULT Weekly newsletter editions with PDF viewer
+// NewsletterView — browse and view SUBCORP Weekly newsletter editions with PDF viewer
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -81,7 +81,7 @@ export function NewsletterView() {
                 <div className='flex items-center gap-2'>
                     <MailIcon size={18} className='text-zinc-400' />
                     <span className='text-sm font-medium text-zinc-200'>
-                        SUBCULT Weekly
+                        SUBCORP Weekly
                     </span>
                 </div>
 
@@ -111,7 +111,7 @@ export function NewsletterView() {
                 {pdfUrl && selected?.has_pdf && (
                     <a
                         href={pdfUrl}
-                        download={`subcult-weekly-${selectedWeek}.pdf`}
+                        download={`subcorp-weekly-${selectedWeek}.pdf`}
                         className='flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors px-2 py-1 border border-zinc-800 rounded-lg'
                     >
                         <DownloadIcon size={12} />

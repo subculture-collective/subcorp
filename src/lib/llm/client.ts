@@ -1905,7 +1905,7 @@ async function openRouterToolLoop(opts: {
                 headers: {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-                    'HTTP-Referer': 'https://subcult.org',
+                    'HTTP-Referer': 'https://subcorp.subcult.tv',
                 },
                 body: JSON.stringify(body),
                 signal: controller.signal,

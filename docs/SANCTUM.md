@@ -399,7 +399,7 @@ The `sanctum` service is defined in `docker-compose.yml`:
 ```yaml
 sanctum:
   build: .
-  container_name: subcult-sanctum
+  container_name: subcorp-sanctum
   restart: unless-stopped
   command: ['node', '--import=tsx', 'scripts/sanctum-server/server.mjs']
   depends_on:

@@ -31,7 +31,7 @@ export async function GET(
         return new NextResponse(new Uint8Array(pdfBuffer), {
             headers: {
                 'Content-Type': 'application/pdf',
-                'Content-Disposition': `inline; filename="subcult-weekly-${week}.pdf"`,
+                'Content-Disposition': `inline; filename="subcorp-weekly-${week}.pdf"`,
                 'Cache-Control': 'public, max-age=86400',
             },
         });
