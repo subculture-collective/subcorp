@@ -86,7 +86,6 @@ async function checkTables(sql) {
         'ops_agent_proposals',
         'ops_rss_feeds',
         'ops_discord_channels',
-        'ops_model_routing',
         'ops_llm_usage',
     ];
 
