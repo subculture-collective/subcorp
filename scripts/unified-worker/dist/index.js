@@ -3396,6 +3396,30 @@ __export(proposal_service_exports, {
 });
 async function createProposalAndMaybeAutoApprove(input) {
   if (input.source_trace_id) {
+    const [existing] = await sql`
+            SELECT p.id, m.id AS mission_id
+            FROM ops_mission_proposals p
+            LEFT JOIN ops_missions m ON m.proposal_id = p.id
+            WHERE p.source = ${input.source ?? "agent"}
+              AND p.source_trace_id = ${input.source_trace_id}
+              AND p.title = ${input.title}
+            ORDER BY p.created_at ASC
+            LIMIT 1
+        `;
+    if (existing) {
+      log7.info("Proposal replay ignored by source_trace_id", {
+        proposalId: existing.id,
+        missionId: existing.mission_id,
+        source: input.source ?? "agent",
+        sourceTraceId: input.source_trace_id
+      });
+      return {
+        success: true,
+        proposalId: existing.id,
+        missionId: existing.mission_id ?? void 0,
+        replayed: true
+      };
+    }
     const [{ count: sessionCount }] = await sql`
             SELECT COUNT(*)::int as count FROM ops_mission_proposals
             WHERE source_trace_id = ${input.source_trace_id}
@@ -8161,13 +8185,17 @@ Summary: ${reviewSummary}`,
           }
         }
       ],
-      source: "system"
+      source: "system",
+      source_trace_id: `content-revision:${draft.id}:${draft.review_session_id ?? "no-review"}`
     });
     if (result.success) {
-      log33.info("Content revision proposal created", {
-        draftId: draft.id,
-        proposalId: result.proposalId
-      });
+      log33.info(
+        result.replayed ? "Content revision proposal already exists" : "Content revision proposal created",
+        {
+          draftId: draft.id,
+          proposalId: result.proposalId
+        }
+      );
     } else {
       log33.warn("Content revision proposal rejected", {
         draftId: draft.id,
@@ -10306,6 +10334,12 @@ var TOOL_RESULT_MAX_LENGTH = 5e3;
 var MAX_CONSECUTIVE_EMPTY_ROUNDS = 3;
 var MEMORY_PREVIEW_LENGTH = 200;
 var SESSION_SUMMARY_PREVIEW_LENGTH = 300;
+function readPositiveIntEnv(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+var AGENT_SESSION_MAX_TOKENS = readPositiveIntEnv("AGENT_SESSION_MAX_TOKENS", 6e3);
+var AGENT_SESSION_MAX_TOOL_ROUNDS = readPositiveIntEnv("AGENT_SESSION_MAX_TOOL_ROUNDS", 6);
 function sanitizeSummary(text) {
   return normalizeDsml(text).replace(/<\/?[a-z_][a-z0-9_-]*(?:\s[^>]*)?\s*>/gi, "").replace(/\s{2,}/g, " ").trim();
 }
@@ -10583,9 +10617,9 @@ async function runAgentToolLoop(opts) {
     const result = await llmGenerateWithTools({
       messages,
       temperature: 0.7,
-      maxTokens: 16e3,
+      maxTokens: AGENT_SESSION_MAX_TOKENS,
       tools: tools.length > 0 ? tools : void 0,
-      maxToolRounds: 20,
+      maxToolRounds: Math.min(maxRounds, AGENT_SESSION_MAX_TOOL_ROUNDS),
       trackingContext: { agentId, context: "agent_session", sessionId: session.id }
     });
     if (result.text) {
@@ -12444,7 +12478,8 @@ async function pollInitiatives() {
         title: parsed.title,
         description: parsed.description ?? "",
         proposed_steps: parsed.steps ?? [],
-        source: "initiative"
+        source: "initiative",
+        source_trace_id: `initiative:${entry.id}`
       });
     }
     await sql2`

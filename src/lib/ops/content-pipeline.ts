@@ -620,13 +620,19 @@ async function requestContentRevision(
                 },
             ],
             source: 'system',
+            source_trace_id: `content-revision:${draft.id}:${draft.review_session_id ?? 'no-review'}`,
         });
 
         if (result.success) {
-            log.info('Content revision proposal created', {
-                draftId: draft.id,
-                proposalId: result.proposalId,
-            });
+            log.info(
+                result.replayed ?
+                    'Content revision proposal already exists'
+                :   'Content revision proposal created',
+                {
+                    draftId: draft.id,
+                    proposalId: result.proposalId,
+                },
+            );
         } else {
             log.warn('Content revision proposal rejected', {
                 draftId: draft.id,

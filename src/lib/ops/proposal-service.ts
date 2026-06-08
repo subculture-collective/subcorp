@@ -15,10 +15,40 @@ export async function createProposalAndMaybeAutoApprove(
     success: boolean;
     proposalId?: string;
     missionId?: string;
+    replayed?: boolean;
     reason?: string;
 }> {
-    // Per-session proposal limit (max 2 per session)
+    // Stable idempotency: callers that can identify their source work item
+    // should pass source_trace_id. If the same source is replayed (worker
+    // restart/backfill/retry), return the existing proposal/mission instead of
+    // creating duplicate accepted work. Match title too so agent sessions can
+    // still create multiple distinct proposals under the existing per-session cap.
     if (input.source_trace_id) {
+        const [existing] = await sql<[{ id: string; mission_id: string | null }]>`
+            SELECT p.id, m.id AS mission_id
+            FROM ops_mission_proposals p
+            LEFT JOIN ops_missions m ON m.proposal_id = p.id
+            WHERE p.source = ${input.source ?? 'agent'}
+              AND p.source_trace_id = ${input.source_trace_id}
+              AND p.title = ${input.title}
+            ORDER BY p.created_at ASC
+            LIMIT 1
+        `;
+        if (existing) {
+            log.info('Proposal replay ignored by source_trace_id', {
+                proposalId: existing.id,
+                missionId: existing.mission_id,
+                source: input.source ?? 'agent',
+                sourceTraceId: input.source_trace_id,
+            });
+            return {
+                success: true,
+                proposalId: existing.id,
+                missionId: existing.mission_id ?? undefined,
+                replayed: true,
+            };
+        }
+
         const [{ count: sessionCount }] = await sql<[{ count: number }]>`
             SELECT COUNT(*)::int as count FROM ops_mission_proposals
             WHERE source_trace_id = ${input.source_trace_id}

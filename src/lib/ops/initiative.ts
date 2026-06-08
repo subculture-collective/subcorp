@@ -126,6 +126,7 @@ export async function completeInitiative(
         SET status = 'completed',
             processed_at = NOW(),
             result = ${jsonb(result)}
+        WHERE id = ${id}
     `;
 }
 

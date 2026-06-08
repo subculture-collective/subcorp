@@ -1397,6 +1397,7 @@ async function pollInitiatives(): Promise<boolean> {
                 description: parsed.description ?? '',
                 proposed_steps: parsed.steps ?? [],
                 source: 'initiative',
+                source_trace_id: `initiative:${entry.id}`,
             });
         }
 

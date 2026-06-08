@@ -32,6 +32,17 @@ const MEMORY_PREVIEW_LENGTH = 200;
 /** Max length for recent session summary previews in system prompt. */
 const SESSION_SUMMARY_PREVIEW_LENGTH = 300;
 
+function readPositiveIntEnv(name: string, fallback: number): number {
+    const value = Number(process.env[name]);
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+/** Output budget for each agent LLM call. Lower defaults reduce upstream ctx/KV pressure. */
+const AGENT_SESSION_MAX_TOKENS = readPositiveIntEnv('AGENT_SESSION_MAX_TOKENS', 6000);
+
+/** Tool-call budget for a single LLM provider loop. */
+const AGENT_SESSION_MAX_TOOL_ROUNDS = readPositiveIntEnv('AGENT_SESSION_MAX_TOOL_ROUNDS', 6);
+
 /** Strip XML function-call tags and other LLM artifacts from text */
 function sanitizeSummary(text: string): string {
     return (
@@ -407,9 +418,9 @@ async function runAgentToolLoop(opts: {
         const result = await llmGenerateWithTools({
             messages,
             temperature: 0.7,
-            maxTokens: 16_000,
+            maxTokens: AGENT_SESSION_MAX_TOKENS,
             tools: tools.length > 0 ? tools : undefined,
-            maxToolRounds: 20,
+            maxToolRounds: Math.min(maxRounds, AGENT_SESSION_MAX_TOOL_ROUNDS),
             trackingContext: { agentId, context: 'agent_session', sessionId: session.id },
         });
 
