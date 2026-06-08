@@ -854,8 +854,21 @@ async function parseOllamaSseResponse(response: Response): Promise<{
             function: { name: string; arguments: string | Record<string, unknown> };
         }>;
     };
+    choices?: Array<{
+        message?: {
+            content?: string;
+            thinking?: string;
+            reasoning?: string;
+            tool_calls?: Array<{
+                id?: string;
+                function: { name: string; arguments: string | Record<string, unknown> };
+            }>;
+        };
+        finish_reason?: string;
+    }>;
     done?: boolean;
     done_reason?: string;
+    usage?: OllamaUsage;
     prompt_eval_count?: number;
     eval_count?: number;
 }> {
@@ -995,15 +1008,27 @@ async function ollamaChatWithModel(
             // llama-line always returns text/event-stream even when stream: false is sent.
             const rawData = await parseOllamaSseResponse(response);
 
-            // Map native format to our internal expectations
-            const msg = rawData.message;
-            const finishReason = rawData.done_reason === 'stop' || (rawData.done && !msg?.tool_calls?.length) ? 'stop' : msg?.tool_calls?.length ? 'tool_calls' : 'stop';
-            // Synthesize usage from native fields
+            // Map native Ollama format and OpenAI-compatible upstream responses
+            // to our internal expectations. llama-line may route `openai/gpt-*`
+            // models to an OpenAI-compatible upstream even when subcorp called
+            // `/api/chat`, so the final payload can be `choices[0].message`
+            // instead of Ollama's top-level `message`.
+            const choice = rawData.choices?.[0];
+            const msg = rawData.message ?? choice?.message;
+            const finishReason =
+                rawData.done_reason === 'stop' ||
+                choice?.finish_reason === 'stop' ||
+                (rawData.done && !msg?.tool_calls?.length) ? 'stop'
+                : msg?.tool_calls?.length ? 'tool_calls'
+                : 'stop';
+            // Synthesize usage from native fields or OpenAI-compatible usage.
             const data = {
                 usage: {
-                    prompt_tokens: rawData.prompt_eval_count ?? 0,
-                    completion_tokens: rawData.eval_count ?? 0,
-                    total_tokens: (rawData.prompt_eval_count ?? 0) + (rawData.eval_count ?? 0),
+                    prompt_tokens: rawData.usage?.prompt_tokens ?? rawData.prompt_eval_count ?? 0,
+                    completion_tokens: rawData.usage?.completion_tokens ?? rawData.eval_count ?? 0,
+                    total_tokens:
+                        rawData.usage?.total_tokens ??
+                        (rawData.prompt_eval_count ?? 0) + (rawData.eval_count ?? 0),
                 } as OllamaUsage,
             };
 

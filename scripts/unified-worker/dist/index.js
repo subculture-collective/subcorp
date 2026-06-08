@@ -1365,13 +1365,14 @@ async function ollamaChatWithModel(input) {
         return { result: null };
       }
       const rawData = await parseOllamaSseResponse(response);
-      const msg = rawData.message;
-      const finishReason = rawData.done_reason === "stop" || rawData.done && !msg?.tool_calls?.length ? "stop" : msg?.tool_calls?.length ? "tool_calls" : "stop";
+      const choice = rawData.choices?.[0];
+      const msg = rawData.message ?? choice?.message;
+      const finishReason = rawData.done_reason === "stop" || choice?.finish_reason === "stop" || rawData.done && !msg?.tool_calls?.length ? "stop" : msg?.tool_calls?.length ? "tool_calls" : "stop";
       const data = {
         usage: {
-          prompt_tokens: rawData.prompt_eval_count ?? 0,
-          completion_tokens: rawData.eval_count ?? 0,
-          total_tokens: (rawData.prompt_eval_count ?? 0) + (rawData.eval_count ?? 0)
+          prompt_tokens: rawData.usage?.prompt_tokens ?? rawData.prompt_eval_count ?? 0,
+          completion_tokens: rawData.usage?.completion_tokens ?? rawData.eval_count ?? 0,
+          total_tokens: rawData.usage?.total_tokens ?? (rawData.prompt_eval_count ?? 0) + (rawData.eval_count ?? 0)
         }
       };
       log.debug("Ollama raw response", {
