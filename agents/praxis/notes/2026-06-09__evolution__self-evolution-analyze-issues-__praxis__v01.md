@@ -20,6 +20,7 @@ Implemented the top concrete reliability fix from this run: self-evolution promp
 
 ## Verification
 
-- Attempted `bun test tests/step-prompts-regression.test.ts`; blocked because `bun` is not installed in this execution environment.
-- Attempted `npm ci`; blocked because `npm` is not installed in this execution environment.
-- Reviewed the generated diff and shell setup syntax manually.
+- Initial default `PATH` lacked `bun`, `node`, and `npm`; verification was retried after locating the mise Node install.
+- Ran `PATH="/home/onnwee/.local/share/mise/installs/node/24.15.0/bin:$PATH" npm ci` successfully.
+- Ran `PATH="/home/onnwee/.local/share/mise/installs/node/24.15.0/bin:$PATH" npx --yes bun test tests/step-prompts-regression.test.ts`: 1 pass, 0 fail.
+- `npm ci` reported existing dependency audit findings: 6 moderate and 7 high vulnerabilities. Not introduced by this change.
