@@ -11,6 +11,13 @@ import type { StepKind } from '../types';
 const WORKSPACE_ROOT =
     process.env.WORKSPACE_ROOT ?? '/workspace/projects/subcorp';
 
+const SELF_EVOLUTION_REPO_SETUP = [
+    `REPO_DIR=${WORKSPACE_ROOT}`,
+    `if [ ! -d "$REPO_DIR/.git" ]; then for CANDIDATE in /workspace/projects/subcorp /home/onnwee/projects/subcorp /home/onnwee/workspace/projects/subcorp; do if [ -d "$CANDIDATE/.git" ]; then REPO_DIR="$CANDIDATE"; break; fi; done; fi`,
+    `if [ ! -d "$REPO_DIR/.git" ]; then mkdir -p /home/onnwee/projects && git clone https://git.subcult.tv/subculture-collective/subcorp.git /home/onnwee/projects/subcorp && REPO_DIR=/home/onnwee/projects/subcorp; fi`,
+    `cd "$REPO_DIR"`,
+].join('; ');
+
 export interface StepPromptContext {
     missionTitle: string;
     agentId: string;
@@ -294,11 +301,11 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `\nINSTRUCTIONS:\n` +
         `1. Use file_read to read the relevant source files described in the payload.\n` +
         `2. Identify a specific, concrete improvement (not vague "make it better").\n` +
-        `3. Use bash to create a feature branch:\n` +
-        `   cd ${WORKSPACE_ROOT} && git checkout -b evolution/${ctx.agentId}/${today}/${slugify(ctx.missionTitle).slice(0, 30)}\n` +
+        `3. Use bash to locate or clone the repo, then create a feature branch:\n` +
+        `   ${SELF_EVOLUTION_REPO_SETUP} && git checkout -b evolution/${ctx.agentId}/${today}/${slugify(ctx.missionTitle).slice(0, 30)}\n` +
         `4. Use file_write to make your changes.\n` +
         `5. Use bash to commit and push:\n` +
-        `   cd ${WORKSPACE_ROOT} && git add -A && git commit -m "${ctx.missionTitle}" && git push -u origin HEAD\n` +
+        `   ${SELF_EVOLUTION_REPO_SETUP} && git add -A && git commit -m "${ctx.missionTitle}" && git push -u origin HEAD\n` +
         `6. Open a PR in Gitea on https://git.subcult.tv/subculture-collective/subcorp.\n` +
         `7. Write a summary to ${outputDir}/${today}__evolution__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md\n` +
         `\nYour output is a MERGED PULL REQUEST with real code changes. Do not just describe what you would change.\n`,
