@@ -22,6 +22,13 @@ export interface ExecutionEvidenceInput {
     blockerClass?: string | null;
     artifactPaths?: string[];
     recordedBy?: string | null;
+    checkedAt?: string;
+    authoritySnapshot?: Record<string, unknown>;
+    retentionClass?:
+        | 'operational_audit'
+        | 'approval_audit'
+        | 'security_audit'
+        | 'public_receipt';
 }
 
 function normalizeArtifactPaths(paths: string[] | undefined): string[] {
@@ -75,6 +82,17 @@ export async function recordExecutionEvidence(
     const acceptanceResults =
         input.acceptanceResults ??
         defaultAcceptanceResults(acceptanceCriteria, input.outcome);
+    const authoritySnapshot = input.authoritySnapshot ?? {
+        proposalId: input.contract.proposalId,
+        contractHash: input.contract.contractHash,
+        approvalEvaluationId: input.contract.approvalEvaluationId,
+        approvalExpiresAt: input.contract.expiresAt,
+        stepHash: input.contractStep.stepHash,
+        actor: input.recordedBy ?? null,
+        outcome: 'ALLOW',
+        reason: 'proposal_step_covered_by_active_approval',
+        checkedAt: input.checkedAt ?? new Date().toISOString(),
+    };
 
     await sql`
         INSERT INTO ops_mission_step_execution_evidence (
@@ -91,7 +109,9 @@ export async function recordExecutionEvidence(
             retry_count,
             artifact_paths,
             evidence,
-            recorded_by
+            recorded_by,
+            authority_snapshot,
+            retention_class
         ) VALUES (
             ${input.missionId},
             ${input.stepId},
@@ -106,7 +126,9 @@ export async function recordExecutionEvidence(
             ${attempt?.retry_count ?? 0},
             ${normalizeArtifactPaths(input.artifactPaths)},
             ${jsonb(input.evidence ?? {})},
-            ${input.recordedBy ?? null}
+            ${input.recordedBy ?? null},
+            ${jsonb(authoritySnapshot)},
+            ${input.retentionClass ?? 'operational_audit'}
         )
     `;
 }

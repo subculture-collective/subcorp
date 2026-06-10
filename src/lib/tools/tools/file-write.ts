@@ -1,11 +1,16 @@
 // file_write tool — write files to /workspace in the toolbox
 // Enforces per-agent path ACLs and auto-appends to manifest for output/ writes.
-// ACLs: static WRITE_ACLS map + dynamic ops_acl_grants from DB.
+// ACLs: static WRITE_ACLS map + signed dynamic authority events from DB.
 import type { NativeTool } from '../types';
 import type { AgentId } from '../../types';
 import { execInToolbox } from '../executor';
 import { randomUUID } from 'node:crypto';
 import { sql } from '@/lib/db';
+import {
+    getGrantAuthoritySigningSecret,
+    loadGrantAuthorityEventsForAgent,
+    replayGrantAuthorityEvents,
+} from '@/lib/ops/grant-authority-events';
 import path from 'node:path';
 import { createLogger } from '@/lib/logger';
 
@@ -40,25 +45,38 @@ export function isPathAllowed(agentId: string, relativePath: string): boolean {
     return acls.some(prefix => relativePath.startsWith(prefix));
 }
 
-// ─── Dynamic ACL grants cache (30s TTL per agent) ───
+// ─── Dynamic ACL grants are replayed at authorization time ───
 
-const GRANT_CACHE_TTL_MS = 30_000;
-const grantCache = new Map<string, { prefixes: string[]; ts: number }>();
+function isUndefinedTableError(error: unknown): boolean {
+    return (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error as { code?: string }).code === '42P01'
+    );
+}
 
 async function getActiveGrants(agentId: string): Promise<string[]> {
-    const cached = grantCache.get(agentId);
-    if (cached && Date.now() - cached.ts < GRANT_CACHE_TTL_MS) {
-        return cached.prefixes;
+    try {
+        const events = await loadGrantAuthorityEventsForAgent(sql, agentId);
+        if (events.length === 0) return [];
+        return replayGrantAuthorityEvents(events, {
+            checkedAt: new Date(),
+            signingSecret: getGrantAuthoritySigningSecret(),
+        });
+    } catch (eventErr) {
+        if (!isUndefinedTableError(eventErr)) {
+            throw eventErr;
+        }
     }
 
+    // Compatibility bridge only before the event table migration exists.
     const rows = await sql<{ path_prefix: string }[]>`
         SELECT path_prefix FROM ops_acl_grants
         WHERE agent_id = ${agentId} AND expires_at > NOW()
     `;
 
-    const prefixes = rows.map(r => r.path_prefix);
-    grantCache.set(agentId, { prefixes, ts: Date.now() });
-    return prefixes;
+    return rows.map(r => r.path_prefix);
 }
 
 /** Check both static ACLs and dynamic DB grants */

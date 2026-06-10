@@ -575,9 +575,27 @@ async function recordApprovalEvaluation(
     proposalId: string,
     evaluation: ApprovalEvaluation,
 ): Promise<string> {
+    const [proposal] = await sql<[Proposal]>`
+        SELECT * FROM ops_mission_proposals WHERE id = ${proposalId}
+    `;
+    if (!proposal) {
+        throw new Error(`Proposal ${proposalId} not found for approval evaluation`);
+    }
+
+    const policyVersions = [
+        ...new Set(
+            Object.values(evaluation.stepDecisions)
+                .map(decision => decision.policyVersion)
+                .filter(version => version.trim().length > 0),
+        ),
+    ];
+
     const [record] = await sql<[{ id: string }]>`
         INSERT INTO ops_proposal_approval_evaluations (
             proposal_id,
+            proposal_revision,
+            proposal_hash,
+            policy_versions,
             outcome,
             reason,
             auto_approve_enabled,
@@ -590,6 +608,9 @@ async function recordApprovalEvaluation(
             decision
         ) VALUES (
             ${proposalId},
+            ${proposalRevision(proposal)},
+            ${sha256(proposalSnapshot(proposal))},
+            ${policyVersions.length > 0 ? policyVersions : ['none']},
             ${evaluation.outcome},
             ${evaluation.reason},
             ${evaluation.autoApproveEnabled},

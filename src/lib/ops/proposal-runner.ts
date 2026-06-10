@@ -17,6 +17,28 @@ export type ProposalStepExecutor = (
     runtimeContext: ProposalRuntimeContext,
 ) => Promise<void>;
 
+export type ExecutableAuthorityDecision =
+    | {
+          outcome: 'ALLOW';
+          reason: 'proposal_step_covered_by_active_approval';
+          proposalId: string;
+          stepHash: string;
+      }
+    | {
+          outcome: 'DENY';
+          reason:
+              | 'proposal_not_accepted'
+              | 'checked_at_required_for_expiring_approval'
+              | 'checked_at_invalid'
+              | 'approval_expiry_invalid'
+              | 'approval_expired'
+              | 'actor_not_assigned_agent'
+              | 'step_not_covered_by_approval';
+          message: string;
+          proposalId: string;
+          stepHash: string;
+      };
+
 export function stableJson(value: unknown): string {
     if (value === undefined) return 'undefined';
     if (value === null || typeof value !== 'object') {
@@ -57,25 +79,66 @@ function sameStep(left: ProposedStep, right: ProposedStep): boolean {
     );
 }
 
-export async function assertApprovalStillValid(
+export function resolveExecutableAuthority(
     proposal: Proposal,
     step: ProposedStep,
     actor: string,
     runtimeContext: ProposalRuntimeContext,
-): Promise<void> {
+): ExecutableAuthorityDecision {
+    const stepHash = hashStep(step);
+
     if (proposal.status !== 'accepted') {
-        throw new Error(
-            `Proposal ${proposal.id} is not currently accepted; ${actor} cannot execute ${step.kind}`,
-        );
+        return {
+            outcome: 'DENY',
+            reason: 'proposal_not_accepted',
+            message: `Proposal ${proposal.id} is not currently accepted; ${actor} cannot execute ${step.kind}`,
+            proposalId: proposal.id,
+            stepHash,
+        };
     }
 
-    if (
-        runtimeContext.approvalExpiresAt &&
-        Date.parse(runtimeContext.approvalExpiresAt) <= Date.now()
-    ) {
-        throw new Error(
-            `Approval for proposal ${proposal.id} expired before step ${step.kind}`,
-        );
+    if (runtimeContext.approvalExpiresAt) {
+        if (!runtimeContext.checkedAt) {
+            return {
+                outcome: 'DENY',
+                reason: 'checked_at_required_for_expiring_approval',
+                message: `Approval for proposal ${proposal.id} has an expiry but no deterministic checkedAt time was supplied before step ${step.kind}`,
+                proposalId: proposal.id,
+                stepHash,
+            };
+        }
+
+        const checkedAtTime = Date.parse(runtimeContext.checkedAt);
+        if (Number.isNaN(checkedAtTime)) {
+            return {
+                outcome: 'DENY',
+                reason: 'checked_at_invalid',
+                message: `Approval check time for proposal ${proposal.id} is invalid before step ${step.kind}`,
+                proposalId: proposal.id,
+                stepHash,
+            };
+        }
+
+        const approvalExpiresAtTime = Date.parse(runtimeContext.approvalExpiresAt);
+        if (Number.isNaN(approvalExpiresAtTime)) {
+            return {
+                outcome: 'DENY',
+                reason: 'approval_expiry_invalid',
+                message: `Approval expiry for proposal ${proposal.id} is invalid before step ${step.kind}`,
+                proposalId: proposal.id,
+                stepHash,
+            };
+        }
+
+        if (approvalExpiresAtTime <= checkedAtTime) {
+            return {
+                outcome: 'DENY',
+                reason: 'approval_expired',
+                message: `Approval for proposal ${proposal.id} expired before step ${step.kind}`,
+                proposalId: proposal.id,
+                stepHash,
+            };
+        }
     }
 
     if (
@@ -83,9 +146,47 @@ export async function assertApprovalStillValid(
             sameStep(proposedStep, step),
         )
     ) {
-        throw new Error(
-            `Step ${step.kind} is not covered by current approval for proposal ${proposal.id}`,
-        );
+        return {
+            outcome: 'DENY',
+            reason: 'step_not_covered_by_approval',
+            message: `Step ${step.kind} is not covered by current approval for proposal ${proposal.id}`,
+            proposalId: proposal.id,
+            stepHash,
+        };
+    }
+
+    if (step.assigned_agent && step.assigned_agent !== actor) {
+        return {
+            outcome: 'DENY',
+            reason: 'actor_not_assigned_agent',
+            message: `Step ${step.kind} is assigned to ${step.assigned_agent}; ${actor} cannot execute it for proposal ${proposal.id}`,
+            proposalId: proposal.id,
+            stepHash,
+        };
+    }
+
+    return {
+        outcome: 'ALLOW',
+        reason: 'proposal_step_covered_by_active_approval',
+        proposalId: proposal.id,
+        stepHash,
+    };
+}
+
+export async function assertApprovalStillValid(
+    proposal: Proposal,
+    step: ProposedStep,
+    actor: string,
+    runtimeContext: ProposalRuntimeContext,
+): Promise<void> {
+    const decision = resolveExecutableAuthority(
+        proposal,
+        step,
+        actor,
+        runtimeContext,
+    );
+    if (decision.outcome === 'DENY') {
+        throw new Error(decision.message);
     }
 }
 

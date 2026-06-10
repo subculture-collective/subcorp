@@ -2793,9 +2793,9 @@ async function postToWebhook(options) {
     drainQueue(key);
   });
 }
-async function discordFetch(path4, options = {}) {
+async function discordFetch(path5, options = {}) {
   const res = await fetchWithRetry429(
-    `${DISCORD_API}${path4}`,
+    `${DISCORD_API}${path5}`,
     {
       ...options,
       headers: {
@@ -2804,9 +2804,9 @@ async function discordFetch(path4, options = {}) {
         ...options.headers
       }
     },
-    `Discord API ${path4}`
+    `Discord API ${path5}`
   );
-  if (!res) throw new Error(`discordFetch: exhausted retries for ${path4}`);
+  if (!res) throw new Error(`discordFetch: exhausted retries for ${path5}`);
   return res;
 }
 async function getOrCreateWebhook(channelId, name = "Subcult") {
@@ -3386,6 +3386,7 @@ var proposal_runner_exports = {};
 __export(proposal_runner_exports, {
   assertApprovalStillValid: () => assertApprovalStillValid,
   hashStep: () => hashStep,
+  resolveExecutableAuthority: () => resolveExecutableAuthority,
   runApprovedProposal: () => runApprovedProposal,
   stableJson: () => stableJson2
 });
@@ -3415,23 +3416,93 @@ function hashStep(step) {
 function sameStep(left, right) {
   return left.kind === right.kind && stableJson2(left.payload ?? {}) === stableJson2(right.payload ?? {}) && (left.assigned_agent ?? null) === (right.assigned_agent ?? null) && (left.output_path ?? null) === (right.output_path ?? null);
 }
-async function assertApprovalStillValid(proposal, step, actor, runtimeContext) {
+function resolveExecutableAuthority(proposal, step, actor, runtimeContext) {
+  const stepHash = hashStep(step);
   if (proposal.status !== "accepted") {
-    throw new Error(
-      `Proposal ${proposal.id} is not currently accepted; ${actor} cannot execute ${step.kind}`
-    );
+    return {
+      outcome: "DENY",
+      reason: "proposal_not_accepted",
+      message: `Proposal ${proposal.id} is not currently accepted; ${actor} cannot execute ${step.kind}`,
+      proposalId: proposal.id,
+      stepHash
+    };
   }
-  if (runtimeContext.approvalExpiresAt && Date.parse(runtimeContext.approvalExpiresAt) <= Date.now()) {
-    throw new Error(
-      `Approval for proposal ${proposal.id} expired before step ${step.kind}`
-    );
+  if (runtimeContext.approvalExpiresAt) {
+    if (!runtimeContext.checkedAt) {
+      return {
+        outcome: "DENY",
+        reason: "checked_at_required_for_expiring_approval",
+        message: `Approval for proposal ${proposal.id} has an expiry but no deterministic checkedAt time was supplied before step ${step.kind}`,
+        proposalId: proposal.id,
+        stepHash
+      };
+    }
+    const checkedAtTime = Date.parse(runtimeContext.checkedAt);
+    if (Number.isNaN(checkedAtTime)) {
+      return {
+        outcome: "DENY",
+        reason: "checked_at_invalid",
+        message: `Approval check time for proposal ${proposal.id} is invalid before step ${step.kind}`,
+        proposalId: proposal.id,
+        stepHash
+      };
+    }
+    const approvalExpiresAtTime = Date.parse(runtimeContext.approvalExpiresAt);
+    if (Number.isNaN(approvalExpiresAtTime)) {
+      return {
+        outcome: "DENY",
+        reason: "approval_expiry_invalid",
+        message: `Approval expiry for proposal ${proposal.id} is invalid before step ${step.kind}`,
+        proposalId: proposal.id,
+        stepHash
+      };
+    }
+    if (approvalExpiresAtTime <= checkedAtTime) {
+      return {
+        outcome: "DENY",
+        reason: "approval_expired",
+        message: `Approval for proposal ${proposal.id} expired before step ${step.kind}`,
+        proposalId: proposal.id,
+        stepHash
+      };
+    }
   }
   if (!proposal.proposed_steps.some(
     (proposedStep) => sameStep(proposedStep, step)
   )) {
-    throw new Error(
-      `Step ${step.kind} is not covered by current approval for proposal ${proposal.id}`
-    );
+    return {
+      outcome: "DENY",
+      reason: "step_not_covered_by_approval",
+      message: `Step ${step.kind} is not covered by current approval for proposal ${proposal.id}`,
+      proposalId: proposal.id,
+      stepHash
+    };
+  }
+  if (step.assigned_agent && step.assigned_agent !== actor) {
+    return {
+      outcome: "DENY",
+      reason: "actor_not_assigned_agent",
+      message: `Step ${step.kind} is assigned to ${step.assigned_agent}; ${actor} cannot execute it for proposal ${proposal.id}`,
+      proposalId: proposal.id,
+      stepHash
+    };
+  }
+  return {
+    outcome: "ALLOW",
+    reason: "proposal_step_covered_by_active_approval",
+    proposalId: proposal.id,
+    stepHash
+  };
+}
+async function assertApprovalStillValid(proposal, step, actor, runtimeContext) {
+  const decision = resolveExecutableAuthority(
+    proposal,
+    step,
+    actor,
+    runtimeContext
+  );
+  if (decision.outcome === "DENY") {
+    throw new Error(decision.message);
   }
 }
 async function runApprovedProposal(proposal, steps, actor, runtimeContext, executeStep) {
@@ -4092,9 +4163,23 @@ function buildStepApprovalDecision(input) {
   };
 }
 async function recordApprovalEvaluation(proposalId, evaluation) {
+  const [proposal] = await sql`
+        SELECT * FROM ops_mission_proposals WHERE id = ${proposalId}
+    `;
+  if (!proposal) {
+    throw new Error(`Proposal ${proposalId} not found for approval evaluation`);
+  }
+  const policyVersions = [
+    ...new Set(
+      Object.values(evaluation.stepDecisions).map((decision) => decision.policyVersion).filter((version) => version.trim().length > 0)
+    )
+  ];
   const [record] = await sql`
         INSERT INTO ops_proposal_approval_evaluations (
             proposal_id,
+            proposal_revision,
+            proposal_hash,
+            policy_versions,
             outcome,
             reason,
             auto_approve_enabled,
@@ -4107,6 +4192,9 @@ async function recordApprovalEvaluation(proposalId, evaluation) {
             decision
         ) VALUES (
             ${proposalId},
+            ${proposalRevision(proposal)},
+            ${sha256(proposalSnapshot(proposal))},
+            ${policyVersions.length > 0 ? policyVersions : ["none"]},
             ${evaluation.outcome},
             ${evaluation.reason},
             ${evaluation.autoApproveEnabled},
@@ -9246,7 +9334,7 @@ __export(execution_evidence_exports, {
   recordExecutionEvidence: () => recordExecutionEvidence
 });
 function normalizeArtifactPaths(paths) {
-  return [...new Set((paths ?? []).filter((path4) => path4.trim().length > 0))];
+  return [...new Set((paths ?? []).filter((path5) => path5.trim().length > 0))];
 }
 function defaultAcceptanceResults(criteria, outcome) {
   return criteria.map((criterion) => ({
@@ -9279,6 +9367,17 @@ async function recordExecutionEvidence(input) {
     `;
   const acceptanceCriteria = input.contractStep.acceptanceCriteria;
   const acceptanceResults = input.acceptanceResults ?? defaultAcceptanceResults(acceptanceCriteria, input.outcome);
+  const authoritySnapshot = input.authoritySnapshot ?? {
+    proposalId: input.contract.proposalId,
+    contractHash: input.contract.contractHash,
+    approvalEvaluationId: input.contract.approvalEvaluationId,
+    approvalExpiresAt: input.contract.expiresAt,
+    stepHash: input.contractStep.stepHash,
+    actor: input.recordedBy ?? null,
+    outcome: "ALLOW",
+    reason: "proposal_step_covered_by_active_approval",
+    checkedAt: input.checkedAt ?? (/* @__PURE__ */ new Date()).toISOString()
+  };
   await sql`
         INSERT INTO ops_mission_step_execution_evidence (
             mission_id,
@@ -9294,7 +9393,9 @@ async function recordExecutionEvidence(input) {
             retry_count,
             artifact_paths,
             evidence,
-            recorded_by
+            recorded_by,
+            authority_snapshot,
+            retention_class
         ) VALUES (
             ${input.missionId},
             ${input.stepId},
@@ -9309,7 +9410,9 @@ async function recordExecutionEvidence(input) {
             ${attempt?.retry_count ?? 0},
             ${normalizeArtifactPaths(input.artifactPaths)},
             ${jsonb(input.evidence ?? {})},
-            ${input.recordedBy ?? null}
+            ${input.recordedBy ?? null},
+            ${jsonb(authoritySnapshot)},
+            ${input.retentionClass ?? "operational_audit"}
         )
     `;
 }
@@ -10537,9 +10640,234 @@ var fileReadTool = {
 
 // src/lib/tools/tools/file-write.ts
 init_executor();
-var import_node_crypto = require("node:crypto");
+var import_node_crypto2 = require("node:crypto");
 init_db();
+
+// src/lib/ops/grant-authority-events.ts
+var import_node_crypto = require("node:crypto");
 var import_node_path = __toESM(require("node:path"));
+init_proposal_runner();
+var GRANT_AUTHORITY_GENESIS_HASH = "GENESIS";
+var DEFAULT_GRANT_SIGNING_KEY_ID = "subcorp-acl-grant-authority-v1";
+var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function asIsoString(value) {
+  if (value instanceof Date) return value.toISOString();
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`Invalid authority event timestamp: ${value}`);
+  }
+  return parsed.toISOString();
+}
+function eventSigningPayload(event) {
+  return {
+    id: event.id,
+    sequence: event.sequence,
+    event_type: event.eventType,
+    agent_id: event.agentId,
+    path_prefix: event.pathPrefix,
+    source: event.source,
+    source_id: event.sourceId,
+    expires_at: event.expiresAt,
+    created_at: event.createdAt,
+    actor_id: event.actorId,
+    reason: event.reason,
+    previous_hash: event.previousHash,
+    signing_key_id: event.signingKeyId
+  };
+}
+function sha2562(value) {
+  return (0, import_node_crypto.createHash)("sha256").update(value).digest("hex");
+}
+function assertValidUuid(value, fieldName) {
+  if (!UUID_RE.test(value)) {
+    throw new Error(`${fieldName} must be a UUID for grant authority events`);
+  }
+}
+function canonicalGrantPathPrefix(pathPrefix) {
+  const slashPath = pathPrefix.replaceAll("\\", "/");
+  const normalized = import_node_path.default.posix.normalize(slashPath);
+  if (!pathPrefix || slashPath.startsWith("/") || normalized === "." || normalized === ".." || normalized.startsWith("../") || normalized.includes("/../") || !slashPath.endsWith("/") || normalized !== slashPath) {
+    throw new Error(
+      "Grant authority pathPrefix must be a normalized relative directory prefix ending in /"
+    );
+  }
+  return normalized;
+}
+function computeGrantAuthorityPayloadHash(event) {
+  return sha2562(stableJson2(eventSigningPayload(event)));
+}
+function signGrantAuthorityPayload(payloadHash, signingSecret) {
+  if (!signingSecret) {
+    throw new Error("Grant authority signing secret is required");
+  }
+  return (0, import_node_crypto.createHmac)("sha256", signingSecret).update(payloadHash).digest("hex");
+}
+function computeGrantAuthorityEventHash(payloadHash, signature) {
+  return sha2562(stableJson2({ payload_hash: payloadHash, signature }));
+}
+function createGrantAuthorityEvent(input, options) {
+  const eventType = input.eventType ?? "grant_issued";
+  const pathPrefix = canonicalGrantPathPrefix(input.pathPrefix);
+  if (input.sourceId) assertValidUuid(input.sourceId, "sourceId");
+  const expiresAt = input.expiresAt ? asIsoString(input.expiresAt) : null;
+  if (eventType === "grant_issued" && !expiresAt) {
+    throw new Error("grant_issued authority events require expiresAt");
+  }
+  const base = {
+    id: options.id ?? (0, import_node_crypto.randomUUID)(),
+    sequence: options.sequence,
+    eventType,
+    agentId: input.agentId,
+    pathPrefix,
+    source: input.source,
+    sourceId: input.sourceId ?? null,
+    expiresAt,
+    createdAt: asIsoString(options.createdAt ?? /* @__PURE__ */ new Date()),
+    actorId: input.actorId,
+    reason: input.reason ?? null,
+    previousHash: options.previousHash ?? GRANT_AUTHORITY_GENESIS_HASH,
+    signingKeyId: options.signingKeyId ?? DEFAULT_GRANT_SIGNING_KEY_ID
+  };
+  const payloadHash = computeGrantAuthorityPayloadHash(base);
+  const signature = signGrantAuthorityPayload(payloadHash, options.signingSecret);
+  const eventHash = computeGrantAuthorityEventHash(payloadHash, signature);
+  return { ...base, payloadHash, signature, eventHash };
+}
+function verifyGrantAuthorityEvent(event, signingSecret) {
+  const base = {
+    id: event.id,
+    sequence: event.sequence,
+    eventType: event.eventType,
+    agentId: event.agentId,
+    pathPrefix: event.pathPrefix,
+    source: event.source,
+    sourceId: event.sourceId,
+    expiresAt: event.expiresAt,
+    createdAt: event.createdAt,
+    actorId: event.actorId,
+    reason: event.reason,
+    previousHash: event.previousHash,
+    signingKeyId: event.signingKeyId
+  };
+  const payloadHash = computeGrantAuthorityPayloadHash(base);
+  if (payloadHash !== event.payloadHash) {
+    throw new Error(`Grant authority event ${event.id} payload hash mismatch`);
+  }
+  const signature = signGrantAuthorityPayload(payloadHash, signingSecret);
+  if (signature !== event.signature) {
+    throw new Error(`Grant authority event ${event.id} signature mismatch`);
+  }
+  const eventHash = computeGrantAuthorityEventHash(payloadHash, signature);
+  if (eventHash !== event.eventHash) {
+    throw new Error(`Grant authority event ${event.id} event hash mismatch`);
+  }
+}
+function grantKey(event) {
+  return stableJson2({
+    agent_id: event.agentId,
+    path_prefix: event.pathPrefix,
+    source: event.source,
+    source_id: event.sourceId
+  });
+}
+function replayGrantAuthorityEvents(events, options) {
+  const checkedAtMs = Date.parse(asIsoString(options.checkedAt));
+  const active = /* @__PURE__ */ new Map();
+  let previousHash = GRANT_AUTHORITY_GENESIS_HASH;
+  for (const event of [...events].sort((left, right) => left.sequence - right.sequence)) {
+    if (event.previousHash !== previousHash) {
+      throw new Error(`Grant authority chain broken before event ${event.id}`);
+    }
+    verifyGrantAuthorityEvent(event, options.signingSecret);
+    previousHash = event.eventHash;
+    const key = grantKey(event);
+    if (event.eventType === "grant_revoked") {
+      active.delete(key);
+      continue;
+    }
+    if (!event.expiresAt) continue;
+    if (Date.parse(event.expiresAt) > checkedAtMs) {
+      active.set(key, event);
+    } else {
+      active.delete(key);
+    }
+  }
+  return [...new Set([...active.values()].map((event) => event.pathPrefix))].sort();
+}
+function getGrantAuthoritySigningSecret() {
+  const secret = process.env.GRANT_AUTHORITY_SIGNING_SECRET;
+  if (!secret) {
+    throw new Error("Missing GRANT_AUTHORITY_SIGNING_SECRET for ACL grant authority events");
+  }
+  return secret;
+}
+function mapGrantAuthorityEventRow(row) {
+  return {
+    id: String(row.id),
+    sequence: Number(row.sequence),
+    eventType: row.event_type,
+    agentId: String(row.agent_id),
+    pathPrefix: String(row.path_prefix),
+    source: row.source,
+    sourceId: row.source_id ? String(row.source_id) : null,
+    expiresAt: row.expires_at ? asIsoString(String(row.expires_at)) : null,
+    createdAt: asIsoString(String(row.created_at)),
+    actorId: String(row.actor_id),
+    reason: row.reason ? String(row.reason) : null,
+    previousHash: String(row.previous_hash),
+    eventHash: String(row.event_hash),
+    payloadHash: String(row.payload_hash),
+    signature: String(row.signature),
+    signingKeyId: String(row.signing_key_id)
+  };
+}
+async function loadGrantAuthorityEventsForAgent(sql3, agentId) {
+  const rows = await sql3`
+        SELECT id, sequence, event_type, agent_id, path_prefix, source, source_id,
+               expires_at, created_at, actor_id, reason, previous_hash, event_hash,
+               payload_hash, signature, signing_key_id
+        FROM ops_acl_grant_events
+        WHERE agent_id = ${agentId}
+        ORDER BY sequence ASC
+    `;
+  return rows.map(mapGrantAuthorityEventRow);
+}
+async function appendGrantAuthorityEvent(sql3, input, options) {
+  return sql3.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${input.agentId}))`;
+    const [latest] = await tx`
+            SELECT sequence, event_hash AS "eventHash"
+            FROM ops_acl_grant_events
+            WHERE agent_id = ${input.agentId}
+            ORDER BY sequence DESC
+            LIMIT 1
+        `;
+    const event = createGrantAuthorityEvent(input, {
+      sequence: latest ? Number(latest.sequence) + 1 : 1,
+      previousHash: latest?.eventHash ?? GRANT_AUTHORITY_GENESIS_HASH,
+      signingSecret: options?.signingSecret ?? getGrantAuthoritySigningSecret(),
+      createdAt: options?.createdAt,
+      signingKeyId: options?.signingKeyId
+    });
+    await tx`
+            INSERT INTO ops_acl_grant_events (
+                id, sequence, event_type, agent_id, path_prefix, source, source_id,
+                expires_at, created_at, actor_id, reason, previous_hash, event_hash,
+                payload_hash, signature, signing_key_id
+            ) VALUES (
+                ${event.id}::uuid, ${event.sequence}, ${event.eventType}, ${event.agentId},
+                ${event.pathPrefix}, ${event.source}, ${event.sourceId}::uuid,
+                ${event.expiresAt}::timestamptz, ${event.createdAt}::timestamptz,
+                ${event.actorId}, ${event.reason}, ${event.previousHash}, ${event.eventHash},
+                ${event.payloadHash}, ${event.signature}, ${event.signingKeyId}
+            )
+        `;
+    return event;
+  });
+}
+
+// src/lib/tools/tools/file-write.ts
+var import_node_path2 = __toESM(require("node:path"));
 init_logger();
 var WRITE_ACLS = {
   chora: [],
@@ -10559,20 +10887,27 @@ function isPathAllowed(agentId, relativePath) {
   if (!acls) return false;
   return acls.some((prefix) => relativePath.startsWith(prefix));
 }
-var GRANT_CACHE_TTL_MS = 3e4;
-var grantCache = /* @__PURE__ */ new Map();
+function isUndefinedTableError(error) {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "42P01";
+}
 async function getActiveGrants(agentId) {
-  const cached = grantCache.get(agentId);
-  if (cached && Date.now() - cached.ts < GRANT_CACHE_TTL_MS) {
-    return cached.prefixes;
+  try {
+    const events = await loadGrantAuthorityEventsForAgent(sql, agentId);
+    if (events.length === 0) return [];
+    return replayGrantAuthorityEvents(events, {
+      checkedAt: /* @__PURE__ */ new Date(),
+      signingSecret: getGrantAuthoritySigningSecret()
+    });
+  } catch (eventErr) {
+    if (!isUndefinedTableError(eventErr)) {
+      throw eventErr;
+    }
   }
   const rows = await sql`
         SELECT path_prefix FROM ops_acl_grants
         WHERE agent_id = ${agentId} AND expires_at > NOW()
     `;
-  const prefixes = rows.map((r) => r.path_prefix);
-  grantCache.set(agentId, { prefixes, ts: Date.now() });
-  return prefixes;
+  return rows.map((r) => r.path_prefix);
 }
 async function isPathAllowedWithGrants(agentId, relativePath) {
   if (isPathAllowed(agentId, relativePath)) return true;
@@ -10620,9 +10955,9 @@ function createFileWriteExecute(agentId) {
         error: "Invalid path: path traversal sequences (..) are not allowed"
       };
     }
-    const normalizedPath = import_node_path.default.normalize(rawPath);
+    const normalizedPath = import_node_path2.default.normalize(rawPath);
     const relativePath = normalizedPath.startsWith("/workspace/") ? normalizedPath.replace("/workspace/", "") : normalizedPath.startsWith("/") ? normalizedPath.slice(1) : normalizedPath;
-    const fullPath = import_node_path.default.resolve("/workspace", relativePath);
+    const fullPath = import_node_path2.default.resolve("/workspace", relativePath);
     if (!fullPath.startsWith("/workspace/")) {
       return {
         error: "Invalid path: must be within /workspace/"
@@ -10642,7 +10977,7 @@ function createFileWriteExecute(agentId) {
       return { error: `File write failed: ${result.stderr || "unknown error"}` };
     }
     if (relativePath.startsWith("output/")) {
-      const artifactId = (0, import_node_crypto.randomUUID)();
+      const artifactId = (0, import_node_crypto2.randomUUID)();
       try {
         await appendManifest(artifactId, fullPath, agentId, content.length);
       } catch (manifestErr) {
@@ -10737,7 +11072,7 @@ var sendToAgentTool = {
 // src/lib/tools/tools/spawn-droid.ts
 init_db();
 init_executor();
-var import_node_crypto2 = require("node:crypto");
+var import_node_crypto3 = require("node:crypto");
 var MAX_DROID_TIMEOUT = process.env.MAX_DROID_TIMEOUT_SECONDS ? parseInt(process.env.MAX_DROID_TIMEOUT_SECONDS) : 300;
 var DEFAULT_DROID_TIMEOUT = process.env.DEFAULT_DROID_TIMEOUT_SECONDS ? parseInt(process.env.DEFAULT_DROID_TIMEOUT_SECONDS) : 120;
 var spawnDroidTool = {
@@ -10771,7 +11106,7 @@ var spawnDroidTool = {
       params.timeout_seconds ?? DEFAULT_DROID_TIMEOUT,
       MAX_DROID_TIMEOUT
     );
-    const droidId = `droid-${(0, import_node_crypto2.randomUUID)().slice(0, 8)}`;
+    const droidId = `droid-${(0, import_node_crypto3.randomUUID)().slice(0, 8)}`;
     const droidDir = `/workspace/droids/${droidId}`;
     const outputPath = `droids/${droidId}/${safeOutputFilename}`;
     try {
@@ -12570,7 +12905,8 @@ var AGENT_SESSION_CONCURRENCY = Math.max(
   1,
   Number.parseInt(process.env.WORKER_AGENT_SESSION_CONCURRENCY ?? "2", 10) || 1
 );
-async function pollAgentSessions() {
+var INTERNAL_AGENT_SESSION_SOURCES = ["cron", "droid"];
+async function pollAgentSessions(options = {}) {
   const sessions = await sql2`
         UPDATE ops_agent_sessions
         SET status = 'running', started_at = NOW()
@@ -12578,6 +12914,10 @@ async function pollAgentSessions() {
             ARRAY(
             SELECT id FROM ops_agent_sessions
             WHERE status = 'pending'
+              AND (
+                  ${!options.throttleInternalWork}
+                  OR source <> ALL(${INTERNAL_AGENT_SESSION_SOURCES}::text[])
+              )
             ORDER BY created_at ASC
                 LIMIT ${AGENT_SESSION_CONCURRENCY}
             FOR UPDATE SKIP LOCKED
@@ -12585,7 +12925,12 @@ async function pollAgentSessions() {
         )
         RETURNING *
     `;
-  if (sessions.length === 0) return false;
+  if (sessions.length === 0) {
+    if (options.throttleInternalWork) {
+      log36.info("Internal agent session dispatch held for output obligations");
+    }
+    return false;
+  }
   await Promise.allSettled(sessions.map((session) => processAgentSession(session)));
   return true;
 }
@@ -12900,6 +13245,7 @@ var MAX_PARALLEL_STEPS = Math.max(
   1,
   Number.parseInt(process.env.WORKER_MISSION_STEP_CONCURRENCY ?? "5", 10) || 1
 );
+var MISSION_STEP_CANDIDATE_LIMIT = MAX_PARALLEL_STEPS * 2;
 async function pollMissionSteps() {
   const steps = await sql2`
         UPDATE ops_mission_steps
@@ -12909,17 +13255,31 @@ async function pollMissionSteps() {
             updated_at = NOW()
         WHERE id = ANY(
             ARRAY(
-                SELECT s.id FROM ops_mission_steps s
-                WHERE s.status = 'queued'
-                AND NOT EXISTS (
-                    SELECT 1 FROM ops_mission_steps dep
-                    WHERE dep.id = ANY(s.depends_on)
-                    AND dep.status != 'succeeded'
-                )
-                ORDER BY s.created_at ASC
+                SELECT DISTINCT ON (COALESCE(candidate.assigned_agent, candidate.id::text)) candidate.id
+                FROM (
+                    SELECT s.id, s.assigned_agent, s.created_at
+                    FROM ops_mission_steps s
+                    WHERE s.status = 'queued'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM ops_mission_steps dep
+                        WHERE dep.id = ANY(s.depends_on)
+                        AND dep.status != 'succeeded'
+                    )
+                    AND (
+                        s.assigned_agent IS NULL
+                        OR NOT EXISTS (
+                            SELECT 1 FROM ops_mission_steps active
+                            WHERE active.assigned_agent = s.assigned_agent
+                              AND active.status = 'running'
+                        )
+                    )
+                    ORDER BY s.created_at ASC
+                    LIMIT ${MISSION_STEP_CANDIDATE_LIMIT}
+                    FOR UPDATE SKIP LOCKED
+                ) candidate
+                ORDER BY COALESCE(candidate.assigned_agent, candidate.id::text), candidate.created_at ASC
                 LIMIT ${MAX_PARALLEL_STEPS}
-                FOR UPDATE SKIP LOCKED
-            )
+                )
         )
         RETURNING *
     `;
@@ -13215,18 +13575,26 @@ async function dispatchMissionStep(step) {
             `;
     }
     if (approvedStep.output_path) {
-      const outputPrefix = approvedStep.output_path.endsWith("/") ? approvedStep.output_path : approvedStep.output_path + "/";
+      const normalizedOutputPath = approvedStep.output_path.replace(/^\/workspace\//, "").replace(/^\/+/, "").replaceAll("\\", "/");
+      const outputPrefix = normalizedOutputPath.endsWith("/") ? normalizedOutputPath : `${import_path2.default.posix.dirname(normalizedOutputPath)}/`;
       try {
-        await sql2`
-                    INSERT INTO ops_acl_grants (agent_id, path_prefix, source, source_id, expires_at)
-                    VALUES (${agentId}, ${outputPrefix}, 'mission', ${step.mission_id}::uuid, NOW() + INTERVAL '4 hours')
-                `;
+        await appendGrantAuthorityEvent(sql2, {
+          eventType: "grant_issued",
+          agentId,
+          pathPrefix: outputPrefix,
+          source: "mission",
+          sourceId: step.mission_id,
+          expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1e3).toISOString(),
+          actorId: WORKER_ID,
+          reason: `temporary write access for mission step ${step.id}`
+        });
       } catch (grantErr) {
         log36.warn("Failed to create ACL grant for step", {
           error: grantErr,
           agentId,
           outputPath: approvedStep.output_path
         });
+        throw grantErr;
       }
     }
     const [session] = await sql2`
@@ -14094,6 +14462,74 @@ async function catchUpOrphanedMissions() {
     });
   }
 }
+var PUBLICATION_STEP_KINDS = [
+  "draft_thread",
+  "draft_essay",
+  "critique_content",
+  "content_revision",
+  "draft_product_spec",
+  "publish_blog",
+  "create_pull_request"
+];
+async function getOutputObligations() {
+  const [obligations] = await sql2`
+        SELECT
+            (
+                SELECT COUNT(*)::int
+                FROM ops_content_drafts
+                WHERE status = 'approved'
+            ) AS approved_drafts,
+            (
+                SELECT COUNT(*)::int
+                FROM ops_content_drafts d
+                JOIN ops_roundtable_sessions rs ON rs.id = d.review_session_id
+                WHERE d.status = 'review'
+                  AND rs.status = 'completed'
+            ) AS completed_review_drafts,
+            (
+                SELECT COUNT(*)::int
+                FROM ops_content_drafts d
+                LEFT JOIN ops_roundtable_sessions rs ON rs.id = d.review_session_id
+                WHERE d.status = 'review'
+                  AND d.created_at < NOW() - interval '24 hours'
+                  AND (
+                      d.review_session_id IS NULL
+                      OR rs.id IS NULL
+                      OR rs.status <> 'completed'
+                  )
+            ) AS stale_review_drafts,
+            (
+                SELECT COUNT(*)::int
+                FROM ops_mission_steps s
+                JOIN ops_missions m ON m.id = s.mission_id
+                WHERE s.kind = ANY(${PUBLICATION_STEP_KINDS}::text[])
+                  AND s.status IN ('queued', 'running')
+                  AND COALESCE(s.started_at, s.created_at) < NOW() - interval '30 minutes'
+                  AND m.status IN ('approved', 'running')
+            ) AS aging_publication_steps
+    `;
+  return {
+    approvedDrafts: obligations?.approved_drafts ?? 0,
+    completedReviewDrafts: obligations?.completed_review_drafts ?? 0,
+    staleReviewDrafts: obligations?.stale_review_drafts ?? 0,
+    agingPublicationSteps: obligations?.aging_publication_steps ?? 0
+  };
+}
+function shouldThrottleInternalWork(obligations) {
+  return obligations.approvedDrafts > 0 || obligations.completedReviewDrafts > 0 || obligations.staleReviewDrafts > 0 || obligations.agingPublicationSteps > 0;
+}
+async function sweepOutputObligations(reason) {
+  await catchUpStuckReviews();
+  await catchUpOrphanedReviewDrafts();
+  const publishResult = await publishApprovedDrafts();
+  if (publishResult.published > 0 || publishResult.failed > 0) {
+    log36.info("Content publish sweep complete", {
+      reason,
+      published: publishResult.published,
+      failed: publishResult.failed
+    });
+  }
+}
 async function pollLoop() {
   await waitForDb();
   const toolbox = await checkToolboxAvailable();
@@ -14133,7 +14569,16 @@ async function pollLoop() {
   while (running) {
     try {
       await pollRoundtables();
-      const hadSession = await pollAgentSessions();
+      const outputObligations = await getOutputObligations();
+      const throttleInternalWork = shouldThrottleInternalWork(outputObligations);
+      if (throttleInternalWork) {
+        log36.warn("Output obligations are throttling internal agent sessions", {
+          obligations: outputObligations,
+          throttledSources: INTERNAL_AGENT_SESSION_SOURCES
+        });
+        await sweepOutputObligations("pre_agent_session_throttle");
+      }
+      const hadSession = await pollAgentSessions({ throttleInternalWork });
       await pollMissionSteps();
       await finalizeMissionSteps();
       if (hadSession) {

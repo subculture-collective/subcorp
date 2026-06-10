@@ -6,11 +6,11 @@ step_kind: self_evolution
 status: complete
 ---
 
-# Self-evolution change: sealed execution contracts and evidence
+# Self-evolution change: output-lane throttle and execution integrity
 
-Implemented the top concrete improvement from the roundtable/review thread: broad auto-approval needed an auditable execution boundary, not a one-time status flip, and every execution outcome needed durable proof.
+Implemented the top concrete improvement from the roundtable/review thread: internal autonomous sessions were able to consume worker cycles while approved drafts, completed content reviews, and aging publication work waited behind them.
 
-This branch also includes the remote evolution fix that disambiguates pending proposals by UUID in situational briefings.
+This branch keeps the existing execution-integrity hardening and adds an output-lane pre-dispatch gate in the unified worker.
 
 ## Change
 
@@ -22,13 +22,17 @@ This branch also includes the remote evolution fix that disambiguates pending pr
 - Wired `scripts/unified-worker/index.ts` to dispatch only from the sealed contract snapshot, reject uncovered/expired steps, and append execution evidence for direct handlers, agent dispatch, terminal session outcomes, veto blocks, and dispatch failures.
 - Wired recovery to append evidence when stale steps are resolved.
 - Added regression coverage in `tests/tenant-auth-replay-regression.test.ts` for evaluation-before-mutation, per-step approval revalidation, and required schema-validated execution contracts.
+- Added `getOutputObligations()` in `scripts/unified-worker/index.ts` to detect approved drafts, completed review drafts, stale review drafts, and aging publication-linked mission steps.
+- Added `shouldThrottleInternalWork()` and wired `pollLoop()` to run a pre-agent-session output sweep before dispatching internal sessions.
+- Updated `pollAgentSessions()` so `cron` and `droid` sessions are held while output obligations exist, while mission and conversation sessions can still move.
+- Added regression coverage proving the worker checks output obligations before agent-session dispatch and throttles internal sources.
 
 ## Why this was first
 
-The roundtable/review thread rejected broad auto-approval as a standing privilege. The highest-leverage fix is to make approval a recorded, replayable decision, freeze the execution boundary before any side effects, and leave an append-only proof trail for each outcome.
+The directive says internal coordination exists to ship work, not replace it. The highest-leverage fix is to make the worker protect P1/P2 publication lanes before it spends cycles on internal cron/droid work.
 
 ## Verification
 
-- `PATH="/home/onnwee/.local/share/mise/installs/node/24.15.0/bin:$PATH" npx --yes bun test tests/tenant-auth-replay-regression.test.ts`: 10 pass, 0 fail.
-- `PATH="/home/onnwee/.local/share/mise/installs/node/24.15.0/bin:$PATH" npm run lint -- scripts/unified-worker/index.ts src/lib/ops/proposal-service.ts src/lib/ops/recovery.ts src/lib/ops/execution-evidence.ts tests/tenant-auth-replay-regression.test.ts`: pass.
+- `PATH="/home/onnwee/.local/share/mise/installs/node/24.15.0/bin:$PATH" npx --yes bun test tests/tenant-auth-replay-regression.test.ts`: 18 pass, 0 fail.
+- `PATH="/home/onnwee/.local/share/mise/installs/node/24.15.0/bin:$PATH" npm run lint -- scripts/unified-worker/index.ts tests/tenant-auth-replay-regression.test.ts`: pass.
 - `PATH="/home/onnwee/.local/share/mise/installs/node/24.15.0/bin:$PATH" npm run build:worker`: pass.

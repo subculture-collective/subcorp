@@ -29,6 +29,7 @@ import {
     type ReviewDraft,
 } from './review-recovery';
 import type { MissionExecutionContract } from '../../src/lib/ops/proposal-service';
+import { appendGrantAuthorityEvent } from '../../src/lib/ops/grant-authority-events';
 import type { ProposedStep, RoundtableSession } from '../../src/lib/types';
 import type { AgentSession } from '../../src/lib/tools/types';
 import type { ConversationFormat, StepKind } from '../../src/lib/types';
@@ -129,9 +130,21 @@ const AGENT_SESSION_CONCURRENCY = Math.max(
     1,
     Number.parseInt(process.env.WORKER_AGENT_SESSION_CONCURRENCY ?? '2', 10) || 1,
 );
+const INTERNAL_AGENT_SESSION_SOURCES = ['cron', 'droid'] as const;
+
+interface OutputObligations {
+    approvedDrafts: number;
+    completedReviewDrafts: number;
+    staleReviewDrafts: number;
+    agingPublicationSteps: number;
+}
+
+interface AgentSessionPollOptions {
+    throttleInternalWork?: boolean;
+}
 
 /** Poll and process pending agent sessions (highest priority) */
-async function pollAgentSessions(): Promise<boolean> {
+async function pollAgentSessions(options: AgentSessionPollOptions = {}): Promise<boolean> {
     const sessions = await sql<AgentSession[]>`
         UPDATE ops_agent_sessions
         SET status = 'running', started_at = NOW()
@@ -139,6 +152,10 @@ async function pollAgentSessions(): Promise<boolean> {
             ARRAY(
             SELECT id FROM ops_agent_sessions
             WHERE status = 'pending'
+              AND (
+                  ${!options.throttleInternalWork}
+                  OR source <> ALL(${INTERNAL_AGENT_SESSION_SOURCES}::text[])
+              )
             ORDER BY created_at ASC
                 LIMIT ${AGENT_SESSION_CONCURRENCY}
             FOR UPDATE SKIP LOCKED
@@ -147,7 +164,12 @@ async function pollAgentSessions(): Promise<boolean> {
         RETURNING *
     `;
 
-    if (sessions.length === 0) return false;
+    if (sessions.length === 0) {
+        if (options.throttleInternalWork) {
+            log.info('Internal agent session dispatch held for output obligations');
+        }
+        return false;
+    }
 
     await Promise.allSettled(sessions.map(session => processAgentSession(session)));
     return true;
@@ -551,10 +573,14 @@ const MAX_PARALLEL_STEPS = Math.max(
     1,
     Number.parseInt(process.env.WORKER_MISSION_STEP_CONCURRENCY ?? '5', 10) || 1,
 );
+const MISSION_STEP_CANDIDATE_LIMIT = MAX_PARALLEL_STEPS * 2;
 
 /** Poll and process queued mission steps — routes through agent sessions for tool access */
 async function pollMissionSteps(): Promise<boolean> {
-    // Grab up to MAX_PARALLEL_STEPS independent steps in one batch
+    // Grab up to MAX_PARALLEL_STEPS independent steps in one batch.
+    // DB constraint uq_ops_mission_steps_active_assigned_agent allows only one
+    // running step per assigned agent, so select at most one candidate per
+    // assigned_agent while still allowing multiple unassigned steps.
     const steps = await sql`
         UPDATE ops_mission_steps
         SET status = 'running',
@@ -563,17 +589,31 @@ async function pollMissionSteps(): Promise<boolean> {
             updated_at = NOW()
         WHERE id = ANY(
             ARRAY(
-                SELECT s.id FROM ops_mission_steps s
-                WHERE s.status = 'queued'
-                AND NOT EXISTS (
-                    SELECT 1 FROM ops_mission_steps dep
-                    WHERE dep.id = ANY(s.depends_on)
-                    AND dep.status != 'succeeded'
-                )
-                ORDER BY s.created_at ASC
+                SELECT DISTINCT ON (COALESCE(candidate.assigned_agent, candidate.id::text)) candidate.id
+                FROM (
+                    SELECT s.id, s.assigned_agent, s.created_at
+                    FROM ops_mission_steps s
+                    WHERE s.status = 'queued'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM ops_mission_steps dep
+                        WHERE dep.id = ANY(s.depends_on)
+                        AND dep.status != 'succeeded'
+                    )
+                    AND (
+                        s.assigned_agent IS NULL
+                        OR NOT EXISTS (
+                            SELECT 1 FROM ops_mission_steps active
+                            WHERE active.assigned_agent = s.assigned_agent
+                              AND active.status = 'running'
+                        )
+                    )
+                    ORDER BY s.created_at ASC
+                    LIMIT ${MISSION_STEP_CANDIDATE_LIMIT}
+                    FOR UPDATE SKIP LOCKED
+                ) candidate
+                ORDER BY COALESCE(candidate.assigned_agent, candidate.id::text), candidate.created_at ASC
                 LIMIT ${MAX_PARALLEL_STEPS}
-                FOR UPDATE SKIP LOCKED
-            )
+                )
         )
         RETURNING *
     `;
@@ -960,21 +1000,32 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
 
         // Grant temporary write access if the step writes outside base ACLs
         if (approvedStep.output_path) {
+            const normalizedOutputPath = approvedStep.output_path
+                .replace(/^\/workspace\//, '')
+                .replace(/^\/+/, '')
+                .replaceAll('\\', '/');
             const outputPrefix =
-                approvedStep.output_path.endsWith('/') ?
-                    approvedStep.output_path
-                :   approvedStep.output_path + '/';
+                normalizedOutputPath.endsWith('/') ?
+                    normalizedOutputPath
+                :   `${path.posix.dirname(normalizedOutputPath)}/`;
             try {
-                await sql`
-                    INSERT INTO ops_acl_grants (agent_id, path_prefix, source, source_id, expires_at)
-                    VALUES (${agentId}, ${outputPrefix}, 'mission', ${step.mission_id}::uuid, NOW() + INTERVAL '4 hours')
-                `;
+                await appendGrantAuthorityEvent(sql, {
+                    eventType: 'grant_issued',
+                    agentId,
+                    pathPrefix: outputPrefix,
+                    source: 'mission',
+                    sourceId: step.mission_id,
+                    expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+                    actorId: WORKER_ID,
+                    reason: `temporary write access for mission step ${step.id}`,
+                });
             } catch (grantErr) {
                 log.warn('Failed to create ACL grant for step', {
                     error: grantErr,
                     agentId,
                     outputPath: approvedStep.output_path,
                 });
+                throw grantErr;
             }
         }
 
@@ -2062,6 +2113,92 @@ async function catchUpOrphanedMissions(): Promise<void> {
     }
 }
 
+const PUBLICATION_STEP_KINDS = [
+    'draft_thread',
+    'draft_essay',
+    'critique_content',
+    'content_revision',
+    'draft_product_spec',
+    'publish_blog',
+    'create_pull_request',
+] as const;
+
+async function getOutputObligations(): Promise<OutputObligations> {
+    const [obligations] = await sql<[
+        {
+            approved_drafts: number;
+            completed_review_drafts: number;
+            stale_review_drafts: number;
+            aging_publication_steps: number;
+        },
+    ]>`
+        SELECT
+            (
+                SELECT COUNT(*)::int
+                FROM ops_content_drafts
+                WHERE status = 'approved'
+            ) AS approved_drafts,
+            (
+                SELECT COUNT(*)::int
+                FROM ops_content_drafts d
+                JOIN ops_roundtable_sessions rs ON rs.id = d.review_session_id
+                WHERE d.status = 'review'
+                  AND rs.status = 'completed'
+            ) AS completed_review_drafts,
+            (
+                SELECT COUNT(*)::int
+                FROM ops_content_drafts d
+                LEFT JOIN ops_roundtable_sessions rs ON rs.id = d.review_session_id
+                WHERE d.status = 'review'
+                  AND d.created_at < NOW() - interval '24 hours'
+                  AND (
+                      d.review_session_id IS NULL
+                      OR rs.id IS NULL
+                      OR rs.status <> 'completed'
+                  )
+            ) AS stale_review_drafts,
+            (
+                SELECT COUNT(*)::int
+                FROM ops_mission_steps s
+                JOIN ops_missions m ON m.id = s.mission_id
+                WHERE s.kind = ANY(${PUBLICATION_STEP_KINDS}::text[])
+                  AND s.status IN ('queued', 'running')
+                  AND COALESCE(s.started_at, s.created_at) < NOW() - interval '30 minutes'
+                  AND m.status IN ('approved', 'running')
+            ) AS aging_publication_steps
+    `;
+
+    return {
+        approvedDrafts: obligations?.approved_drafts ?? 0,
+        completedReviewDrafts: obligations?.completed_review_drafts ?? 0,
+        staleReviewDrafts: obligations?.stale_review_drafts ?? 0,
+        agingPublicationSteps: obligations?.aging_publication_steps ?? 0,
+    };
+}
+
+function shouldThrottleInternalWork(obligations: OutputObligations): boolean {
+    return (
+        obligations.approvedDrafts > 0 ||
+        obligations.completedReviewDrafts > 0 ||
+        obligations.staleReviewDrafts > 0 ||
+        obligations.agingPublicationSteps > 0
+    );
+}
+
+async function sweepOutputObligations(reason: string): Promise<void> {
+    await catchUpStuckReviews();
+    await catchUpOrphanedReviewDrafts();
+
+    const publishResult = await publishApprovedDrafts();
+    if (publishResult.published > 0 || publishResult.failed > 0) {
+        log.info('Content publish sweep complete', {
+            reason,
+            published: publishResult.published,
+            failed: publishResult.failed,
+        });
+    }
+}
+
 async function pollLoop(): Promise<void> {
     await waitForDb();
 
@@ -2119,8 +2256,19 @@ async function pollLoop(): Promise<void> {
             // Roundtables first — user questions should not be starved by agent sessions
             await pollRoundtables();
 
-            // Agent sessions — high priority, check every loop
-            const hadSession = await pollAgentSessions();
+            const outputObligations = await getOutputObligations();
+            const throttleInternalWork = shouldThrottleInternalWork(outputObligations);
+            if (throttleInternalWork) {
+                log.warn('Output obligations are throttling internal agent sessions', {
+                    obligations: outputObligations,
+                    throttledSources: INTERNAL_AGENT_SESSION_SOURCES,
+                });
+                await sweepOutputObligations('pre_agent_session_throttle');
+            }
+
+            // Agent sessions — check every loop, but do not let internal work
+            // starve approved drafts, completed reviews, or aging publication work.
+            const hadSession = await pollAgentSessions({ throttleInternalWork });
 
             // Mission steps — dispatch alongside agent sessions so code builds
             // are never starved by conversation/workflow backlogs.

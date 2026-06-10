@@ -4,7 +4,16 @@ import path from 'node:path';
 import { NextResponse } from 'next/server';
 
 import type { AuthUser, UserRole } from '@/lib/auth/types';
-import { runApprovedProposal } from '@/lib/ops/proposal-runner';
+import {
+    createGrantAuthorityEvent,
+    replayGrantAuthorityEvents,
+    verifyGrantAuthorityEvent,
+    type GrantAuthorityEvent,
+} from '@/lib/ops/grant-authority-events';
+import {
+    resolveExecutableAuthority,
+    runApprovedProposal,
+} from '@/lib/ops/proposal-runner';
 import type { Proposal, ProposedStep } from '@/lib/types';
 
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? process.cwd();
@@ -181,6 +190,69 @@ describe('proposal replay concurrency guards', () => {
         expect(migration).toContain('idx_proposal_approval_evaluations_proposal');
     });
 
+    test('database constrains execution integrity boundaries', () => {
+        const sql = migrationSql('029_execution_integrity_constraints.sql');
+        const service = fs.readFileSync(
+            path.join(WORKSPACE_ROOT, 'src/lib/ops/proposal-service.ts'),
+            'utf8',
+        );
+        const evidence = fs.readFileSync(
+            path.join(WORKSPACE_ROOT, 'src/lib/ops/execution-evidence.ts'),
+            'utf8',
+        );
+        const worker = fs.readFileSync(
+            path.join(WORKSPACE_ROOT, 'scripts/unified-worker/index.ts'),
+            'utf8',
+        );
+
+        expect(sql).toContain('ops_proposal_approval_evaluations_version_bound');
+        expect(sql).toContain('proposal_revision TEXT');
+        expect(sql).toContain('proposal_hash TEXT');
+        expect(sql).toContain('policy_versions TEXT[]');
+        expect(service).toContain('proposalRevision(proposal)');
+        expect(service).toContain('sha256(proposalSnapshot(proposal))');
+
+        expect(sql).toContain('authority_snapshot JSONB');
+        expect(sql).toContain('ops_step_execution_evidence_authority_snapshot_check');
+        expect(evidence).toContain('authoritySnapshot');
+        expect(evidence).toContain('approvalEvaluationId: input.contract.approvalEvaluationId');
+
+        expect(sql).toContain('retention_class TEXT NOT NULL DEFAULT');
+        expect(sql).toContain('ops_step_execution_evidence_retention_class_check');
+        expect(sql).toContain('ops_acl_grant_events_retention_class_check');
+
+        expect(sql).toContain('uq_ops_mission_steps_active_assigned_agent');
+        expect(sql).toContain("WHERE assigned_agent IS NOT NULL AND status = 'running'");
+        expect(worker).toContain('MISSION_STEP_CANDIDATE_LIMIT');
+        expect(worker).toContain('SELECT DISTINCT ON (COALESCE(candidate.assigned_agent, candidate.id::text))');
+
+        expect(sql).toContain('enforce_ops_mission_status_transition');
+        expect(sql).toContain("OLD.status = 'approved' AND NEW.status IN ('running', 'succeeded', 'blocked', 'failed', 'cancelled')");
+        expect(sql).toContain('enforce_ops_mission_step_status_transition');
+        expect(sql).toContain("OLD.status = 'queued' AND NEW.status IN ('running', 'blocked', 'failed', 'skipped')");
+    });
+
+    test('worker throttles internal sessions when output obligations are pending', () => {
+        const worker = fs.readFileSync(
+            path.join(WORKSPACE_ROOT, 'scripts/unified-worker/index.ts'),
+            'utf8',
+        );
+
+        expect(worker).toContain('async function getOutputObligations()');
+        expect(worker).toContain('function shouldThrottleInternalWork(obligations: OutputObligations)');
+        expect(worker).toContain("WHERE status = 'approved'");
+        expect(worker).toContain("d.status = 'review'");
+        expect(worker).toContain("rs.status = 'completed'");
+        expect(worker).toContain("s.kind = ANY(${PUBLICATION_STEP_KINDS}::text[])");
+        expect(worker).toContain("COALESCE(s.started_at, s.created_at) < NOW() - interval '30 minutes'");
+        expect(worker).toContain("const INTERNAL_AGENT_SESSION_SOURCES = ['cron', 'droid'] as const");
+        expect(worker).toContain('OR source <> ALL(${INTERNAL_AGENT_SESSION_SOURCES}::text[])');
+        expect(worker).toContain("await sweepOutputObligations('pre_agent_session_throttle')");
+        expect(worker.indexOf('const outputObligations = await getOutputObligations()')).toBeLessThan(
+            worker.indexOf('const hadSession = await pollAgentSessions({ throttleInternalWork })'),
+        );
+    });
+
     test('proposal-derived missions require a schema-validated execution contract', () => {
         const service = fs.readFileSync(
             path.join(WORKSPACE_ROOT, 'src/lib/ops/proposal-service.ts'),
@@ -254,5 +326,226 @@ describe('proposal execution approval gates', () => {
         );
 
         expect(executed).toEqual(['document_lesson']);
+    });
+
+    test('resolveExecutableAuthority returns deterministic allow and deny decisions', () => {
+        const coveredStep: ProposedStep = {
+            kind: 'document_lesson',
+            payload: { n: 1 },
+        };
+        const proposal = acceptedProposal([coveredStep]);
+
+        expect(
+            resolveExecutableAuthority(proposal, coveredStep, 'thaum', {
+                missionId: 'mission-gate-test',
+                checkedAt: '2026-06-10T00:00:00.000Z',
+                approvalExpiresAt: '2026-06-11T00:00:00.000Z',
+            }),
+        ).toMatchObject({
+            outcome: 'ALLOW',
+            reason: 'proposal_step_covered_by_active_approval',
+            proposalId: proposal.id,
+        });
+
+        expect(
+            resolveExecutableAuthority(
+                { ...proposal, status: 'rejected' },
+                coveredStep,
+                'thaum',
+                { missionId: 'mission-gate-test' },
+            ),
+        ).toMatchObject({
+            outcome: 'DENY',
+            reason: 'proposal_not_accepted',
+        });
+
+        expect(
+            resolveExecutableAuthority(proposal, coveredStep, 'thaum', {
+                missionId: 'mission-gate-test',
+                approvalExpiresAt: '2026-06-11T00:00:00.000Z',
+            }),
+        ).toMatchObject({
+            outcome: 'DENY',
+            reason: 'checked_at_required_for_expiring_approval',
+        });
+
+        expect(
+            resolveExecutableAuthority(proposal, coveredStep, 'thaum', {
+                missionId: 'mission-gate-test',
+                checkedAt: '2026-06-12T00:00:00.000Z',
+                approvalExpiresAt: '2026-06-11T00:00:00.000Z',
+            }),
+        ).toMatchObject({
+            outcome: 'DENY',
+            reason: 'approval_expired',
+        });
+
+        expect(
+            resolveExecutableAuthority(
+                proposal,
+                { kind: 'patch_code', payload: { n: 2 } },
+                'thaum',
+                { missionId: 'mission-gate-test' },
+            ),
+        ).toMatchObject({
+            outcome: 'DENY',
+            reason: 'step_not_covered_by_approval',
+        });
+
+        const assignedStep: ProposedStep = {
+            kind: 'document_lesson',
+            payload: { n: 3 },
+            assigned_agent: 'praxis',
+        };
+        expect(
+            resolveExecutableAuthority(
+                acceptedProposal([assignedStep]),
+                assignedStep,
+                'thaum',
+                { missionId: 'mission-gate-test' },
+            ),
+        ).toMatchObject({
+            outcome: 'DENY',
+            reason: 'actor_not_assigned_agent',
+        });
+    });
+});
+
+describe('signed ACL grant authority event replay', () => {
+    const signingSecret = 'test-grant-authority-secret';
+
+    test('migration creates an immutable signed append-only grant event chain', () => {
+        const sql = migrationSql('028_acl_grant_authority_events.sql');
+
+        expect(sql).toContain('CREATE TABLE IF NOT EXISTS ops_acl_grant_events');
+        expect(sql).toContain("CHECK (event_type IN ('grant_issued', 'grant_revoked'))");
+        expect(sql).toContain('UNIQUE (agent_id, sequence)');
+        expect(sql).toContain('signature       TEXT NOT NULL');
+        expect(sql).toContain('ops_acl_grant_events_relative_directory_prefix');
+        expect(sql).toContain('prevent_ops_acl_grant_events_mutation');
+        expect(sql).toContain('BEFORE UPDATE ON ops_acl_grant_events');
+        expect(sql).toContain('BEFORE DELETE ON ops_acl_grant_events');
+    });
+
+    test('grant replay derives active prefixes only from a valid signed chain', () => {
+        const issued = createGrantAuthorityEvent(
+            {
+                agentId: 'praxis',
+                pathPrefix: 'projects/subcorp/',
+                source: 'mission',
+                sourceId: null,
+                expiresAt: '2026-06-10T04:00:00.000Z',
+                actorId: 'worker-test',
+                reason: 'temporary mission output grant',
+            },
+            {
+                sequence: 1,
+                signingSecret,
+                createdAt: '2026-06-10T00:00:00.000Z',
+                id: '11111111-1111-4111-8111-111111111111',
+            },
+        );
+        const expired = createGrantAuthorityEvent(
+            {
+                agentId: 'praxis',
+                pathPrefix: 'projects/expired/',
+                source: 'mission',
+                sourceId: null,
+                expiresAt: '2026-06-09T00:00:00.000Z',
+                actorId: 'worker-test',
+            },
+            {
+                sequence: 2,
+                previousHash: issued.eventHash,
+                signingSecret,
+                createdAt: '2026-06-10T00:01:00.000Z',
+                id: '22222222-2222-4222-8222-222222222222',
+            },
+        );
+
+        expect(
+            replayGrantAuthorityEvents([expired, issued], {
+                checkedAt: '2026-06-10T01:00:00.000Z',
+                signingSecret,
+            }),
+        ).toEqual(['projects/subcorp/']);
+    });
+
+    test('replay rejects tampered signatures and broken previous hashes', () => {
+        const issued = createGrantAuthorityEvent(
+            {
+                agentId: 'mux',
+                pathPrefix: 'projects/subcorp/',
+                source: 'manual',
+                expiresAt: '2026-06-10T04:00:00.000Z',
+                actorId: 'admin-test',
+            },
+            {
+                sequence: 1,
+                signingSecret,
+                createdAt: '2026-06-10T00:00:00.000Z',
+                id: '33333333-3333-4333-8333-333333333333',
+            },
+        );
+        const tampered: GrantAuthorityEvent = {
+            ...issued,
+            pathPrefix: 'projects/other/',
+        };
+        const brokenLink: GrantAuthorityEvent = {
+            ...issued,
+            previousHash: 'not-the-previous-event-hash',
+        };
+
+        expect(() => verifyGrantAuthorityEvent(tampered, signingSecret)).toThrow(
+            'payload hash mismatch',
+        );
+        expect(() =>
+            replayGrantAuthorityEvents([brokenLink], {
+                checkedAt: '2026-06-10T01:00:00.000Z',
+                signingSecret,
+            }),
+        ).toThrow('chain broken');
+    });
+
+    test('grant events reject non-canonical path prefixes before signing', () => {
+        expect(() =>
+            createGrantAuthorityEvent(
+                {
+                    agentId: 'praxis',
+                    pathPrefix: 'projects/subcorp',
+                    source: 'manual',
+                    expiresAt: '2026-06-10T04:00:00.000Z',
+                    actorId: 'admin-test',
+                },
+                {
+                    sequence: 1,
+                    signingSecret,
+                    createdAt: '2026-06-10T00:00:00.000Z',
+                    id: '44444444-4444-4444-8444-444444444444',
+                },
+            ),
+        ).toThrow('normalized relative directory prefix ending in /');
+    });
+
+    test('file-write authority reads signed grant events instead of mutable grants', () => {
+        const fileWrite = fs.readFileSync(
+            path.join(WORKSPACE_ROOT, 'src/lib/tools/tools/file-write.ts'),
+            'utf8',
+        );
+        const worker = fs.readFileSync(
+            path.join(WORKSPACE_ROOT, 'scripts/unified-worker/index.ts'),
+            'utf8',
+        );
+
+        expect(fileWrite).toContain('loadGrantAuthorityEventsForAgent(sql, agentId)');
+        expect(fileWrite).toContain('replayGrantAuthorityEvents(events');
+        expect(fileWrite).toContain('if (events.length === 0) return [];');
+        expect(fileWrite.indexOf('loadGrantAuthorityEventsForAgent')).toBeLessThan(
+            fileWrite.indexOf('SELECT path_prefix FROM ops_acl_grants'),
+        );
+        expect(worker).toContain('appendGrantAuthorityEvent(sql, {');
+        expect(worker).not.toContain(
+            'INSERT INTO ops_acl_grants (agent_id, path_prefix, source, source_id, expires_at)',
+        );
     });
 });
