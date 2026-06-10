@@ -28,7 +28,7 @@ import {
     releaseStaleReviewDrafts,
     type ReviewDraft,
 } from './review-recovery';
-import type { RoundtableSession } from '../../src/lib/types';
+import type { Proposal, RoundtableSession } from '../../src/lib/types';
 import type { AgentSession } from '../../src/lib/tools/types';
 import type { ConversationFormat, StepKind } from '../../src/lib/types';
 
@@ -663,11 +663,45 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
     try {
         // Load mission context
         const [mission] = await sql`
-            SELECT title, created_by FROM ops_missions WHERE id = ${step.mission_id}
+            SELECT title, created_by, proposal_id FROM ops_missions WHERE id = ${step.mission_id}
         `;
 
         // Use assigned_agent if set, otherwise fall back to mission creator
         const agentId = step.assigned_agent ?? mission?.created_by ?? 'mux';
+
+        // Approval must be checked at dispatch time, not only when the mission
+        // was created. This closes the gap where a proposal can be revoked or
+        // changed after queueing but before a step performs side effects.
+        if (mission?.proposal_id) {
+            const [proposal] = await sql<[Proposal]>`
+                SELECT * FROM ops_mission_proposals WHERE id = ${mission.proposal_id}
+            `;
+            if (!proposal) {
+                throw new Error(
+                    `Proposal ${mission.proposal_id} not found for mission ${step.mission_id}`,
+                );
+            }
+
+            const { assertApprovalStillValid } = await import(
+                '../../src/lib/ops/proposal-runner'
+            );
+            await assertApprovalStillValid(
+                proposal,
+                {
+                    kind: step.kind,
+                    payload: step.payload ?? {},
+                    assigned_agent: step.assigned_agent ?? undefined,
+                    output_path: step.output_path ?? undefined,
+                },
+                agentId,
+                {
+                    missionId: step.mission_id,
+                    stepId: step.id,
+                    workerId: WORKER_ID,
+                    checkedAt: new Date().toISOString(),
+                },
+            );
+        }
 
         const { emitEvent } = await import('../../src/lib/ops/events');
 

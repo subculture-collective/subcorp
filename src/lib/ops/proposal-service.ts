@@ -1,7 +1,14 @@
-// Proposal service — create, approve, and manage proposals
+// Proposal service — create proposals, record approval evaluations, and manage
+// proposal-derived missions.
 import { sql, jsonb } from '@/lib/db';
 import type { ProposalInput, Proposal } from '../types';
-import { getPolicy } from './policy';
+import {
+    getPolicyRecord,
+    policyHash,
+    policyVersion,
+    type PolicyRecord,
+} from './policy';
+import { hashStep } from './proposal-runner';
 import { checkCapGates } from './cap-gates';
 import { emitEvent, emitEventAndCheckReactions } from './events';
 import { upsertProposalReviewPacket } from './review-packets';
@@ -9,6 +16,45 @@ import { DAILY_PROPOSAL_LIMIT } from '../agents';
 import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'proposal-service' });
+
+type ProposalCreateResult = {
+    success: boolean;
+    proposalId?: string;
+    missionId?: string;
+    replayed?: boolean;
+    reason?: string;
+};
+
+type ApprovalEvaluationOutcome =
+    | 'approved'
+    | 'held_for_review'
+    | 'pending_review';
+
+interface ApprovalEvaluation {
+    outcome: ApprovalEvaluationOutcome;
+    reason: string;
+    autoApproveEnabled: boolean;
+    trustedSource: boolean;
+    allowedKinds: string[];
+    protectedKinds: string[];
+    proposedStepKinds: string[];
+    blockedStepKinds: string[];
+    decidedBy: string;
+    stepDecisions: Record<string, StepApprovalDecision>;
+}
+
+type ApprovalRiskClass = 'low' | 'medium' | 'high';
+
+interface StepApprovalDecision {
+    stepHash: string;
+    stepKind: string;
+    outcome: ApprovalEvaluationOutcome;
+    riskClass: ApprovalRiskClass;
+    matchedRule: string;
+    reason: string;
+    policyVersion: string;
+    policyHash: string;
+}
 
 function isUniqueViolation(error: unknown): boolean {
     return (
@@ -60,13 +106,18 @@ function replayResult(
 
 export async function createProposalAndMaybeAutoApprove(
     input: ProposalInput,
-): Promise<{
-    success: boolean;
-    proposalId?: string;
-    missionId?: string;
-    replayed?: boolean;
-    reason?: string;
-}> {
+): Promise<ProposalCreateResult> {
+    const created = await createProposal(input);
+    if (!created.success || !created.proposalId || created.replayed) {
+        return created;
+    }
+
+    return evaluateProposalApproval(created.proposalId, input);
+}
+
+export async function createProposal(
+    input: ProposalInput,
+): Promise<ProposalCreateResult> {
     // Stable idempotency: callers that can identify their source work item
     // should pass source_trace_id. If the same source is replayed (worker
     // restart/backfill/retry), return the existing proposal/mission instead of
@@ -135,51 +186,124 @@ export async function createProposalAndMaybeAutoApprove(
 
     const proposalId = proposal.id;
 
-    // Check veto policy: block auto-approval for protected step kinds
-    const vetoPolicy = await getPolicy('veto_authority');
-    if (vetoPolicy.enabled) {
-        const protectedKinds =
-            (vetoPolicy.protected_step_kinds as string[]) ?? [];
-        const hasProtectedStep = input.proposed_steps.some(s =>
-            protectedKinds.includes(s.kind),
-        );
-        if (hasProtectedStep) {
-            await upsertProposalReviewPacket({
-                proposalId,
-                proposal: input,
-                status: 'awaiting_review',
-                reason: 'Contains protected step kind(s). Requires manual approval.',
-                decision: {
-                    outcome: 'held_for_review',
-                    protectedKinds: input.proposed_steps
-                        .filter(s => protectedKinds.includes(s.kind))
-                        .map(s => s.kind),
-                    decidedBy: 'veto_authority_policy',
-                },
-            });
+    await upsertProposalReviewPacket({
+        proposalId,
+        proposal: input,
+        status: 'submitted',
+        reason: `Proposal created. Approval evaluation pending. ${input.proposed_steps.length} step(s).`,
+    });
 
-            await emitEvent({
-                agent_id: input.agent_id,
-                kind: 'proposal_held_for_review',
-                title: `Held for review: ${input.title}`,
-                summary: `Contains protected step kind(s). Requires manual approval.`,
-                tags: ['proposal', 'held', 'veto_gate'],
-                metadata: {
-                    proposalId,
-                    protectedKinds: input.proposed_steps
-                        .filter(s => protectedKinds.includes(s.kind))
-                        .map(s => s.kind),
-                },
-            });
-            return { success: true, proposalId };
-        }
+    await emitEvent({
+        agent_id: input.agent_id,
+        kind: 'proposal_created',
+        title: `Proposal: ${input.title}`,
+        summary: `Proposal created. Approval evaluation pending. ${input.proposed_steps.length} step(s).`,
+        tags: ['proposal', 'pending'],
+        metadata: { proposalId },
+    });
+
+    return { success: true, proposalId };
+}
+
+export async function evaluateProposalApproval(
+    proposalId: string,
+    input: ProposalInput,
+): Promise<ProposalCreateResult> {
+    const evaluation = await buildApprovalEvaluation(input);
+    await recordApprovalEvaluation(proposalId, evaluation);
+
+    if (evaluation.outcome === 'held_for_review') {
+        await upsertProposalReviewPacket({
+            proposalId,
+            proposal: input,
+            status: 'awaiting_review',
+            reason: evaluation.reason,
+            decision: evaluationDecision(evaluation),
+        });
+
+        await emitEvent({
+            agent_id: input.agent_id,
+            kind: 'proposal_held_for_review',
+            title: `Held for review: ${input.title}`,
+            summary: evaluation.reason,
+            tags: ['proposal', 'held', 'veto_gate'],
+            metadata: {
+                proposalId,
+                evaluationOutcome: evaluation.outcome,
+                protectedKinds: evaluation.blockedStepKinds,
+            },
+        });
+        return { success: true, proposalId };
     }
 
-    // Check auto-approve
-    const autoApprovePolicy = await getPolicy('auto_approve');
+    if (evaluation.outcome === 'approved') {
+        await upsertProposalReviewPacket({
+            proposalId,
+            proposal: input,
+            status: 'approved',
+            reason: evaluation.reason,
+            decision: evaluationDecision(evaluation),
+        });
+
+        await sql`
+            UPDATE ops_mission_proposals
+            SET status = 'accepted', auto_approved = true, updated_at = NOW()
+            WHERE id = ${proposalId}
+        `;
+
+        const missionId = await createMissionFromProposal(proposalId);
+
+        await emitEventAndCheckReactions({
+            agent_id: input.agent_id,
+            kind: 'proposal_auto_approved',
+            title: `Auto-approved: ${input.title}`,
+            summary: evaluation.reason,
+            tags: ['proposal', 'auto_approved'],
+            metadata: {
+                proposalId,
+                missionId,
+                evaluationOutcome: evaluation.outcome,
+            },
+        });
+
+        return { success: true, proposalId, missionId };
+    }
+
+    await upsertProposalReviewPacket({
+        proposalId,
+        proposal: input,
+        status: 'submitted',
+        reason: evaluation.reason,
+        decision: evaluationDecision(evaluation),
+    });
+
+    return { success: true, proposalId };
+}
+
+async function buildApprovalEvaluation(
+    input: ProposalInput,
+): Promise<ApprovalEvaluation> {
+    // Check veto policy: block auto-approval for protected step kinds
+    const vetoPolicyRecord = await getPolicyRecord('veto_authority');
+    const vetoPolicy = vetoPolicyRecord.value;
+    const protectedKinds =
+        vetoPolicy.enabled ?
+            ((vetoPolicy.protected_step_kinds as string[]) ?? [])
+        :   [];
+    const proposedStepKinds = input.proposed_steps.map(step => step.kind);
+    const blockedStepKinds = proposedStepKinds.filter(kind =>
+        protectedKinds.includes(kind),
+    );
+
+    const autoApprovePolicyRecord = await getPolicyRecord('auto_approve');
+    const autoApprovePolicy = autoApprovePolicyRecord.value;
     const autoApproveEnabled = autoApprovePolicy.enabled as boolean;
     const allowedKinds =
         (autoApprovePolicy.allowed_step_kinds as string[]) ?? [];
+    const policyFingerprint = buildApprovalPolicyFingerprint([
+        autoApprovePolicyRecord,
+        vetoPolicyRecord,
+    ]);
 
     // Deliberated sources (roundtable conversations, system pipelines) get lower friction:
     // auto-approve as long as auto_approve is enabled, even if step kinds aren't
@@ -195,57 +319,235 @@ export async function createProposalAndMaybeAutoApprove(
                 allowedKinds.includes(step.kind),
             ));
 
-    if (shouldAutoApprove) {
-        await upsertProposalReviewPacket({
-            proposalId,
-            proposal: input,
-            status: 'approved',
-            reason: `Proposal auto-approved with ${input.proposed_steps.length} step(s)`,
-            decision: {
-                outcome: 'approved',
-                autoApproved: true,
-                decidedBy: 'auto_approve_policy',
-                trustedSource: isTrustedSource,
-            },
-        });
+    const buildStepDecisions = (
+        outcome: ApprovalEvaluationOutcome,
+    ): Record<string, StepApprovalDecision> =>
+        Object.fromEntries(
+            input.proposed_steps.map(step => {
+                const stepHash = hashStep(step);
+                const decision = buildStepApprovalDecision({
+                    step,
+                    stepHash,
+                    outcome,
+                    isTrustedSource,
+                    autoApproveEnabled,
+                    allowedKinds,
+                    protectedKinds,
+                    policyFingerprint,
+                });
+                return [stepHash, decision];
+            }),
+        );
 
-        await sql`
-            UPDATE ops_mission_proposals
-            SET status = 'accepted', auto_approved = true, updated_at = NOW()
-            WHERE id = ${proposalId}
-        `;
-
-        const missionId = await createMissionFromProposal(proposalId);
-
-        await emitEventAndCheckReactions({
-            agent_id: input.agent_id,
-            kind: 'proposal_auto_approved',
-            title: `Auto-approved: ${input.title}`,
-            summary: `Proposal auto-approved with ${input.proposed_steps.length} step(s)`,
-            tags: ['proposal', 'auto_approved'],
-            metadata: { proposalId, missionId },
-        });
-
-        return { success: true, proposalId, missionId };
+    if (blockedStepKinds.length > 0) {
+        return {
+            outcome: 'held_for_review',
+            reason: 'Contains protected step kind(s). Requires manual approval.',
+            autoApproveEnabled,
+            trustedSource: isTrustedSource,
+            allowedKinds,
+            protectedKinds,
+            proposedStepKinds,
+            blockedStepKinds,
+            decidedBy: 'veto_authority_policy',
+            stepDecisions: buildStepDecisions('held_for_review'),
+        };
     }
 
-    await upsertProposalReviewPacket({
-        proposalId,
-        proposal: input,
-        status: 'submitted',
+    if (shouldAutoApprove) {
+        return {
+            outcome: 'approved',
+            reason: `Proposal auto-approved with ${input.proposed_steps.length} step(s)`,
+            autoApproveEnabled,
+            trustedSource: isTrustedSource,
+            allowedKinds,
+            protectedKinds,
+            proposedStepKinds,
+            blockedStepKinds,
+            decidedBy: 'auto_approve_policy',
+            stepDecisions: buildStepDecisions('approved'),
+        };
+    }
+
+    return {
+        outcome: 'pending_review',
         reason: `Awaiting review. ${input.proposed_steps.length} step(s).`,
-    });
+        autoApproveEnabled,
+        trustedSource: isTrustedSource,
+        allowedKinds,
+        protectedKinds,
+        proposedStepKinds,
+        blockedStepKinds,
+        decidedBy: 'auto_approve_policy',
+        stepDecisions: buildStepDecisions('pending_review'),
+    };
+}
 
-    await emitEvent({
-        agent_id: input.agent_id,
-        kind: 'proposal_created',
-        title: `Proposal: ${input.title}`,
-        summary: `Awaiting review. ${input.proposed_steps.length} step(s).`,
-        tags: ['proposal', 'pending'],
-        metadata: { proposalId },
-    });
+function buildApprovalPolicyFingerprint(
+    policies: PolicyRecord[],
+): { version: string; hash: string } {
+    const normalizedPolicies = policies.map(normalizePolicyRecord);
+    return {
+        version: normalizedPolicies
+            .map(policy => `${policy.key}@${policy.version}`)
+            .join('|'),
+        hash: policyHash({
+            key: 'approval_policy_bundle',
+            value: Object.fromEntries(
+                normalizedPolicies.map(policy => [policy.key, policy.value]),
+            ),
+            updated_at: normalizedPolicies
+                .map(policy => `${policy.key}:${policy.updated_at ?? 'null'}`)
+                .join('|'),
+        }),
+    };
+}
 
-    return { success: true, proposalId };
+function normalizePolicyRecord(policy: Awaited<ReturnType<typeof getPolicyRecord>>) {
+    return {
+        key: policy.key,
+        value: policy.value,
+        updated_at: policy.updated_at,
+        version: policyVersion(policy),
+    };
+}
+
+function buildStepApprovalDecision(input: {
+    step: ProposalInput['proposed_steps'][number];
+    stepHash: string;
+    outcome: ApprovalEvaluationOutcome;
+    isTrustedSource: boolean;
+    autoApproveEnabled: boolean;
+    allowedKinds: string[];
+    protectedKinds: string[];
+    policyFingerprint: { version: string; hash: string };
+}): StepApprovalDecision {
+    const {
+        step,
+        stepHash,
+        outcome,
+        isTrustedSource,
+        autoApproveEnabled,
+        allowedKinds,
+        protectedKinds,
+        policyFingerprint,
+    } = input;
+
+    if (protectedKinds.includes(step.kind)) {
+        return {
+            stepHash,
+            stepKind: step.kind,
+            outcome: 'held_for_review',
+            riskClass: 'high',
+            matchedRule: 'veto_authority.protected_step_kind',
+            reason: `Step kind ${step.kind} is protected by veto authority policy.`,
+            policyVersion: policyFingerprint.version,
+            policyHash: policyFingerprint.hash,
+        };
+    }
+
+    if (!autoApproveEnabled) {
+        return {
+            stepHash,
+            stepKind: step.kind,
+            outcome,
+            riskClass: 'medium',
+            matchedRule: 'auto_approve.disabled',
+            reason: 'Auto-approval policy is disabled.',
+            policyVersion: policyFingerprint.version,
+            policyHash: policyFingerprint.hash,
+        };
+    }
+
+    if (isTrustedSource) {
+        return {
+            stepHash,
+            stepKind: step.kind,
+            outcome,
+            riskClass: 'low',
+            matchedRule: 'auto_approve.trusted_source',
+            reason: 'Trusted source may auto-approve this step under current policy.',
+            policyVersion: policyFingerprint.version,
+            policyHash: policyFingerprint.hash,
+        };
+    }
+
+    if (allowedKinds.includes(step.kind)) {
+        return {
+            stepHash,
+            stepKind: step.kind,
+            outcome,
+            riskClass: 'low',
+            matchedRule: 'auto_approve.allowed_step_kind',
+            reason: `Step kind ${step.kind} is listed in auto-approve policy.`,
+            policyVersion: policyFingerprint.version,
+            policyHash: policyFingerprint.hash,
+        };
+    }
+
+    return {
+        stepHash,
+        stepKind: step.kind,
+        outcome,
+        riskClass: 'medium',
+        matchedRule: 'auto_approve.step_kind_not_allowed',
+        reason: `Step kind ${step.kind} is not listed in auto-approve policy.`,
+        policyVersion: policyFingerprint.version,
+        policyHash: policyFingerprint.hash,
+    };
+}
+
+async function recordApprovalEvaluation(
+    proposalId: string,
+    evaluation: ApprovalEvaluation,
+): Promise<string> {
+    const [record] = await sql<[{ id: string }]>`
+        INSERT INTO ops_proposal_approval_evaluations (
+            proposal_id,
+            outcome,
+            reason,
+            auto_approve_enabled,
+            trusted_source,
+            allowed_step_kinds,
+            protected_step_kinds,
+            proposed_step_kinds,
+            blocked_step_kinds,
+            step_decisions,
+            decision
+        ) VALUES (
+            ${proposalId},
+            ${evaluation.outcome},
+            ${evaluation.reason},
+            ${evaluation.autoApproveEnabled},
+            ${evaluation.trustedSource},
+            ${jsonb(evaluation.allowedKinds)},
+            ${jsonb(evaluation.protectedKinds)},
+            ${jsonb(evaluation.proposedStepKinds)},
+            ${jsonb(evaluation.blockedStepKinds)},
+            ${jsonb(evaluation.stepDecisions)},
+            ${jsonb(evaluationDecision(evaluation))}
+        )
+        RETURNING id
+    `;
+
+    return record.id;
+}
+
+function evaluationDecision(
+    evaluation: ApprovalEvaluation,
+): Record<string, unknown> {
+    return {
+        outcome: evaluation.outcome,
+        autoApproved: evaluation.outcome === 'approved',
+        decidedBy: evaluation.decidedBy,
+        trustedSource: evaluation.trustedSource,
+        autoApproveEnabled: evaluation.autoApproveEnabled,
+        allowedKinds: evaluation.allowedKinds,
+        protectedKinds: evaluation.protectedKinds,
+        proposedStepKinds: evaluation.proposedStepKinds,
+        blockedStepKinds: evaluation.blockedStepKinds,
+        stepDecisions: evaluation.stepDecisions,
+    };
 }
 
 export async function createMissionFromProposal(

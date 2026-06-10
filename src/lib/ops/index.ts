@@ -1,5 +1,9 @@
 // Barrel export for ops modules
-export { createProposalAndMaybeAutoApprove } from './proposal-service';
+export {
+    createProposal,
+    createProposalAndMaybeAutoApprove,
+    evaluateProposalApproval,
+} from './proposal-service';
 export { checkCapGates } from './cap-gates';
 export { getPolicy, setPolicy, clearPolicyCache } from './policy';
 export { emitEvent, emitEventAndCheckReactions } from './events';

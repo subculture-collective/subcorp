@@ -4,6 +4,8 @@ import path from 'node:path';
 import { NextResponse } from 'next/server';
 
 import type { AuthUser, UserRole } from '@/lib/auth/types';
+import { runApprovedProposal } from '@/lib/ops/proposal-runner';
+import type { Proposal, ProposedStep } from '@/lib/types';
 
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? process.cwd();
 
@@ -143,5 +145,82 @@ describe('proposal replay concurrency guards', () => {
             'ON CONFLICT (proposal_id) WHERE proposal_id IS NOT NULL DO UPDATE',
         );
         expect(service).toContain('if (!mission.created)');
+    });
+
+    test('proposal creation is separated from approval evaluation records', () => {
+        const service = fs.readFileSync(
+            path.join(WORKSPACE_ROOT, 'src/lib/ops/proposal-service.ts'),
+            'utf8',
+        );
+        const migration = migrationSql('025_proposal_approval_evaluations.sql');
+
+        expect(service).toContain('export async function createProposal(');
+        expect(service).toContain(
+            'export async function evaluateProposalApproval(',
+        );
+        expect(service).toContain(
+            'recordApprovalEvaluation(proposalId, evaluation);',
+        );
+        expect(service).toContain('INSERT INTO ops_proposal_approval_evaluations');
+
+        const recordIndex = service.indexOf(
+            'recordApprovalEvaluation(proposalId, evaluation);',
+        );
+        const mutationIndex = service.indexOf(
+            "SET status = 'accepted', auto_approved = true",
+        );
+        expect(recordIndex).toBeGreaterThanOrEqual(0);
+        expect(recordIndex).toBeLessThan(mutationIndex);
+
+        expect(migration).toContain(
+            'CREATE TABLE IF NOT EXISTS ops_proposal_approval_evaluations',
+        );
+        expect(migration).toContain(
+            "CHECK (outcome IN ('approved', 'held_for_review', 'pending_review'))",
+        );
+        expect(migration).toContain('idx_proposal_approval_evaluations_proposal');
+    });
+});
+
+describe('proposal execution approval gates', () => {
+    function acceptedProposal(steps: ProposedStep[]): Proposal {
+        return {
+            id: 'proposal-gate-test',
+            agent_id: 'thaum',
+            title: 'Gate every step',
+            description: 'Regression fixture',
+            status: 'accepted',
+            proposed_steps: steps,
+            source: 'agent',
+            auto_approved: true,
+            created_at: '2026-06-10T00:00:00.000Z',
+            updated_at: '2026-06-10T00:00:00.000Z',
+        };
+    }
+
+    test('runApprovedProposal revalidates approval immediately before each step execution', async () => {
+        const steps: ProposedStep[] = [
+            { kind: 'document_lesson', payload: { n: 1 } },
+            { kind: 'patch_code', payload: { n: 2 } },
+        ];
+        const proposal = acceptedProposal(steps);
+        const executed: string[] = [];
+
+        await expect(
+            runApprovedProposal(
+                proposal,
+                steps,
+                'thaum',
+                { missionId: 'mission-gate-test' },
+                async step => {
+                    executed.push(step.kind);
+                    proposal.status = 'rejected';
+                },
+            ),
+        ).rejects.toThrow(
+            'Proposal proposal-gate-test is not currently accepted',
+        );
+
+        expect(executed).toEqual(['document_lesson']);
     });
 });
