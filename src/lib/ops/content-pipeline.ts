@@ -517,7 +517,8 @@ async function applyReviewResult(
 ): Promise<void> {
     if (consensus === 'approved') {
         const updated = await sql.begin(async tx => {
-            const [current] = await tx<[{ id: string }?]>`
+            const db = tx as unknown as typeof sql;
+            const [current] = await db<[{ id: string }?]>`
                 SELECT id FROM ops_content_drafts
                 WHERE id = ${draft.id}
                   AND status = 'review'
@@ -551,10 +552,10 @@ async function applyReviewResult(
                         reviewerNotes,
                     },
                 },
-                tx as typeof sql,
+                db,
             );
 
-            await tx`
+            await db`
                 UPDATE ops_content_drafts
                 SET status = 'approved',
                     reviewer_notes = ${jsonb(reviewerNotes)},
@@ -592,7 +593,8 @@ async function applyReviewResult(
         });
     } else if (consensus === 'rejected') {
         const updated = await sql.begin(async tx => {
-            const [current] = await tx<[{ id: string }?]>`
+            const db = tx as unknown as typeof sql;
+            const [current] = await db<[{ id: string }?]>`
                 SELECT id FROM ops_content_drafts
                 WHERE id = ${draft.id}
                   AND status = 'review'
@@ -626,10 +628,10 @@ async function applyReviewResult(
                         reviewerNotes,
                     },
                 },
-                tx as typeof sql,
+                db,
             );
 
-            await tx`
+            await db`
                 UPDATE ops_content_drafts
                 SET status = 'rejected',
                     reviewer_notes = ${jsonb(reviewerNotes)},
@@ -670,7 +672,8 @@ async function applyReviewResult(
     } else {
         // Mixed — update notes but keep status as 'review' for manual review
         const updated = await sql.begin(async tx => {
-            const [current] = await tx<[{ id: string }?]>`
+            const db = tx as unknown as typeof sql;
+            const [current] = await db<[{ id: string }?]>`
                 SELECT id FROM ops_content_drafts
                 WHERE id = ${draft.id}
                   AND status = 'review'
@@ -700,10 +703,10 @@ async function applyReviewResult(
                         updated_by: 'content-pipeline',
                     },
                 },
-                tx as typeof sql,
+                db,
             );
 
-            await tx`
+            await db`
                 UPDATE ops_content_drafts
                 SET reviewer_notes = ${jsonb(reviewerNotes)},
                     updated_at = NOW()

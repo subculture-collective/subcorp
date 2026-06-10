@@ -3412,6 +3412,232 @@ var init_cap_gates = __esm({
   }
 });
 
+// src/lib/ops/review-packets.ts
+function createReviewPacketArtifactId(subjectType, subjectId) {
+  return `review-packet:${subjectType}:${subjectId}`;
+}
+function valueAsString(value) {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+function valueAsRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function deriveReviewDiff(status, packet, previousStatus, requestedStatus) {
+  const from = previousStatus ?? valueAsString(packet.previous_status) ?? valueAsString(packet.previousStatus);
+  const to = requestedStatus ?? valueAsString(packet.requested_status) ?? valueAsString(packet.requestedStatus) ?? status;
+  return {
+    from,
+    to,
+    changed: from !== to
+  };
+}
+function deriveReviewPolicy(subjectType, status, diff, transitionRulesVersion) {
+  const terminalDecision = status === "approved" || status === "rejected";
+  const requiresReviewEvidence = terminalDecision || status === "blocked" || status === "awaiting_review";
+  return {
+    version: REVIEW_PACKET_SCHEMA_VERSION,
+    derived_from: "status_diff",
+    subject_type: subjectType,
+    status,
+    diff,
+    transition_rules_version: transitionRulesVersion,
+    required_evidence: requiresReviewEvidence ? ["decision_basis", "reviewer_or_policy_trace"] : ["submission_trace"],
+    risk: terminalDecision ? "state_mutation" : "intake"
+  };
+}
+function deriveTransitionRules(subjectType, status, diff, transitionRulesVersion) {
+  return [
+    {
+      version: transitionRulesVersion,
+      rule_id: `${subjectType}:${diff.from ?? "none"}->${diff.to}`,
+      subject_type: subjectType,
+      from: diff.from,
+      to: diff.to,
+      review_packet_status: status,
+      allowed: true,
+      rationale: "Persist a versioned transition receipt before mutating the reviewed subject."
+    }
+  ];
+}
+function normalizeEvidence(evidence, packet, decision) {
+  const normalized = [...evidence ?? []];
+  const sourceTraceId = valueAsString(packet.source_trace_id);
+  const reviewSessionId = valueAsString(packet.review_session_id);
+  if (sourceTraceId) {
+    normalized.push({
+      kind: "source_trace",
+      source: sourceTraceId,
+      summary: "Packet includes upstream source trace identifier.",
+      data: { source_trace_id: sourceTraceId }
+    });
+  }
+  if (reviewSessionId) {
+    normalized.push({
+      kind: "review_session",
+      source: reviewSessionId,
+      summary: "Packet includes reviewer session evidence.",
+      data: { review_session_id: reviewSessionId }
+    });
+  }
+  if (decision) {
+    normalized.push({
+      kind: "decision",
+      source: valueAsString(decision.decidedBy) ?? "unknown",
+      summary: `Decision outcome: ${valueAsString(decision.outcome) ?? "recorded"}`,
+      data: decision
+    });
+  }
+  return normalized;
+}
+function deriveLineage(subjectType, subjectId, requestedBy, packet, lineage) {
+  const source = valueAsRecord(packet.source) ?? {
+    source_trace_id: valueAsString(packet.source_trace_id),
+    review_session_id: valueAsString(packet.review_session_id),
+    updated_by: valueAsString(packet.updated_by)
+  };
+  return {
+    version: REVIEW_PACKET_SCHEMA_VERSION,
+    subject: lineage?.subject ?? { type: subjectType, id: subjectId },
+    source: lineage?.source ?? source,
+    parentArtifactIds: lineage?.parentArtifactIds ?? [],
+    emittedBy: lineage?.emittedBy ?? requestedBy
+  };
+}
+function buildReviewPacket(input) {
+  const {
+    subjectType,
+    subjectId,
+    artifactId,
+    status,
+    requestedBy,
+    previousStatus,
+    requestedStatus,
+    evidence,
+    lineage,
+    transitionRulesVersion = DEFAULT_TRANSITION_RULES_VERSION,
+    packet,
+    decision
+  } = input;
+  const resolvedArtifactId = artifactId ?? createReviewPacketArtifactId(subjectType, subjectId);
+  const diff = deriveReviewDiff(status, packet, previousStatus, requestedStatus);
+  return {
+    ...packet,
+    artifactId: resolvedArtifactId,
+    artifact_id: resolvedArtifactId,
+    schema_version: REVIEW_PACKET_SCHEMA_VERSION,
+    diff,
+    reviewPolicy: deriveReviewPolicy(
+      subjectType,
+      status,
+      diff,
+      transitionRulesVersion
+    ),
+    reviewEvidence: normalizeEvidence(evidence, packet, decision),
+    lineage: deriveLineage(subjectType, subjectId, requestedBy, packet, lineage),
+    transitionRules: deriveTransitionRules(
+      subjectType,
+      status,
+      diff,
+      transitionRulesVersion
+    )
+  };
+}
+async function createOrUpdateReviewPacket(input, db = sql) {
+  const {
+    subjectType,
+    subjectId,
+    artifactId,
+    status,
+    requestedBy,
+    title,
+    summary,
+    decision,
+    transitionRulesVersion = DEFAULT_TRANSITION_RULES_VERSION
+  } = input;
+  const resolvedArtifactId = artifactId ?? createReviewPacketArtifactId(subjectType, subjectId);
+  const enrichedPacket = buildReviewPacket(input);
+  const [row] = await db`
+        INSERT INTO ops_review_packets (
+            artifact_id,
+            subject_type,
+            subject_id,
+            status,
+            requested_by,
+            title,
+            summary,
+            transition_rules_version,
+            packet,
+            decision,
+            decided_at
+        ) VALUES (
+            ${resolvedArtifactId},
+            ${subjectType},
+            ${subjectId},
+            ${status},
+            ${requestedBy},
+            ${title},
+            ${summary},
+            ${transitionRulesVersion},
+            ${jsonb(enrichedPacket)},
+            ${decision ? jsonb(decision) : null},
+            ${decision ? db`NOW()` : null}
+        )
+        ON CONFLICT (subject_type, subject_id) DO UPDATE SET
+            artifact_id = EXCLUDED.artifact_id,
+            status = EXCLUDED.status,
+            requested_by = EXCLUDED.requested_by,
+            title = EXCLUDED.title,
+            summary = EXCLUDED.summary,
+            transition_rules_version = EXCLUDED.transition_rules_version,
+            packet = EXCLUDED.packet,
+            decision = EXCLUDED.decision,
+            decided_at = EXCLUDED.decided_at,
+            updated_at = NOW()
+        RETURNING id
+    `;
+  return row.id;
+}
+async function upsertProposalReviewPacket({
+  proposalId,
+  proposal,
+  status,
+  reason,
+  decision
+}) {
+  const packet = {
+    proposalId,
+    agent_id: proposal.agent_id,
+    title: proposal.title,
+    description: proposal.description ?? null,
+    proposed_steps: proposal.proposed_steps,
+    source: proposal.source ?? "agent",
+    source_trace_id: proposal.source_trace_id ?? null,
+    reason,
+    updated_by: "proposal-service"
+  };
+  return createOrUpdateReviewPacket({
+    subjectType: "mission_proposal",
+    subjectId: proposalId,
+    status,
+    requestedBy: proposal.agent_id,
+    title: proposal.title,
+    summary: reason,
+    previousStatus: "pending",
+    requestedStatus: status,
+    packet,
+    decision
+  });
+}
+var REVIEW_PACKET_SCHEMA_VERSION, DEFAULT_TRANSITION_RULES_VERSION;
+var init_review_packets = __esm({
+  "src/lib/ops/review-packets.ts"() {
+    "use strict";
+    init_db();
+    REVIEW_PACKET_SCHEMA_VERSION = 1;
+    DEFAULT_TRANSITION_RULES_VERSION = 1;
+  }
+});
+
 // src/lib/ops/proposal-service.ts
 var proposal_service_exports = {};
 __export(proposal_service_exports, {
@@ -3419,31 +3645,42 @@ __export(proposal_service_exports, {
   createMissionFromProposal: () => createMissionFromProposal,
   createProposalAndMaybeAutoApprove: () => createProposalAndMaybeAutoApprove
 });
+function isUniqueViolation(error) {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
+}
+async function findReplayProposal(input) {
+  if (!input.source_trace_id) return null;
+  const [existing] = await sql`
+        SELECT p.id, m.id AS mission_id
+        FROM ops_mission_proposals p
+        LEFT JOIN ops_missions m ON m.proposal_id = p.id
+        WHERE p.source = ${input.source ?? "agent"}
+          AND p.source_trace_id = ${input.source_trace_id}
+          AND p.title = ${input.title}
+        ORDER BY p.created_at ASC
+        LIMIT 1
+    `;
+  return existing ?? null;
+}
+function replayResult(existing, input) {
+  log7.info("Proposal replay ignored by source_trace_id", {
+    proposalId: existing.id,
+    missionId: existing.mission_id,
+    source: input.source ?? "agent",
+    sourceTraceId: input.source_trace_id
+  });
+  return {
+    success: true,
+    proposalId: existing.id,
+    missionId: existing.mission_id ?? void 0,
+    replayed: true
+  };
+}
 async function createProposalAndMaybeAutoApprove(input) {
   if (input.source_trace_id) {
-    const [existing] = await sql`
-            SELECT p.id, m.id AS mission_id
-            FROM ops_mission_proposals p
-            LEFT JOIN ops_missions m ON m.proposal_id = p.id
-            WHERE p.source = ${input.source ?? "agent"}
-              AND p.source_trace_id = ${input.source_trace_id}
-              AND p.title = ${input.title}
-            ORDER BY p.created_at ASC
-            LIMIT 1
-        `;
+    const existing = await findReplayProposal(input);
     if (existing) {
-      log7.info("Proposal replay ignored by source_trace_id", {
-        proposalId: existing.id,
-        missionId: existing.mission_id,
-        source: input.source ?? "agent",
-        sourceTraceId: input.source_trace_id
-      });
-      return {
-        success: true,
-        proposalId: existing.id,
-        missionId: existing.mission_id ?? void 0,
-        replayed: true
-      };
+      return replayResult(existing, input);
     }
     const [{ count: sessionCount }] = await sql`
             SELECT COUNT(*)::int as count FROM ops_mission_proposals
@@ -3467,19 +3704,30 @@ async function createProposalAndMaybeAutoApprove(input) {
   if (!gateResult.ok) {
     return { success: false, reason: gateResult.reason };
   }
-  const [proposal] = await sql`
-        INSERT INTO ops_mission_proposals (agent_id, title, description, proposed_steps, source, source_trace_id, status)
-        VALUES (
-            ${input.agent_id},
-            ${input.title},
-            ${input.description ?? null},
-            ${jsonb(input.proposed_steps)},
-            ${input.source ?? "agent"},
-            ${input.source_trace_id ?? null},
-            'pending'
-        )
-        RETURNING id
-    `;
+  let proposal;
+  try {
+    [proposal] = await sql`
+            INSERT INTO ops_mission_proposals (agent_id, title, description, proposed_steps, source, source_trace_id, status)
+            VALUES (
+                ${input.agent_id},
+                ${input.title},
+                ${input.description ?? null},
+                ${jsonb(input.proposed_steps)},
+                ${input.source ?? "agent"},
+                ${input.source_trace_id ?? null},
+                'pending'
+            )
+            RETURNING id
+        `;
+  } catch (error) {
+    if (input.source_trace_id && isUniqueViolation(error)) {
+      const existing = await findReplayProposal(input);
+      if (existing) {
+        return replayResult(existing, input);
+      }
+    }
+    throw error;
+  }
   const proposalId = proposal.id;
   const vetoPolicy = await getPolicy("veto_authority");
   if (vetoPolicy.enabled) {
@@ -3488,6 +3736,17 @@ async function createProposalAndMaybeAutoApprove(input) {
       (s) => protectedKinds.includes(s.kind)
     );
     if (hasProtectedStep) {
+      await upsertProposalReviewPacket({
+        proposalId,
+        proposal: input,
+        status: "awaiting_review",
+        reason: "Contains protected step kind(s). Requires manual approval.",
+        decision: {
+          outcome: "held_for_review",
+          protectedKinds: input.proposed_steps.filter((s) => protectedKinds.includes(s.kind)).map((s) => s.kind),
+          decidedBy: "veto_authority_policy"
+        }
+      });
       await emitEvent({
         agent_id: input.agent_id,
         kind: "proposal_held_for_review",
@@ -3511,6 +3770,18 @@ async function createProposalAndMaybeAutoApprove(input) {
     (step) => allowedKinds.includes(step.kind)
   ));
   if (shouldAutoApprove) {
+    await upsertProposalReviewPacket({
+      proposalId,
+      proposal: input,
+      status: "approved",
+      reason: `Proposal auto-approved with ${input.proposed_steps.length} step(s)`,
+      decision: {
+        outcome: "approved",
+        autoApproved: true,
+        decidedBy: "auto_approve_policy",
+        trustedSource: isTrustedSource
+      }
+    });
     await sql`
             UPDATE ops_mission_proposals
             SET status = 'accepted', auto_approved = true, updated_at = NOW()
@@ -3527,6 +3798,12 @@ async function createProposalAndMaybeAutoApprove(input) {
     });
     return { success: true, proposalId, missionId };
   }
+  await upsertProposalReviewPacket({
+    proposalId,
+    proposal: input,
+    status: "submitted",
+    reason: `Awaiting review. ${input.proposed_steps.length} step(s).`
+  });
   await emitEvent({
     agent_id: input.agent_id,
     kind: "proposal_created",
@@ -3551,9 +3828,14 @@ async function createMissionFromProposal(proposalId) {
             'approved',
             ${proposal.agent_id}
         )
-        RETURNING id
+        ON CONFLICT (proposal_id) WHERE proposal_id IS NOT NULL DO UPDATE
+            SET proposal_id = EXCLUDED.proposal_id
+        RETURNING id, (xmax = 0) AS created
     `;
   const missionId = mission.id;
+  if (!mission.created) {
+    return missionId;
+  }
   const steps = proposal.proposed_steps;
   let stepCount = 0;
   for (const step of steps) {
@@ -3601,6 +3883,7 @@ var init_proposal_service = __esm({
     init_policy();
     init_cap_gates();
     init_events2();
+    init_review_packets();
     init_agents();
     init_logger();
     log7 = logger.child({ module: "proposal-service" });
@@ -8126,13 +8409,58 @@ Respond ONLY with valid JSON (no markdown fencing):
 }
 async function applyReviewResult(draft, sessionId, reviewerNotes, consensus, summary) {
   if (consensus === "approved") {
-    await sql`
-            UPDATE ops_content_drafts
-            SET status = 'approved',
-                reviewer_notes = ${jsonb(reviewerNotes)},
-                updated_at = NOW()
-            WHERE id = ${draft.id}
-        `;
+    const updated = await sql.begin(async (tx) => {
+      const db = tx;
+      const [current] = await db`
+                SELECT id FROM ops_content_drafts
+                WHERE id = ${draft.id}
+                  AND status = 'review'
+                  AND review_session_id = ${sessionId}
+                FOR UPDATE
+            `;
+      if (!current) return false;
+      await createOrUpdateReviewPacket(
+        {
+          subjectType: "content_draft",
+          subjectId: draft.id,
+          status: "approved",
+          requestedBy: draft.author_agent,
+          title: draft.title,
+          summary: summary || "Approved by reviewer consensus",
+          packet: {
+            draftId: draft.id,
+            author_agent: draft.author_agent,
+            content_type: draft.content_type,
+            previous_status: "review",
+            requested_status: "approved",
+            review_session_id: sessionId,
+            reviewer_count: reviewerNotes.length,
+            updated_by: "content-pipeline"
+          },
+          decision: {
+            outcome: "approved",
+            decidedBy: "reviewer_consensus",
+            reviewerNotes
+          }
+        },
+        db
+      );
+      await db`
+                UPDATE ops_content_drafts
+                SET status = 'approved',
+                    reviewer_notes = ${jsonb(reviewerNotes)},
+                    updated_at = NOW()
+                WHERE id = ${draft.id}
+            `;
+      return true;
+    });
+    if (!updated) {
+      log33.warn("Skipping stale approval result", {
+        draftId: draft.id,
+        reviewSessionId: sessionId
+      });
+      return;
+    }
     await emitEventAndCheckReactions({
       agent_id: draft.author_agent,
       kind: "content_approved",
@@ -8150,13 +8478,58 @@ async function applyReviewResult(draft, sessionId, reviewerNotes, consensus, sum
       reviewers: reviewerNotes.length
     });
   } else if (consensus === "rejected") {
-    await sql`
-            UPDATE ops_content_drafts
-            SET status = 'rejected',
-                reviewer_notes = ${jsonb(reviewerNotes)},
-                updated_at = NOW()
-            WHERE id = ${draft.id}
-        `;
+    const updated = await sql.begin(async (tx) => {
+      const db = tx;
+      const [current] = await db`
+                SELECT id FROM ops_content_drafts
+                WHERE id = ${draft.id}
+                  AND status = 'review'
+                  AND review_session_id = ${sessionId}
+                FOR UPDATE
+            `;
+      if (!current) return false;
+      await createOrUpdateReviewPacket(
+        {
+          subjectType: "content_draft",
+          subjectId: draft.id,
+          status: "rejected",
+          requestedBy: draft.author_agent,
+          title: draft.title,
+          summary: summary || "Rejected by reviewer consensus",
+          packet: {
+            draftId: draft.id,
+            author_agent: draft.author_agent,
+            content_type: draft.content_type,
+            previous_status: "review",
+            requested_status: "rejected",
+            review_session_id: sessionId,
+            reviewer_count: reviewerNotes.length,
+            updated_by: "content-pipeline"
+          },
+          decision: {
+            outcome: "rejected",
+            decidedBy: "reviewer_consensus",
+            reviewerNotes
+          }
+        },
+        db
+      );
+      await db`
+                UPDATE ops_content_drafts
+                SET status = 'rejected',
+                    reviewer_notes = ${jsonb(reviewerNotes)},
+                    updated_at = NOW()
+                WHERE id = ${draft.id}
+            `;
+      return true;
+    });
+    if (!updated) {
+      log33.warn("Skipping stale rejection result", {
+        draftId: draft.id,
+        reviewSessionId: sessionId
+      });
+      return;
+    }
     await emitEventAndCheckReactions({
       agent_id: draft.author_agent,
       kind: "content_rejected",
@@ -8175,12 +8548,54 @@ async function applyReviewResult(draft, sessionId, reviewerNotes, consensus, sum
     });
     await requestContentRevision(draft, reviewerNotes, summary);
   } else {
-    await sql`
-            UPDATE ops_content_drafts
-            SET reviewer_notes = ${jsonb(reviewerNotes)},
-                updated_at = NOW()
-            WHERE id = ${draft.id}
-        `;
+    const updated = await sql.begin(async (tx) => {
+      const db = tx;
+      const [current] = await db`
+                SELECT id FROM ops_content_drafts
+                WHERE id = ${draft.id}
+                  AND status = 'review'
+                  AND review_session_id = ${sessionId}
+                FOR UPDATE
+            `;
+      if (!current) return false;
+      await createOrUpdateReviewPacket(
+        {
+          subjectType: "content_draft",
+          subjectId: draft.id,
+          status: "awaiting_review",
+          requestedBy: draft.author_agent,
+          title: draft.title,
+          summary: summary || "Reviewer consensus inconclusive",
+          packet: {
+            draftId: draft.id,
+            author_agent: draft.author_agent,
+            content_type: draft.content_type,
+            previous_status: "review",
+            requested_status: "review",
+            review_session_id: sessionId,
+            reviewer_count: reviewerNotes.length,
+            consensus,
+            updated_by: "content-pipeline"
+          }
+        },
+        db
+      );
+      await db`
+                UPDATE ops_content_drafts
+                SET reviewer_notes = ${jsonb(reviewerNotes)},
+                    updated_at = NOW()
+                WHERE id = ${draft.id}
+            `;
+      return true;
+    });
+    if (!updated) {
+      log33.warn("Skipping stale mixed review result", {
+        draftId: draft.id,
+        reviewSessionId: sessionId,
+        consensus
+      });
+      return;
+    }
     log33.info("Draft review inconclusive, staying in review", {
       draftId: draft.id,
       consensus
@@ -8242,6 +8657,7 @@ var init_content_pipeline = __esm({
     init_client();
     init_events2();
     init_proposal_service();
+    init_review_packets();
     init_logger();
     log33 = logger.child({ module: "content-pipeline" });
     MAX_TITLE_LENGTH = 500;
@@ -8651,13 +9067,19 @@ Payload: ${payloadStr}
 function slugify(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30);
 }
-var WORKSPACE_ROOT2, TEMPLATE_CACHE_TTL_MS, templateCache, STEP_INSTRUCTIONS;
+var WORKSPACE_ROOT2, SELF_EVOLUTION_REPO_SETUP, TEMPLATE_CACHE_TTL_MS, templateCache, STEP_INSTRUCTIONS;
 var init_step_prompts = __esm({
   "src/lib/ops/step-prompts.ts"() {
     "use strict";
     init_db();
     init_voices();
     WORKSPACE_ROOT2 = process.env.WORKSPACE_ROOT ?? "/workspace/projects/subcorp";
+    SELF_EVOLUTION_REPO_SETUP = [
+      `REPO_DIR=${WORKSPACE_ROOT2}`,
+      `if [ ! -d "$REPO_DIR/.git" ]; then for CANDIDATE in /workspace/projects/subcorp /home/onnwee/projects/subcorp /home/onnwee/workspace/projects/subcorp; do if [ -d "$CANDIDATE/.git" ]; then REPO_DIR="$CANDIDATE"; break; fi; done; fi`,
+      `if [ ! -d "$REPO_DIR/.git" ]; then mkdir -p /home/onnwee/projects && git clone https://git.subcult.tv/subculture-collective/subcorp.git /home/onnwee/projects/subcorp && REPO_DIR=/home/onnwee/projects/subcorp; fi`,
+      `cd "$REPO_DIR"`
+    ].join("; ");
     TEMPLATE_CACHE_TTL_MS = 6e4;
     templateCache = /* @__PURE__ */ new Map();
     STEP_INSTRUCTIONS = {
@@ -8806,11 +9228,11 @@ Task: ${ctx.payload.description || ctx.missionTitle}
 INSTRUCTIONS:
 1. Use file_read to read the relevant source files described in the payload.
 2. Identify a specific, concrete improvement (not vague "make it better").
-3. Use bash to create a feature branch:
-   cd ${WORKSPACE_ROOT2} && git checkout -b evolution/${ctx.agentId}/${today}/${slugify(ctx.missionTitle).slice(0, 30)}
+3. Use bash to locate or clone the repo, then create a feature branch:
+   ${SELF_EVOLUTION_REPO_SETUP} && git checkout -b evolution/${ctx.agentId}/${today}/${slugify(ctx.missionTitle).slice(0, 30)}
 4. Use file_write to make your changes.
 5. Use bash to commit and push:
-   cd ${WORKSPACE_ROOT2} && git add -A && git commit -m "${ctx.missionTitle}" && git push -u origin HEAD
+   ${SELF_EVOLUTION_REPO_SETUP} && git add -A && git commit -m "${ctx.missionTitle}" && git push -u origin HEAD
 6. Open a PR in Gitea on https://git.subcult.tv/subculture-collective/subcorp.
 7. Write a summary to ${outputDir}/${today}__evolution__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md
 

@@ -94,6 +94,8 @@ export async function PATCH(req: NextRequest) {
                 { status: 400 },
             );
         }
+        const draftId = body.id;
+        const nextStatus = body.status;
 
         // Validate notes field type and length
         if (body.notes !== undefined) {
@@ -120,10 +122,10 @@ export async function PATCH(req: NextRequest) {
             'approved',
             'rejected',
         ];
-        if (!validStatuses.includes(body.status)) {
+        if (!validStatuses.includes(nextStatus)) {
             return NextResponse.json(
                 {
-                    error: `Invalid status: ${body.status}. Must be one of: ${validStatuses.join(', ')}`,
+                    error: `Invalid status: ${nextStatus}. Must be one of: ${validStatuses.join(', ')}`,
                 },
                 { status: 400 },
             );
@@ -143,7 +145,7 @@ export async function PATCH(req: NextRequest) {
         >`
             SELECT id, status, author_agent, title, content_type
             FROM ops_content_drafts
-            WHERE id = ${body.id}
+            WHERE id = ${draftId}
         `;
 
         if (!draft) {
@@ -163,10 +165,10 @@ export async function PATCH(req: NextRequest) {
         };
 
         const allowed = validTransitions[draft.status] ?? [];
-        if (!allowed.includes(body.status)) {
+        if (!allowed.includes(nextStatus)) {
             return NextResponse.json(
                 {
-                    error: `Invalid transition: ${draft.status} → ${body.status}. Allowed: ${allowed.join(', ') || 'none'}`,
+                    error: `Invalid transition: ${draft.status} → ${nextStatus}. Allowed: ${allowed.join(', ') || 'none'}`,
                 },
                 { status: 400 },
             );
@@ -175,51 +177,52 @@ export async function PATCH(req: NextRequest) {
         // Persist a durable review packet before mutating content status. This
         // replaces ad hoc event-handler status mutation with a replayable gate.
         const verdict =
-            body.status === 'approved' ? 'approve'
-            : body.status === 'rejected' ? 'reject'
+            nextStatus === 'approved' ? 'approve'
+            : nextStatus === 'rejected' ? 'reject'
             : 'mixed';
         const note = body.notes
             ? { reviewer: 'manual', verdict, notes: body.notes }
             : null;
 
         await sql.begin(async tx => {
+            const db = tx as unknown as typeof sql;
             await createOrUpdateReviewPacket(
                 {
                     subjectType: 'content_draft',
                     subjectId: draft.id,
-                    status: toReviewPacketStatus(body.status),
+                    status: toReviewPacketStatus(nextStatus),
                     requestedBy: draft.author_agent,
                     title: draft.title,
-                    summary: `Manual content status transition: ${draft.status} → ${body.status}`,
+                    summary: `Manual content status transition: ${draft.status} → ${nextStatus}`,
                     packet: {
                         draftId: draft.id,
                         author_agent: draft.author_agent,
                         content_type: draft.content_type,
                         previous_status: draft.status,
-                        requested_status: body.status,
+                        requested_status: nextStatus,
                         updated_by: 'content-api',
                     },
                     decision:
-                        body.status === 'approved' || body.status === 'rejected'
+                        nextStatus === 'approved' || nextStatus === 'rejected'
                             ? {
-                                  outcome: body.status,
+                                  outcome: nextStatus,
                                   decidedBy: 'manual',
                                   notes: body.notes ?? null,
                               }
                             : undefined,
                 },
-                tx as typeof sql,
+                db,
             );
 
-            const result = await tx`
+            const result = await db`
                 UPDATE ops_content_drafts
-                SET status = ${body.status},
+                SET status = ${nextStatus},
                     reviewer_notes = CASE
                         WHEN ${note ? jsonb([note]) : null}::jsonb IS NULL THEN reviewer_notes
                         ELSE reviewer_notes || ${note ? jsonb([note]) : null}::jsonb
                     END,
                     updated_at = NOW()
-                WHERE id = ${body.id}
+                WHERE id = ${draftId}
                 AND status = ${draft.status}
                 RETURNING id
             `;
@@ -231,8 +234,8 @@ export async function PATCH(req: NextRequest) {
 
         return NextResponse.json({
             success: true,
-            id: body.id,
-            status: body.status,
+            id: draftId,
+            status: nextStatus,
         });
     } catch (err) {
         if (err instanceof StaleContentStatusError) {
