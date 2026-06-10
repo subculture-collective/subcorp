@@ -18,11 +18,7 @@ WITH duplicate_replay_keys AS (
     WHERE source_trace_id IS NOT NULL
 )
 UPDATE ops_mission_proposals p
-SET source_trace_id = NULL,
-    metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-        'dedupedReplayKeyAt', NOW(),
-        'dedupedReplayKeyReason', '024_proposal_replay_concurrency_guards'
-    )
+SET source_trace_id = NULL
 FROM duplicate_replay_keys d
 WHERE p.id = d.id
   AND d.rn > 1;
