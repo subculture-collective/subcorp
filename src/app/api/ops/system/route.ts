@@ -68,6 +68,8 @@ export async function GET() {
                     array_agg(DISTINCT kind) as event_kinds
                 FROM ops_agent_events
                 WHERE agent_id NOT LIKE 'oc-%'
+                  AND agent_id != 'system'
+                  AND agent_id NOT LIKE 'droid-%'
                 GROUP BY agent_id
                 ORDER BY total_events DESC
             `,
@@ -80,6 +82,8 @@ export async function GET() {
                     COUNT(*) FILTER (WHERE superseded_by IS NULL)::int as active
                 FROM ops_agent_memory
                 WHERE agent_id NOT LIKE 'oc-%'
+                  AND agent_id != 'system'
+                  AND agent_id NOT LIKE 'droid-%'
                 GROUP BY agent_id
             `,
         ]);
