@@ -1,5 +1,6 @@
 // /api/ops/workspace — Browse the agent workspace filesystem
 import { NextResponse } from 'next/server';
+import { requireRole } from '@/lib/auth/middleware';
 import { execInToolbox } from '@/lib/tools/executor';
 import path from 'node:path';
 
@@ -22,6 +23,9 @@ function shellEscape(s: string): string {
 }
 
 export async function GET(request: Request) {
+    const authResult = await requireRole('member', 'admin');
+    if (authResult instanceof NextResponse) return authResult;
+
     const { searchParams } = new URL(request.url);
     const rawPath = searchParams.get('path') ?? '/';
     const raw = searchParams.get('raw') === 'true';

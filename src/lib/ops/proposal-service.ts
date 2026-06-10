@@ -4,10 +4,59 @@ import type { ProposalInput, Proposal } from '../types';
 import { getPolicy } from './policy';
 import { checkCapGates } from './cap-gates';
 import { emitEvent, emitEventAndCheckReactions } from './events';
+import { upsertProposalReviewPacket } from './review-packets';
 import { DAILY_PROPOSAL_LIMIT } from '../agents';
 import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'proposal-service' });
+
+function isUniqueViolation(error: unknown): boolean {
+    return (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error as { code?: unknown }).code === '23505'
+    );
+}
+
+async function findReplayProposal(input: ProposalInput): Promise<{
+    id: string;
+    mission_id: string | null;
+} | null> {
+    if (!input.source_trace_id) return null;
+
+    const [existing] = await sql<[{ id: string; mission_id: string | null }]>`
+        SELECT p.id, m.id AS mission_id
+        FROM ops_mission_proposals p
+        LEFT JOIN ops_missions m ON m.proposal_id = p.id
+        WHERE p.source = ${input.source ?? 'agent'}
+          AND p.source_trace_id = ${input.source_trace_id}
+          AND p.title = ${input.title}
+        ORDER BY p.created_at ASC
+        LIMIT 1
+    `;
+
+    return existing ?? null;
+}
+
+function replayResult(
+    existing: { id: string; mission_id: string | null },
+    input: ProposalInput,
+) {
+    log.info('Proposal replay ignored by source_trace_id', {
+        proposalId: existing.id,
+        missionId: existing.mission_id,
+        source: input.source ?? 'agent',
+        sourceTraceId: input.source_trace_id,
+    });
+
+    return {
+        success: true,
+        proposalId: existing.id,
+        missionId: existing.mission_id ?? undefined,
+        replayed: true,
+    };
+}
 
 export async function createProposalAndMaybeAutoApprove(
     input: ProposalInput,
@@ -24,29 +73,9 @@ export async function createProposalAndMaybeAutoApprove(
     // creating duplicate accepted work. Match title too so agent sessions can
     // still create multiple distinct proposals under the existing per-session cap.
     if (input.source_trace_id) {
-        const [existing] = await sql<[{ id: string; mission_id: string | null }]>`
-            SELECT p.id, m.id AS mission_id
-            FROM ops_mission_proposals p
-            LEFT JOIN ops_missions m ON m.proposal_id = p.id
-            WHERE p.source = ${input.source ?? 'agent'}
-              AND p.source_trace_id = ${input.source_trace_id}
-              AND p.title = ${input.title}
-            ORDER BY p.created_at ASC
-            LIMIT 1
-        `;
+        const existing = await findReplayProposal(input);
         if (existing) {
-            log.info('Proposal replay ignored by source_trace_id', {
-                proposalId: existing.id,
-                missionId: existing.mission_id,
-                source: input.source ?? 'agent',
-                sourceTraceId: input.source_trace_id,
-            });
-            return {
-                success: true,
-                proposalId: existing.id,
-                missionId: existing.mission_id ?? undefined,
-                replayed: true,
-            };
+            return replayResult(existing, input);
         }
 
         const [{ count: sessionCount }] = await sql<[{ count: number }]>`
@@ -76,20 +105,33 @@ export async function createProposalAndMaybeAutoApprove(
         return { success: false, reason: gateResult.reason };
     }
 
-    // Insert proposal
-    const [proposal] = await sql<[{ id: string }]>`
-        INSERT INTO ops_mission_proposals (agent_id, title, description, proposed_steps, source, source_trace_id, status)
-        VALUES (
-            ${input.agent_id},
-            ${input.title},
-            ${input.description ?? null},
-            ${jsonb(input.proposed_steps)},
-            ${input.source ?? 'agent'},
-            ${input.source_trace_id ?? null},
-            'pending'
-        )
-        RETURNING id
-    `;
+    // Insert proposal. A DB-level replay key protects against concurrent worker
+    // retries that all pass the optimistic preflight SELECT above.
+    let proposal: { id: string };
+    try {
+        [proposal] = await sql<[{ id: string }]>`
+            INSERT INTO ops_mission_proposals (agent_id, title, description, proposed_steps, source, source_trace_id, status)
+            VALUES (
+                ${input.agent_id},
+                ${input.title},
+                ${input.description ?? null},
+                ${jsonb(input.proposed_steps)},
+                ${input.source ?? 'agent'},
+                ${input.source_trace_id ?? null},
+                'pending'
+            )
+            RETURNING id
+        `;
+    } catch (error) {
+        if (input.source_trace_id && isUniqueViolation(error)) {
+            const existing = await findReplayProposal(input);
+            if (existing) {
+                return replayResult(existing, input);
+            }
+        }
+
+        throw error;
+    }
 
     const proposalId = proposal.id;
 
@@ -102,6 +144,20 @@ export async function createProposalAndMaybeAutoApprove(
             protectedKinds.includes(s.kind),
         );
         if (hasProtectedStep) {
+            await upsertProposalReviewPacket({
+                proposalId,
+                proposal: input,
+                status: 'awaiting_review',
+                reason: 'Contains protected step kind(s). Requires manual approval.',
+                decision: {
+                    outcome: 'held_for_review',
+                    protectedKinds: input.proposed_steps
+                        .filter(s => protectedKinds.includes(s.kind))
+                        .map(s => s.kind),
+                    decidedBy: 'veto_authority_policy',
+                },
+            });
+
             await emitEvent({
                 agent_id: input.agent_id,
                 kind: 'proposal_held_for_review',
@@ -140,6 +196,19 @@ export async function createProposalAndMaybeAutoApprove(
             ));
 
     if (shouldAutoApprove) {
+        await upsertProposalReviewPacket({
+            proposalId,
+            proposal: input,
+            status: 'approved',
+            reason: `Proposal auto-approved with ${input.proposed_steps.length} step(s)`,
+            decision: {
+                outcome: 'approved',
+                autoApproved: true,
+                decidedBy: 'auto_approve_policy',
+                trustedSource: isTrustedSource,
+            },
+        });
+
         await sql`
             UPDATE ops_mission_proposals
             SET status = 'accepted', auto_approved = true, updated_at = NOW()
@@ -159,6 +228,13 @@ export async function createProposalAndMaybeAutoApprove(
 
         return { success: true, proposalId, missionId };
     }
+
+    await upsertProposalReviewPacket({
+        proposalId,
+        proposal: input,
+        status: 'submitted',
+        reason: `Awaiting review. ${input.proposed_steps.length} step(s).`,
+    });
 
     await emitEvent({
         agent_id: input.agent_id,
@@ -181,7 +257,7 @@ export async function createMissionFromProposal(
 
     if (!proposal) throw new Error(`Proposal ${proposalId} not found`);
 
-    const [mission] = await sql<[{ id: string }]>`
+    const [mission] = await sql<[{ id: string; created: boolean }]>`
         INSERT INTO ops_missions (proposal_id, title, description, status, created_by)
         VALUES (
             ${proposalId},
@@ -190,10 +266,16 @@ export async function createMissionFromProposal(
             'approved',
             ${proposal.agent_id}
         )
-        RETURNING id
+        ON CONFLICT (proposal_id) WHERE proposal_id IS NOT NULL DO UPDATE
+            SET proposal_id = EXCLUDED.proposal_id
+        RETURNING id, (xmax = 0) AS created
     `;
 
     const missionId = mission.id;
+
+    if (!mission.created) {
+        return missionId;
+    }
 
     const steps = proposal.proposed_steps;
     let stepCount = 0;

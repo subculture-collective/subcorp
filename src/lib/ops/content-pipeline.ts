@@ -3,6 +3,7 @@ import { sql, jsonb } from '@/lib/db';
 import { llmGenerate } from '@/lib/llm/client';
 import { emitEvent, emitEventAndCheckReactions } from '@/lib/ops/events';
 import { createProposalAndMaybeAutoApprove } from '@/lib/ops/proposal-service';
+import { createOrUpdateReviewPacket } from '@/lib/ops/review-packets';
 import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'content-pipeline' });
@@ -515,13 +516,62 @@ async function applyReviewResult(
     summary: string,
 ): Promise<void> {
     if (consensus === 'approved') {
-        await sql`
-            UPDATE ops_content_drafts
-            SET status = 'approved',
-                reviewer_notes = ${jsonb(reviewerNotes)},
-                updated_at = NOW()
-            WHERE id = ${draft.id}
-        `;
+        const updated = await sql.begin(async tx => {
+            const [current] = await tx<[{ id: string }?]>`
+                SELECT id FROM ops_content_drafts
+                WHERE id = ${draft.id}
+                  AND status = 'review'
+                  AND review_session_id = ${sessionId}
+                FOR UPDATE
+            `;
+
+            if (!current) return false;
+
+            await createOrUpdateReviewPacket(
+                {
+                    subjectType: 'content_draft',
+                    subjectId: draft.id,
+                    status: 'approved',
+                    requestedBy: draft.author_agent,
+                    title: draft.title,
+                    summary: summary || 'Approved by reviewer consensus',
+                    packet: {
+                        draftId: draft.id,
+                        author_agent: draft.author_agent,
+                        content_type: draft.content_type,
+                        previous_status: 'review',
+                        requested_status: 'approved',
+                        review_session_id: sessionId,
+                        reviewer_count: reviewerNotes.length,
+                        updated_by: 'content-pipeline',
+                    },
+                    decision: {
+                        outcome: 'approved',
+                        decidedBy: 'reviewer_consensus',
+                        reviewerNotes,
+                    },
+                },
+                tx as typeof sql,
+            );
+
+            await tx`
+                UPDATE ops_content_drafts
+                SET status = 'approved',
+                    reviewer_notes = ${jsonb(reviewerNotes)},
+                    updated_at = NOW()
+                WHERE id = ${draft.id}
+            `;
+
+            return true;
+        });
+
+        if (!updated) {
+            log.warn('Skipping stale approval result', {
+                draftId: draft.id,
+                reviewSessionId: sessionId,
+            });
+            return;
+        }
 
         await emitEventAndCheckReactions({
             agent_id: draft.author_agent,
@@ -541,13 +591,62 @@ async function applyReviewResult(
             reviewers: reviewerNotes.length,
         });
     } else if (consensus === 'rejected') {
-        await sql`
-            UPDATE ops_content_drafts
-            SET status = 'rejected',
-                reviewer_notes = ${jsonb(reviewerNotes)},
-                updated_at = NOW()
-            WHERE id = ${draft.id}
-        `;
+        const updated = await sql.begin(async tx => {
+            const [current] = await tx<[{ id: string }?]>`
+                SELECT id FROM ops_content_drafts
+                WHERE id = ${draft.id}
+                  AND status = 'review'
+                  AND review_session_id = ${sessionId}
+                FOR UPDATE
+            `;
+
+            if (!current) return false;
+
+            await createOrUpdateReviewPacket(
+                {
+                    subjectType: 'content_draft',
+                    subjectId: draft.id,
+                    status: 'rejected',
+                    requestedBy: draft.author_agent,
+                    title: draft.title,
+                    summary: summary || 'Rejected by reviewer consensus',
+                    packet: {
+                        draftId: draft.id,
+                        author_agent: draft.author_agent,
+                        content_type: draft.content_type,
+                        previous_status: 'review',
+                        requested_status: 'rejected',
+                        review_session_id: sessionId,
+                        reviewer_count: reviewerNotes.length,
+                        updated_by: 'content-pipeline',
+                    },
+                    decision: {
+                        outcome: 'rejected',
+                        decidedBy: 'reviewer_consensus',
+                        reviewerNotes,
+                    },
+                },
+                tx as typeof sql,
+            );
+
+            await tx`
+                UPDATE ops_content_drafts
+                SET status = 'rejected',
+                    reviewer_notes = ${jsonb(reviewerNotes)},
+                    updated_at = NOW()
+                WHERE id = ${draft.id}
+            `;
+
+            return true;
+        });
+
+        if (!updated) {
+            log.warn('Skipping stale rejection result', {
+                draftId: draft.id,
+                reviewSessionId: sessionId,
+            });
+            return;
+        }
 
         await emitEventAndCheckReactions({
             agent_id: draft.author_agent,
@@ -570,12 +669,58 @@ async function applyReviewResult(
         await requestContentRevision(draft, reviewerNotes, summary);
     } else {
         // Mixed — update notes but keep status as 'review' for manual review
-        await sql`
-            UPDATE ops_content_drafts
-            SET reviewer_notes = ${jsonb(reviewerNotes)},
-                updated_at = NOW()
-            WHERE id = ${draft.id}
-        `;
+        const updated = await sql.begin(async tx => {
+            const [current] = await tx<[{ id: string }?]>`
+                SELECT id FROM ops_content_drafts
+                WHERE id = ${draft.id}
+                  AND status = 'review'
+                  AND review_session_id = ${sessionId}
+                FOR UPDATE
+            `;
+
+            if (!current) return false;
+
+            await createOrUpdateReviewPacket(
+                {
+                    subjectType: 'content_draft',
+                    subjectId: draft.id,
+                    status: 'awaiting_review',
+                    requestedBy: draft.author_agent,
+                    title: draft.title,
+                    summary: summary || 'Reviewer consensus inconclusive',
+                    packet: {
+                        draftId: draft.id,
+                        author_agent: draft.author_agent,
+                        content_type: draft.content_type,
+                        previous_status: 'review',
+                        requested_status: 'review',
+                        review_session_id: sessionId,
+                        reviewer_count: reviewerNotes.length,
+                        consensus,
+                        updated_by: 'content-pipeline',
+                    },
+                },
+                tx as typeof sql,
+            );
+
+            await tx`
+                UPDATE ops_content_drafts
+                SET reviewer_notes = ${jsonb(reviewerNotes)},
+                    updated_at = NOW()
+                WHERE id = ${draft.id}
+            `;
+
+            return true;
+        });
+
+        if (!updated) {
+            log.warn('Skipping stale mixed review result', {
+                draftId: draft.id,
+                reviewSessionId: sessionId,
+                consensus,
+            });
+            return;
+        }
 
         log.info('Draft review inconclusive, staying in review', {
             draftId: draft.id,

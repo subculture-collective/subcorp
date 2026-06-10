@@ -175,7 +175,7 @@ describe('Task 9 regressions', () => {
         expect(called).toBeFalse();
     });
 
-    test('preferred local Ollama text attempt gets the longer timeout budget', () => {
+    test('local Ollama attempts use the available queue budget', () => {
         expect(
             getOllamaAttemptTimeoutMs({
                 hasTools: false,
@@ -183,7 +183,7 @@ describe('Task 9 regressions', () => {
                 model: 'qwen3:14b',
                 preferredModel: 'qwen3:14b',
             }),
-        ).toBe(30_000);
+        ).toBe(60_000);
 
         expect(
             getOllamaAttemptTimeoutMs({
@@ -192,7 +192,7 @@ describe('Task 9 regressions', () => {
                 model: 'gemma4:latest',
                 preferredModel: 'qwen3:14b',
             }),
-        ).toBe(20_000);
+        ).toBe(60_000);
 
         expect(
             getOllamaAttemptTimeoutMs({
@@ -201,7 +201,7 @@ describe('Task 9 regressions', () => {
                 model: 'qwen3:14b',
                 preferredModel: 'qwen3:14b',
             }),
-        ).toBe(45_000);
+        ).toBe(60_000);
 
         expect(
             getOllamaAttemptTimeoutMs({
@@ -219,7 +219,7 @@ describe('Task 9 regressions', () => {
                 model: 'qwen3:14b',
                 isFirstLocalAttempt: true,
             }),
-        ).toBe(45_000);
+        ).toBe(60_000);
 
         expect(
             getOllamaAttemptTimeoutMs({
@@ -229,7 +229,7 @@ describe('Task 9 regressions', () => {
                 preferredModel: 'qwen3:14b',
                 isFirstLocalAttempt: true,
             }),
-        ).toBe(30_000);
+        ).toBe(60_000);
 
         expect(
             getOllamaAttemptTimeoutMs({
@@ -238,7 +238,7 @@ describe('Task 9 regressions', () => {
                 model: 'gemma4:latest',
                 isFirstLocalAttempt: false,
             }),
-        ).toBe(20_000);
+        ).toBe(60_000);
     });
 
     test('local Ollama aborts stop the remaining local fallback cascade', () => {
