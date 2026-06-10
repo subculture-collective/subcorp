@@ -221,7 +221,15 @@ export async function GET(req: NextRequest) {
         const results: Record<string, any> = {};
         const contentWindowState = getHeartbeatContentWindowState();
 
-        // ── Phase 1: Evaluate triggers ──
+        // ── Phase 1: Recover stale steps before triggers observe failures ──
+        try {
+            results.stale = await recoverStaleSteps();
+        } catch (err) {
+            results.stale = { error: (err as Error).message };
+            log.error('Stale recovery failed', { error: err });
+        }
+
+        // ── Phase 2: Evaluate triggers ──
         try {
             results.triggers = await evaluateTriggers(4000);
         } catch (err) {
@@ -229,20 +237,12 @@ export async function GET(req: NextRequest) {
             log.error('Trigger evaluation failed', { error: err });
         }
 
-        // ── Phase 2: Process reaction queue ──
+        // ── Phase 3: Process reaction queue ──
         try {
             results.reactions = await processReactionQueue(3000);
         } catch (err) {
             results.reactions = { error: (err as Error).message };
             log.error('Reaction processing failed', { error: err });
-        }
-
-        // ── Phase 3: Recover stale steps ──
-        try {
-            results.stale = await recoverStaleSteps();
-        } catch (err) {
-            results.stale = { error: (err as Error).message };
-            log.error('Stale recovery failed', { error: err });
         }
 
         // ── Phase 4: Check roundtable schedule ──

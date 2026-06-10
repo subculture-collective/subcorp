@@ -13010,6 +13010,35 @@ async function sweepStaleRoundtables() {
   }
   return stale.length > 0;
 }
+async function recoverSweptLiveMissionSteps() {
+  const recovered = await sql2`
+        UPDATE ops_mission_steps step
+        SET status = 'running',
+            failure_reason = NULL,
+            completed_at = NULL,
+            updated_at = NOW()
+        FROM ops_agent_sessions session
+        WHERE step.status = 'failed'
+          AND step.failure_reason = 'Swept — step running with no live agent session'
+          AND step.result->>'agent_session_id' IS NOT NULL
+          AND session.id = (step.result->>'agent_session_id')::uuid
+          AND session.status IN ('pending', 'running')
+        RETURNING step.id, step.mission_id, step.kind, step.assigned_agent, session.status AS session_status
+    `;
+  if (recovered.length > 0) {
+    log36.warn("Recovered swept mission steps with live sessions", {
+      count: recovered.length,
+      steps: recovered.map((s) => ({
+        id: s.id,
+        missionId: s.mission_id,
+        kind: s.kind,
+        agent: s.assigned_agent,
+        sessionStatus: s.session_status
+      }))
+    });
+  }
+  return recovered.length > 0;
+}
 async function sweepOrphanedMissionSteps() {
   const requeued = await sql2`
         UPDATE ops_mission_steps
@@ -13023,7 +13052,7 @@ async function sweepOrphanedMissionSteps() {
                 'requeuedAt', NOW()
             )
         WHERE status = 'running'
-          AND started_at < NOW() - INTERVAL '15 minutes'
+          AND started_at < NOW() - INTERVAL '2 hours'
           AND result->>'agent_session_id' IS NULL
         RETURNING id, mission_id, kind, assigned_agent
     `;
@@ -13034,7 +13063,7 @@ async function sweepOrphanedMissionSteps() {
             completed_at = NOW(),
             updated_at = NOW()
         WHERE status = 'running'
-          AND started_at < NOW() - INTERVAL '15 minutes'
+          AND started_at < NOW() - INTERVAL '2 hours'
           AND result->>'agent_session_id' IS NOT NULL
           AND NOT EXISTS (
               SELECT 1 FROM ops_agent_sessions s
@@ -13074,6 +13103,7 @@ async function runMaintenanceTasks() {
   await sweepStaleAgentSessions();
   await sweepStaleRoundtables();
   await finalizeMissionSteps();
+  await recoverSweptLiveMissionSteps();
   await sweepOrphanedMissionSteps();
   await triggerHeartbeatIfDue();
 }

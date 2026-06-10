@@ -1493,7 +1493,47 @@ async function sweepStaleRoundtables(): Promise<boolean> {
     return stale.length > 0;
 }
 
-/** Sweep mission steps stuck in 'running' with no live agent session (e.g. after worker restart) */
+/**
+ * Recover mission steps that were incorrectly swept while their backing session
+ * was still queued/running. A pending agent session is live backlog, not an
+ * orphan; the step must remain running until the session reaches a terminal
+ * state and finalizeMissionSteps() can propagate the result.
+ */
+async function recoverSweptLiveMissionSteps(): Promise<boolean> {
+    const recovered = await sql<
+        { id: string; mission_id: string; kind: string; assigned_agent: string | null; session_status: string }[]
+    >`
+        UPDATE ops_mission_steps step
+        SET status = 'running',
+            failure_reason = NULL,
+            completed_at = NULL,
+            updated_at = NOW()
+        FROM ops_agent_sessions session
+        WHERE step.status = 'failed'
+          AND step.failure_reason = 'Swept — step running with no live agent session'
+          AND step.result->>'agent_session_id' IS NOT NULL
+          AND session.id = (step.result->>'agent_session_id')::uuid
+          AND session.status IN ('pending', 'running')
+        RETURNING step.id, step.mission_id, step.kind, step.assigned_agent, session.status AS session_status
+    `;
+
+    if (recovered.length > 0) {
+        log.warn('Recovered swept mission steps with live sessions', {
+            count: recovered.length,
+            steps: recovered.map(s => ({
+                id: s.id,
+                missionId: s.mission_id,
+                kind: s.kind,
+                agent: s.assigned_agent,
+                sessionStatus: s.session_status,
+            })),
+        });
+    }
+
+    return recovered.length > 0;
+}
+
+/** Sweep mission steps stuck in 'running' with no backing agent session row. */
 async function sweepOrphanedMissionSteps(): Promise<boolean> {
     const requeued = await sql<
         { id: string; mission_id: string; kind: string; assigned_agent: string | null }[]
@@ -1509,7 +1549,7 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
                 'requeuedAt', NOW()
             )
         WHERE status = 'running'
-          AND started_at < NOW() - INTERVAL '15 minutes'
+          AND started_at < NOW() - INTERVAL '2 hours'
           AND result->>'agent_session_id' IS NULL
         RETURNING id, mission_id, kind, assigned_agent
     `;
@@ -1523,7 +1563,7 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
             completed_at = NOW(),
             updated_at = NOW()
         WHERE status = 'running'
-          AND started_at < NOW() - INTERVAL '15 minutes'
+          AND started_at < NOW() - INTERVAL '2 hours'
           AND result->>'agent_session_id' IS NOT NULL
           AND NOT EXISTS (
               SELECT 1 FROM ops_agent_sessions s
@@ -1575,7 +1615,11 @@ async function runMaintenanceTasks(): Promise<void> {
     // Finalize terminal session-backed mission steps before orphan sweeping.
     await finalizeMissionSteps();
 
-    // Sweep orphaned mission steps (no live session, e.g. after worker restart)
+    // Undo any historical/previous-worker false sweeps where the linked agent
+    // session is still pending or running.
+    await recoverSweptLiveMissionSteps();
+
+    // Sweep genuinely orphaned mission steps only after a generous grace window.
     await sweepOrphanedMissionSteps();
 
     // Keep autonomous output moving even when host cron/timers are absent.
