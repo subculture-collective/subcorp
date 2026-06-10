@@ -28,7 +28,8 @@ import {
     releaseStaleReviewDrafts,
     type ReviewDraft,
 } from './review-recovery';
-import type { Proposal, RoundtableSession } from '../../src/lib/types';
+import type { MissionExecutionContract } from '../../src/lib/ops/proposal-service';
+import type { ProposedStep, RoundtableSession } from '../../src/lib/types';
 import type { AgentSession } from '../../src/lib/tools/types';
 import type { ConversationFormat, StepKind } from '../../src/lib/types';
 
@@ -602,6 +603,80 @@ interface MissionStepRow {
     [key: string]: unknown;
 }
 
+function proposedStepFromRow(step: MissionStepRow): ProposedStep {
+    return {
+        kind: step.kind,
+        payload: step.payload ?? {},
+        assigned_agent: step.assigned_agent ?? undefined,
+        output_path: step.output_path ?? undefined,
+    };
+}
+
+function proposedStepFromContract(
+    contractStep: MissionExecutionContract['approvedSteps'][number],
+): ProposedStep {
+    return {
+        kind: contractStep.kind as StepKind,
+        payload: contractStep.payload,
+        assigned_agent: contractStep.assignedAgent ?? undefined,
+        output_path: contractStep.outputPath ?? undefined,
+    };
+}
+
+async function appendStepExecutionEvidence(input: {
+    step: Pick<
+        MissionStepRow,
+        'id' | 'mission_id' | 'kind' | 'payload' | 'assigned_agent' | 'output_path'
+    >;
+    outcome: 'dispatched' | 'succeeded' | 'blocked' | 'failed' | 'skipped';
+    evidence?: Record<string, unknown>;
+    reason?: string | null;
+    recordedBy?: string | null;
+}): Promise<void> {
+    try {
+        const [mission] = await sql<Array<{ execution_contract: unknown }>>`
+            SELECT execution_contract FROM ops_missions WHERE id = ${input.step.mission_id}
+        `;
+        if (!mission?.execution_contract) return;
+
+        const { hashStep } = await import('../../src/lib/ops/proposal-runner');
+        const { validateSealedExecutionContract } = await import(
+            '../../src/lib/ops/proposal-service'
+        );
+        const { recordExecutionEvidence, blockerClassForOutcome } = await import(
+            '../../src/lib/ops/execution-evidence'
+        );
+        const contract = validateSealedExecutionContract(mission.execution_contract);
+        const stepHash = hashStep(proposedStepFromRow(input.step as MissionStepRow));
+        const contractStep = contract.approvedSteps.find(
+            approvedStep => approvedStep.stepHash === stepHash,
+        );
+        if (!contractStep) return;
+
+        await recordExecutionEvidence({
+            missionId: input.step.mission_id,
+            stepId: input.step.id,
+            contract,
+            contractStep,
+            outcome: input.outcome,
+            blockerClass: blockerClassForOutcome(input.outcome, input.reason),
+            artifactPaths: input.step.output_path ? [input.step.output_path] : [],
+            evidence: {
+                ...(input.evidence ?? {}),
+                reason: input.reason ?? undefined,
+            },
+            recordedBy: input.recordedBy ?? input.step.assigned_agent ?? null,
+        });
+    } catch (err) {
+        log.warn('Failed to append mission step execution evidence', {
+            error: err,
+            stepId: input.step.id,
+            missionId: input.step.mission_id,
+            outcome: input.outcome,
+        });
+    }
+}
+
 /** Dispatch a single mission step (extracted for parallel use) */
 async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
     log.info('Processing mission step', {
@@ -630,6 +705,12 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
                     updated_at = NOW()
                 WHERE id = ${step.id}
             `;
+            await appendStepExecutionEvidence({
+                step,
+                outcome: 'failed',
+                reason: `Blocked by ${missionVeto.severity} veto on mission: ${missionVeto.reason}`,
+                evidence: { vetoId: missionVeto.vetoId, severity: missionVeto.severity },
+            });
             await finalizeMissionIfComplete(step.mission_id);
             return;
         }
@@ -649,6 +730,12 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
                     updated_at = NOW()
                 WHERE id = ${step.id}
             `;
+            await appendStepExecutionEvidence({
+                step,
+                outcome: 'failed',
+                reason: `Blocked by ${stepVeto.severity} veto on step: ${stepVeto.reason}`,
+                evidence: { vetoId: stepVeto.vetoId, severity: stepVeto.severity },
+            });
             await finalizeMissionIfComplete(step.mission_id);
             return;
         }
@@ -661,52 +748,74 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
     }
 
     try {
-        // Load mission context
-        const [mission] = await sql`
-            SELECT title, created_by, proposal_id FROM ops_missions WHERE id = ${step.mission_id}
+        // Load sealed mission contract and dispatch only from that snapshot.
+        const [mission] = await sql<
+            Array<{
+                title: string | null;
+                created_by: string | null;
+                proposal_id: string | null;
+                execution_contract: unknown;
+            }>
+        >`
+            SELECT title, created_by, proposal_id, execution_contract
+            FROM ops_missions
+            WHERE id = ${step.mission_id}
         `;
 
-        // Use assigned_agent if set, otherwise fall back to mission creator
-        const agentId = step.assigned_agent ?? mission?.created_by ?? 'mux';
+        if (!mission) {
+            throw new Error(`Mission ${step.mission_id} not found`);
+        }
 
-        // Approval must be checked at dispatch time, not only when the mission
-        // was created. This closes the gap where a proposal can be revoked or
-        // changed after queueing but before a step performs side effects.
-        if (mission?.proposal_id) {
-            const [proposal] = await sql<[Proposal]>`
-                SELECT * FROM ops_mission_proposals WHERE id = ${mission.proposal_id}
-            `;
-            if (!proposal) {
-                throw new Error(
-                    `Proposal ${mission.proposal_id} not found for mission ${step.mission_id}`,
-                );
-            }
-
-            const { assertApprovalStillValid } = await import(
-                '../../src/lib/ops/proposal-runner'
-            );
-            await assertApprovalStillValid(
-                proposal,
-                {
-                    kind: step.kind,
-                    payload: step.payload ?? {},
-                    assigned_agent: step.assigned_agent ?? undefined,
-                    output_path: step.output_path ?? undefined,
-                },
-                agentId,
-                {
-                    missionId: step.mission_id,
-                    stepId: step.id,
-                    workerId: WORKER_ID,
-                    checkedAt: new Date().toISOString(),
-                },
+        if (!mission.execution_contract) {
+            throw new Error(
+                `Mission ${step.mission_id} has no sealed execution contract`,
             );
         }
+
+        const { hashStep } = await import('../../src/lib/ops/proposal-runner');
+        const { validateSealedExecutionContract } = await import(
+            '../../src/lib/ops/proposal-service'
+        );
+        const executionContract = validateSealedExecutionContract(
+            mission.execution_contract,
+        );
+
+        if (
+            mission.proposal_id &&
+            executionContract.proposalId !== mission.proposal_id
+        ) {
+            throw new Error(
+                `Execution contract proposalId ${executionContract.proposalId} does not match mission proposal ${mission.proposal_id}`,
+            );
+        }
+
+        if (Date.parse(executionContract.expiresAt) <= Date.now()) {
+            throw new Error(
+                `Execution contract ${executionContract.contractHash} expired before step ${step.id}`,
+            );
+        }
+
+        const queuedStepHash = hashStep(proposedStepFromRow(step));
+        const contractStep = executionContract.approvedSteps.find(
+            approvedStep => approvedStep.stepHash === queuedStepHash,
+        );
+
+        if (!contractStep) {
+            throw new Error(
+                `Mission step ${step.id} is not covered by sealed execution contract ${executionContract.contractHash}`,
+            );
+        }
+
+        const approvedStep = proposedStepFromContract(contractStep);
+
+        // Use the contract snapshot's assigned agent if set, otherwise fall back
+        // to the mission creator. Do not read mutable proposal step state here.
+        const agentId = approvedStep.assigned_agent ?? mission.created_by ?? 'mux';
 
         const { emitEvent } = await import('../../src/lib/ops/events');
 
         // ── Special case: memory_archaeology — call performDig() directly ──
-        if (step.kind === 'memory_archaeology') {
+        if (approvedStep.kind === 'memory_archaeology') {
             const { performDig } =
                 await import('../../src/lib/ops/memory-archaeology');
             const result = await performDig({
@@ -726,6 +835,19 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
                     updated_at = NOW()
                 WHERE id = ${step.id}
             `;
+            await appendStepExecutionEvidence({
+                step,
+                outcome: 'succeeded',
+                recordedBy: agentId,
+                evidence: {
+                    directHandler: 'memory_archaeology',
+                    dig_id: result.dig_id,
+                    finding_count: result.findings.length,
+                    memories_analyzed: result.memories_analyzed,
+                    contractHash: executionContract.contractHash,
+                    contractStepIndex: contractStep.index,
+                },
+            });
 
             await emitEvent({
                 agent_id: agentId,
@@ -746,11 +868,11 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
         }
 
         // ── Special case: convene_roundtable — INSERT a roundtable session directly ──
-        if (step.kind === 'convene_roundtable') {
-            const payload = (step.payload ?? {}) as Record<string, unknown>;
+        if (approvedStep.kind === 'convene_roundtable') {
+            const payload = (approvedStep.payload ?? {}) as Record<string, unknown>;
             const format = (payload.format as string) ?? 'brainstorm';
             const topic =
-                (payload.topic as string) ?? mission?.title ?? 'Roundtable';
+                (payload.topic as string) ?? mission.title ?? 'Roundtable';
             const participants = (payload.participants as string[]) ?? [
                 'chora',
                 'subrosa',
@@ -781,6 +903,19 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
                     updated_at = NOW()
                 WHERE id = ${step.id}
             `;
+            await appendStepExecutionEvidence({
+                step,
+                outcome: 'succeeded',
+                recordedBy: agentId,
+                evidence: {
+                    directHandler: 'convene_roundtable',
+                    action: 'roundtable_enqueued',
+                    format,
+                    topic,
+                    contractHash: executionContract.contractHash,
+                    contractStepIndex: contractStep.index,
+                },
+            });
 
             await emitEvent({
                 agent_id: agentId,
@@ -804,12 +939,12 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
 
         // Build a tool-aware prompt for this step kind (with template version tracking)
         const { prompt, templateVersion } = await buildStepPrompt(
-            step.kind,
+            approvedStep.kind,
             {
-                missionTitle: mission?.title ?? 'Unknown',
+                missionTitle: mission.title ?? 'Unknown',
                 agentId,
-                payload: step.payload ?? {},
-                outputPath: step.output_path ?? undefined,
+                payload: approvedStep.payload ?? {},
+                outputPath: approvedStep.output_path ?? undefined,
             },
             { withVersion: true },
         );
@@ -824,11 +959,11 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
         }
 
         // Grant temporary write access if the step writes outside base ACLs
-        if (step.output_path) {
+        if (approvedStep.output_path) {
             const outputPrefix =
-                step.output_path.endsWith('/') ?
-                    step.output_path
-                :   step.output_path + '/';
+                approvedStep.output_path.endsWith('/') ?
+                    approvedStep.output_path
+                :   approvedStep.output_path + '/';
             try {
                 await sql`
                     INSERT INTO ops_acl_grants (agent_id, path_prefix, source, source_id, expires_at)
@@ -838,7 +973,7 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
                 log.warn('Failed to create ACL grant for step', {
                     error: grantErr,
                     agentId,
-                    outputPath: step.output_path,
+                    outputPath: approvedStep.output_path,
                 });
             }
         }
@@ -868,6 +1003,16 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
                 updated_at = NOW()
             WHERE id = ${step.id}
         `;
+        await appendStepExecutionEvidence({
+            step: { ...step, assigned_agent: agentId },
+            outcome: 'dispatched',
+            recordedBy: agentId,
+            evidence: {
+                agentSessionId: session.id,
+                contractHash: executionContract.contractHash,
+                contractStepIndex: contractStep.index,
+            },
+        });
 
         // Keep the step in 'running' status until the agent session completes.
         // The step will be finalized by a separate process that monitors agent sessions,
@@ -877,13 +1022,15 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
         await emitEvent({
             agent_id: agentId,
             kind: 'step_dispatched',
-            title: `Step dispatched to agent session: ${step.kind}`,
+            title: `Step dispatched to agent session: ${approvedStep.kind}`,
             tags: ['mission', 'step', 'dispatched'],
             metadata: {
                 missionId: step.mission_id,
                 stepId: step.id,
-                kind: step.kind,
+                kind: approvedStep.kind,
                 agentSessionId: session.id,
+                contractHash: executionContract.contractHash,
+                contractStepIndex: contractStep.index,
             },
         });
 
@@ -906,6 +1053,12 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
                 updated_at = NOW()
             WHERE id = ${step.id}
         `;
+        await appendStepExecutionEvidence({
+            step,
+            outcome: 'failed',
+            reason: (err as Error).message,
+            evidence: { agentSessionId, failureStage: 'dispatch' },
+        });
 
         // Ensure any agent session created for this step is not left pending
         if (agentSessionId) {
@@ -949,6 +1102,8 @@ async function finalizeMissionSteps(): Promise<boolean> {
             id: string;
             mission_id: string;
             kind: string;
+            payload: Record<string, unknown> | null;
+            output_path: string | null;
             step_status: string;
             assigned_agent: string | null;
             session_agent_id: string | null;
@@ -962,6 +1117,8 @@ async function finalizeMissionSteps(): Promise<boolean> {
             s.id,
             s.mission_id,
             s.kind,
+            s.payload,
+            s.output_path,
             s.status as step_status,
             s.assigned_agent,
             sess.agent_id as session_agent_id,
@@ -1013,6 +1170,25 @@ async function finalizeMissionSteps(): Promise<boolean> {
             `;
             if (updated.length === 0) continue;
             finalized++;
+
+            await appendStepExecutionEvidence({
+                step: {
+                    id: step.id,
+                    mission_id: step.mission_id,
+                    kind: step.kind as StepKind,
+                    payload: step.payload,
+                    assigned_agent: step.assigned_agent ?? step.session_agent_id,
+                    output_path: step.output_path,
+                },
+                outcome: 'succeeded',
+                recordedBy: step.assigned_agent ?? step.session_agent_id,
+                evidence: {
+                    agentSessionId: undefined,
+                    sessionStatus: step.session_status,
+                    sessionSummary: step.session_summary ?? undefined,
+                    recoveredSweptFailure: step.step_status === 'failed',
+                },
+            });
 
             await finalizeMissionIfComplete(step.mission_id, {
                 recoverSweptFailure: step.step_status === 'failed',
@@ -1072,6 +1248,23 @@ async function finalizeMissionSteps(): Promise<boolean> {
             `;
             if (updated.length === 0) continue;
             finalized++;
+            await appendStepExecutionEvidence({
+                step: {
+                    id: step.id,
+                    mission_id: step.mission_id,
+                    kind: step.kind as StepKind,
+                    payload: step.payload,
+                    assigned_agent: step.assigned_agent ?? step.session_agent_id,
+                    output_path: step.output_path,
+                },
+                outcome: 'blocked',
+                reason: step.session_blocked_reason ?? 'Agent session blocked',
+                recordedBy: step.assigned_agent ?? step.session_agent_id,
+                evidence: {
+                    sessionStatus: step.session_status,
+                    sessionSummary: step.session_summary ?? undefined,
+                },
+            });
             await finalizeMissionIfComplete(step.mission_id);
         } else if (
             step.session_status === 'failed' ||
@@ -1089,6 +1282,24 @@ async function finalizeMissionSteps(): Promise<boolean> {
             `;
             if (updated.length === 0) continue;
             finalized++;
+            await appendStepExecutionEvidence({
+                step: {
+                    id: step.id,
+                    mission_id: step.mission_id,
+                    kind: step.kind as StepKind,
+                    payload: step.payload,
+                    assigned_agent: step.assigned_agent ?? step.session_agent_id,
+                    output_path: step.output_path,
+                },
+                outcome: 'failed',
+                reason:
+                    step.session_error ??
+                    (step.session_status === 'timed_out' ?
+                        'Agent session timed out'
+                    :   'Agent session failed'),
+                recordedBy: step.assigned_agent ?? step.session_agent_id,
+                evidence: { sessionStatus: step.session_status },
+            });
             await finalizeMissionIfComplete(step.mission_id);
         }
         // If still running/pending, leave it alone

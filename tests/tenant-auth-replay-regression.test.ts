@@ -180,6 +180,38 @@ describe('proposal replay concurrency guards', () => {
         );
         expect(migration).toContain('idx_proposal_approval_evaluations_proposal');
     });
+
+    test('proposal-derived missions require a schema-validated execution contract', () => {
+        const service = fs.readFileSync(
+            path.join(WORKSPACE_ROOT, 'src/lib/ops/proposal-service.ts'),
+            'utf8',
+        );
+        const migration = migrationSql('026_mission_execution_contracts.sql');
+
+        expect(service).toContain('missionExecutionContractSchema.parse(contract)');
+        expect(service).toContain(
+            'return validateExecutionContract(contract, proposal);',
+        );
+        expect(service).toContain(
+            'validateExecutionContract(mission.execution_contract, proposal);',
+        );
+        expect(service).toContain(
+            'INSERT INTO ops_missions (proposal_id, title, description, status, created_by, execution_contract)',
+        );
+
+        const buildIndex = service.indexOf(
+            'const executionContract = buildExecutionContract(',
+        );
+        const insertIndex = service.indexOf(
+            'INSERT INTO ops_missions (proposal_id, title, description, status, created_by, execution_contract)',
+        );
+        expect(buildIndex).toBeGreaterThanOrEqual(0);
+        expect(buildIndex).toBeLessThan(insertIndex);
+
+        expect(migration).toContain('ops_missions_proposal_execution_contract_required');
+        expect(migration).toContain('proposal_id IS NULL');
+        expect(migration).toContain('execution_contract IS NOT NULL');
+    });
 });
 
 describe('proposal execution approval gates', () => {

@@ -3305,8 +3305,45 @@ var policy_exports = {};
 __export(policy_exports, {
   clearPolicyCache: () => clearPolicyCache,
   getPolicy: () => getPolicy,
+  getPolicyRecord: () => getPolicyRecord,
+  policyHash: () => policyHash,
+  policyVersion: () => policyVersion,
   setPolicy: () => setPolicy
 });
+function stableJson(value) {
+  if (value === void 0) return "undefined";
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  const entries = Object.entries(value).sort(
+    ([left], [right]) => left.localeCompare(right)
+  );
+  return `{${entries.map(([entryKey, entryValue]) => `${JSON.stringify(entryKey)}:${stableJson(entryValue)}`).join(",")}}`;
+}
+function policyHash(policy) {
+  return (0, import_crypto.createHash)("sha256").update(
+    stableJson({
+      key: policy.key,
+      value: policy.value,
+      updated_at: policy.updated_at
+    })
+  ).digest("hex");
+}
+function policyVersion(policy) {
+  const explicitVersion = policy.value.version ?? policy.value.policy_version ?? policy.value.policyVersion;
+  return typeof explicitVersion === "string" || typeof explicitVersion === "number" ? String(explicitVersion) : policy.updated_at ?? "unversioned";
+}
+async function getPolicyRecord(key) {
+  const [row] = await sql`
+        SELECT value, updated_at::text AS updated_at FROM ops_policy WHERE key = ${key}
+    `;
+  return {
+    key,
+    value: row?.value ?? { enabled: false },
+    updated_at: row?.updated_at ?? null
+  };
+}
 async function getPolicy(key) {
   const cached = policyCache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
@@ -3333,13 +3370,81 @@ async function setPolicy(key, value, description) {
 function clearPolicyCache() {
   policyCache.clear();
 }
-var CACHE_TTL_MS, policyCache;
+var import_crypto, CACHE_TTL_MS, policyCache;
 var init_policy = __esm({
   "src/lib/ops/policy.ts"() {
     "use strict";
+    import_crypto = require("crypto");
     init_db();
     CACHE_TTL_MS = 3e4;
     policyCache = /* @__PURE__ */ new Map();
+  }
+});
+
+// src/lib/ops/proposal-runner.ts
+var proposal_runner_exports = {};
+__export(proposal_runner_exports, {
+  assertApprovalStillValid: () => assertApprovalStillValid,
+  hashStep: () => hashStep,
+  runApprovedProposal: () => runApprovedProposal,
+  stableJson: () => stableJson2
+});
+function stableJson2(value) {
+  if (value === void 0) return "undefined";
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(stableJson2).join(",")}]`;
+  const entries = Object.entries(value).sort(
+    ([left], [right]) => left.localeCompare(right)
+  );
+  return `{${entries.map(
+    ([key, entryValue]) => `${JSON.stringify(key)}:${stableJson2(entryValue)}`
+  ).join(",")}}`;
+}
+function hashStep(step) {
+  return (0, import_crypto2.createHash)("sha256").update(
+    stableJson2({
+      kind: step.kind,
+      payload: step.payload ?? {},
+      assigned_agent: step.assigned_agent ?? null,
+      output_path: step.output_path ?? null
+    })
+  ).digest("hex");
+}
+function sameStep(left, right) {
+  return left.kind === right.kind && stableJson2(left.payload ?? {}) === stableJson2(right.payload ?? {}) && (left.assigned_agent ?? null) === (right.assigned_agent ?? null) && (left.output_path ?? null) === (right.output_path ?? null);
+}
+async function assertApprovalStillValid(proposal, step, actor, runtimeContext) {
+  if (proposal.status !== "accepted") {
+    throw new Error(
+      `Proposal ${proposal.id} is not currently accepted; ${actor} cannot execute ${step.kind}`
+    );
+  }
+  if (runtimeContext.approvalExpiresAt && Date.parse(runtimeContext.approvalExpiresAt) <= Date.now()) {
+    throw new Error(
+      `Approval for proposal ${proposal.id} expired before step ${step.kind}`
+    );
+  }
+  if (!proposal.proposed_steps.some(
+    (proposedStep) => sameStep(proposedStep, step)
+  )) {
+    throw new Error(
+      `Step ${step.kind} is not covered by current approval for proposal ${proposal.id}`
+    );
+  }
+}
+async function runApprovedProposal(proposal, steps, actor, runtimeContext, executeStep) {
+  for (const step of steps) {
+    await assertApprovalStillValid(proposal, step, actor, runtimeContext);
+    await executeStep(step, runtimeContext);
+  }
+}
+var import_crypto2;
+var init_proposal_runner = __esm({
+  "src/lib/ops/proposal-runner.ts"() {
+    "use strict";
+    import_crypto2 = require("crypto");
   }
 });
 
@@ -3643,7 +3748,10 @@ var proposal_service_exports = {};
 __export(proposal_service_exports, {
   countTodayProposals: () => countTodayProposals,
   createMissionFromProposal: () => createMissionFromProposal,
-  createProposalAndMaybeAutoApprove: () => createProposalAndMaybeAutoApprove
+  createProposal: () => createProposal,
+  createProposalAndMaybeAutoApprove: () => createProposalAndMaybeAutoApprove,
+  evaluateProposalApproval: () => evaluateProposalApproval,
+  validateSealedExecutionContract: () => validateSealedExecutionContract
 });
 function isUniqueViolation(error) {
   return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
@@ -3677,6 +3785,13 @@ function replayResult(existing, input) {
   };
 }
 async function createProposalAndMaybeAutoApprove(input) {
+  const created = await createProposal(input);
+  if (!created.success || !created.proposalId || created.replayed) {
+    return created;
+  }
+  return evaluateProposalApproval(created.proposalId, input);
+}
+async function createProposal(input) {
   if (input.source_trace_id) {
     const existing = await findReplayProposal(input);
     if (existing) {
@@ -3729,58 +3844,54 @@ async function createProposalAndMaybeAutoApprove(input) {
     throw error;
   }
   const proposalId = proposal.id;
-  const vetoPolicy = await getPolicy("veto_authority");
-  if (vetoPolicy.enabled) {
-    const protectedKinds = vetoPolicy.protected_step_kinds ?? [];
-    const hasProtectedStep = input.proposed_steps.some(
-      (s) => protectedKinds.includes(s.kind)
-    );
-    if (hasProtectedStep) {
-      await upsertProposalReviewPacket({
+  await upsertProposalReviewPacket({
+    proposalId,
+    proposal: input,
+    status: "submitted",
+    reason: `Proposal created. Approval evaluation pending. ${input.proposed_steps.length} step(s).`
+  });
+  await emitEvent({
+    agent_id: input.agent_id,
+    kind: "proposal_created",
+    title: `Proposal: ${input.title}`,
+    summary: `Proposal created. Approval evaluation pending. ${input.proposed_steps.length} step(s).`,
+    tags: ["proposal", "pending"],
+    metadata: { proposalId }
+  });
+  return { success: true, proposalId };
+}
+async function evaluateProposalApproval(proposalId, input) {
+  const evaluation = await buildApprovalEvaluation(input);
+  await recordApprovalEvaluation(proposalId, evaluation);
+  if (evaluation.outcome === "held_for_review") {
+    await upsertProposalReviewPacket({
+      proposalId,
+      proposal: input,
+      status: "awaiting_review",
+      reason: evaluation.reason,
+      decision: evaluationDecision(evaluation)
+    });
+    await emitEvent({
+      agent_id: input.agent_id,
+      kind: "proposal_held_for_review",
+      title: `Held for review: ${input.title}`,
+      summary: evaluation.reason,
+      tags: ["proposal", "held", "veto_gate"],
+      metadata: {
         proposalId,
-        proposal: input,
-        status: "awaiting_review",
-        reason: "Contains protected step kind(s). Requires manual approval.",
-        decision: {
-          outcome: "held_for_review",
-          protectedKinds: input.proposed_steps.filter((s) => protectedKinds.includes(s.kind)).map((s) => s.kind),
-          decidedBy: "veto_authority_policy"
-        }
-      });
-      await emitEvent({
-        agent_id: input.agent_id,
-        kind: "proposal_held_for_review",
-        title: `Held for review: ${input.title}`,
-        summary: `Contains protected step kind(s). Requires manual approval.`,
-        tags: ["proposal", "held", "veto_gate"],
-        metadata: {
-          proposalId,
-          protectedKinds: input.proposed_steps.filter((s) => protectedKinds.includes(s.kind)).map((s) => s.kind)
-        }
-      });
-      return { success: true, proposalId };
-    }
+        evaluationOutcome: evaluation.outcome,
+        protectedKinds: evaluation.blockedStepKinds
+      }
+    });
+    return { success: true, proposalId };
   }
-  const autoApprovePolicy = await getPolicy("auto_approve");
-  const autoApproveEnabled = autoApprovePolicy.enabled;
-  const allowedKinds = autoApprovePolicy.allowed_step_kinds ?? [];
-  const TRUSTED_SOURCES = /* @__PURE__ */ new Set(["conversation", "system"]);
-  const isTrustedSource = TRUSTED_SOURCES.has(input.source ?? "agent");
-  const shouldAutoApprove = autoApproveEnabled && (isTrustedSource || input.proposed_steps.every(
-    (step) => allowedKinds.includes(step.kind)
-  ));
-  if (shouldAutoApprove) {
+  if (evaluation.outcome === "approved") {
     await upsertProposalReviewPacket({
       proposalId,
       proposal: input,
       status: "approved",
-      reason: `Proposal auto-approved with ${input.proposed_steps.length} step(s)`,
-      decision: {
-        outcome: "approved",
-        autoApproved: true,
-        decidedBy: "auto_approve_policy",
-        trustedSource: isTrustedSource
-      }
+      reason: evaluation.reason,
+      decision: evaluationDecision(evaluation)
     });
     await sql`
             UPDATE ops_mission_proposals
@@ -3792,9 +3903,13 @@ async function createProposalAndMaybeAutoApprove(input) {
       agent_id: input.agent_id,
       kind: "proposal_auto_approved",
       title: `Auto-approved: ${input.title}`,
-      summary: `Proposal auto-approved with ${input.proposed_steps.length} step(s)`,
+      summary: evaluation.reason,
       tags: ["proposal", "auto_approved"],
-      metadata: { proposalId, missionId }
+      metadata: {
+        proposalId,
+        missionId,
+        evaluationOutcome: evaluation.outcome
+      }
     });
     return { success: true, proposalId, missionId };
   }
@@ -3802,37 +3917,445 @@ async function createProposalAndMaybeAutoApprove(input) {
     proposalId,
     proposal: input,
     status: "submitted",
-    reason: `Awaiting review. ${input.proposed_steps.length} step(s).`
-  });
-  await emitEvent({
-    agent_id: input.agent_id,
-    kind: "proposal_created",
-    title: `Proposal: ${input.title}`,
-    summary: `Awaiting review. ${input.proposed_steps.length} step(s).`,
-    tags: ["proposal", "pending"],
-    metadata: { proposalId }
+    reason: evaluation.reason,
+    decision: evaluationDecision(evaluation)
   });
   return { success: true, proposalId };
+}
+async function buildApprovalEvaluation(input) {
+  const vetoPolicyRecord = await getPolicyRecord("veto_authority");
+  const vetoPolicy = vetoPolicyRecord.value;
+  const protectedKinds = vetoPolicy.enabled ? vetoPolicy.protected_step_kinds ?? [] : [];
+  const proposedStepKinds = input.proposed_steps.map((step) => step.kind);
+  const blockedStepKinds = proposedStepKinds.filter(
+    (kind) => protectedKinds.includes(kind)
+  );
+  const autoApprovePolicyRecord = await getPolicyRecord("auto_approve");
+  const autoApprovePolicy = autoApprovePolicyRecord.value;
+  const autoApproveEnabled = autoApprovePolicy.enabled;
+  const allowedKinds = autoApprovePolicy.allowed_step_kinds ?? [];
+  const policyFingerprint = buildApprovalPolicyFingerprint([
+    autoApprovePolicyRecord,
+    vetoPolicyRecord
+  ]);
+  const TRUSTED_SOURCES = /* @__PURE__ */ new Set(["conversation", "system"]);
+  const isTrustedSource = TRUSTED_SOURCES.has(input.source ?? "agent");
+  const shouldAutoApprove = autoApproveEnabled && (isTrustedSource || input.proposed_steps.every(
+    (step) => allowedKinds.includes(step.kind)
+  ));
+  const buildStepDecisions = (outcome) => Object.fromEntries(
+    input.proposed_steps.map((step) => {
+      const stepHash = hashStep(step);
+      const decision = buildStepApprovalDecision({
+        step,
+        stepHash,
+        outcome,
+        isTrustedSource,
+        autoApproveEnabled,
+        allowedKinds,
+        protectedKinds,
+        policyFingerprint
+      });
+      return [stepHash, decision];
+    })
+  );
+  if (blockedStepKinds.length > 0) {
+    return {
+      outcome: "held_for_review",
+      reason: "Contains protected step kind(s). Requires manual approval.",
+      autoApproveEnabled,
+      trustedSource: isTrustedSource,
+      allowedKinds,
+      protectedKinds,
+      proposedStepKinds,
+      blockedStepKinds,
+      decidedBy: "veto_authority_policy",
+      stepDecisions: buildStepDecisions("held_for_review")
+    };
+  }
+  if (shouldAutoApprove) {
+    return {
+      outcome: "approved",
+      reason: `Proposal auto-approved with ${input.proposed_steps.length} step(s)`,
+      autoApproveEnabled,
+      trustedSource: isTrustedSource,
+      allowedKinds,
+      protectedKinds,
+      proposedStepKinds,
+      blockedStepKinds,
+      decidedBy: "auto_approve_policy",
+      stepDecisions: buildStepDecisions("approved")
+    };
+  }
+  return {
+    outcome: "pending_review",
+    reason: `Awaiting review. ${input.proposed_steps.length} step(s).`,
+    autoApproveEnabled,
+    trustedSource: isTrustedSource,
+    allowedKinds,
+    protectedKinds,
+    proposedStepKinds,
+    blockedStepKinds,
+    decidedBy: "auto_approve_policy",
+    stepDecisions: buildStepDecisions("pending_review")
+  };
+}
+function buildApprovalPolicyFingerprint(policies) {
+  const normalizedPolicies = policies.map(normalizePolicyRecord);
+  return {
+    version: normalizedPolicies.map((policy) => `${policy.key}@${policy.version}`).join("|"),
+    hash: policyHash({
+      key: "approval_policy_bundle",
+      value: Object.fromEntries(
+        normalizedPolicies.map((policy) => [policy.key, policy.value])
+      ),
+      updated_at: normalizedPolicies.map((policy) => `${policy.key}:${policy.updated_at ?? "null"}`).join("|")
+    })
+  };
+}
+function normalizePolicyRecord(policy) {
+  return {
+    key: policy.key,
+    value: policy.value,
+    updated_at: policy.updated_at,
+    version: policyVersion(policy)
+  };
+}
+function buildStepApprovalDecision(input) {
+  const {
+    step,
+    stepHash,
+    outcome,
+    isTrustedSource,
+    autoApproveEnabled,
+    allowedKinds,
+    protectedKinds,
+    policyFingerprint
+  } = input;
+  if (protectedKinds.includes(step.kind)) {
+    return {
+      stepHash,
+      stepKind: step.kind,
+      outcome: "held_for_review",
+      riskClass: "high",
+      matchedRule: "veto_authority.protected_step_kind",
+      reason: `Step kind ${step.kind} is protected by veto authority policy.`,
+      policyVersion: policyFingerprint.version,
+      policyHash: policyFingerprint.hash
+    };
+  }
+  if (!autoApproveEnabled) {
+    return {
+      stepHash,
+      stepKind: step.kind,
+      outcome,
+      riskClass: "medium",
+      matchedRule: "auto_approve.disabled",
+      reason: "Auto-approval policy is disabled.",
+      policyVersion: policyFingerprint.version,
+      policyHash: policyFingerprint.hash
+    };
+  }
+  if (isTrustedSource) {
+    return {
+      stepHash,
+      stepKind: step.kind,
+      outcome,
+      riskClass: "low",
+      matchedRule: "auto_approve.trusted_source",
+      reason: "Trusted source may auto-approve this step under current policy.",
+      policyVersion: policyFingerprint.version,
+      policyHash: policyFingerprint.hash
+    };
+  }
+  if (allowedKinds.includes(step.kind)) {
+    return {
+      stepHash,
+      stepKind: step.kind,
+      outcome,
+      riskClass: "low",
+      matchedRule: "auto_approve.allowed_step_kind",
+      reason: `Step kind ${step.kind} is listed in auto-approve policy.`,
+      policyVersion: policyFingerprint.version,
+      policyHash: policyFingerprint.hash
+    };
+  }
+  return {
+    stepHash,
+    stepKind: step.kind,
+    outcome,
+    riskClass: "medium",
+    matchedRule: "auto_approve.step_kind_not_allowed",
+    reason: `Step kind ${step.kind} is not listed in auto-approve policy.`,
+    policyVersion: policyFingerprint.version,
+    policyHash: policyFingerprint.hash
+  };
+}
+async function recordApprovalEvaluation(proposalId, evaluation) {
+  const [record] = await sql`
+        INSERT INTO ops_proposal_approval_evaluations (
+            proposal_id,
+            outcome,
+            reason,
+            auto_approve_enabled,
+            trusted_source,
+            allowed_step_kinds,
+            protected_step_kinds,
+            proposed_step_kinds,
+            blocked_step_kinds,
+            step_decisions,
+            decision
+        ) VALUES (
+            ${proposalId},
+            ${evaluation.outcome},
+            ${evaluation.reason},
+            ${evaluation.autoApproveEnabled},
+            ${evaluation.trustedSource},
+            ${jsonb(evaluation.allowedKinds)},
+            ${jsonb(evaluation.protectedKinds)},
+            ${jsonb(evaluation.proposedStepKinds)},
+            ${jsonb(evaluation.blockedStepKinds)},
+            ${jsonb(evaluation.stepDecisions)},
+            ${jsonb(evaluationDecision(evaluation))}
+        )
+        RETURNING id
+    `;
+  return record.id;
+}
+function evaluationDecision(evaluation) {
+  return {
+    outcome: evaluation.outcome,
+    autoApproved: evaluation.outcome === "approved",
+    decidedBy: evaluation.decidedBy,
+    trustedSource: evaluation.trustedSource,
+    autoApproveEnabled: evaluation.autoApproveEnabled,
+    allowedKinds: evaluation.allowedKinds,
+    protectedKinds: evaluation.protectedKinds,
+    proposedStepKinds: evaluation.proposedStepKinds,
+    blockedStepKinds: evaluation.blockedStepKinds,
+    stepDecisions: evaluation.stepDecisions
+  };
+}
+function sha256(value) {
+  return (0, import_crypto3.createHash)("sha256").update(stableJson2(value)).digest("hex");
+}
+function proposalRevision(proposal) {
+  return `${proposal.id}:${proposal.updated_at}`;
+}
+function proposalSnapshot(proposal) {
+  return {
+    id: proposal.id,
+    agent_id: proposal.agent_id,
+    title: proposal.title,
+    description: proposal.description ?? null,
+    status: proposal.status,
+    proposed_steps: proposal.proposed_steps,
+    source: proposal.source,
+    source_trace_id: proposal.source_trace_id ?? null,
+    auto_approved: proposal.auto_approved,
+    created_at: proposal.created_at,
+    updated_at: proposal.updated_at
+  };
+}
+function normalizeAcceptanceCriteria(value, fallback) {
+  if (Array.isArray(value)) {
+    const criteria = value.filter(
+      (entry) => typeof entry === "string" && entry.trim().length > 0
+    );
+    if (criteria.length > 0) return criteria;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    return [value.trim()];
+  }
+  return [fallback];
+}
+function stringFromPayload(proposal, key) {
+  for (const step of proposal.proposed_steps) {
+    const value = step.payload?.[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+async function latestApprovedEvaluation(proposalId) {
+  const [evaluation] = await sql`
+        SELECT id, outcome, reason, trusted_source, step_decisions, decision, created_at
+        FROM ops_proposal_approval_evaluations
+        WHERE proposal_id = ${proposalId}
+        ORDER BY created_at DESC
+        LIMIT 1
+    `;
+  if (!evaluation) {
+    throw new Error(
+      `Proposal ${proposalId} has no approval evaluation; refusing to create mission`
+    );
+  }
+  if (evaluation.outcome !== "approved") {
+    throw new Error(
+      `Proposal ${proposalId} latest evaluation is ${evaluation.outcome}; refusing to create mission`
+    );
+  }
+  return evaluation;
+}
+function buildExecutionContract(proposal, evaluation) {
+  if (proposal.status !== "accepted") {
+    throw new Error(
+      `Proposal ${proposal.id} is ${proposal.status}; only accepted proposals can produce missions`
+    );
+  }
+  const proposalHash = sha256(proposalSnapshot(proposal));
+  const approvedAt = new Date(evaluation.created_at).toISOString();
+  const expiresAt = new Date(
+    new Date(evaluation.created_at).getTime() + 7 * 24 * 60 * 60 * 1e3
+  ).toISOString();
+  const decidedBy = typeof evaluation.decision.decidedBy === "string" ? evaluation.decision.decidedBy : "unknown_approver";
+  const unsignedContract = {
+    schemaVersion: 1,
+    sealed: true,
+    proposalId: proposal.id,
+    proposalRevision: proposalRevision(proposal),
+    proposalHash,
+    approvalEvaluationId: evaluation.id,
+    approvedAt,
+    expiresAt,
+    rationale: evaluation.reason,
+    approver: {
+      type: "policy",
+      id: decidedBy,
+      metadata: {
+        trustedSource: evaluation.trusted_source,
+        decision: evaluation.decision
+      }
+    },
+    beneficiary: stringFromPayload(proposal, "beneficiary") ?? proposal.agent_id,
+    riskOwner: stringFromPayload(proposal, "risk_owner") ?? stringFromPayload(proposal, "riskOwner") ?? proposal.agent_id,
+    approvedSteps: proposal.proposed_steps.map((step, index) => {
+      const stepHash = hashStep(step);
+      const payload = step.payload ?? {};
+      return {
+        index,
+        kind: step.kind,
+        stepHash,
+        payload,
+        assignedAgent: step.assigned_agent ?? null,
+        outputPath: step.output_path ?? null,
+        acceptanceCriteria: normalizeAcceptanceCriteria(
+          payload.acceptance_criteria ?? payload.acceptanceCriteria,
+          `Step ${index + 1} (${step.kind}) completes successfully without violating the approved payload boundary.`
+        ),
+        approvalDecision: evaluation.step_decisions[stepHash] ?? null
+      };
+    })
+  };
+  const contract = {
+    ...unsignedContract,
+    contractHash: sha256(unsignedContract)
+  };
+  return validateExecutionContract(contract, proposal);
+}
+function validateSealedExecutionContract(contract) {
+  const parsedContract = missionExecutionContractSchema.parse(contract);
+  const unsignedContract = { ...parsedContract };
+  delete unsignedContract.contractHash;
+  const requiredStrings = [
+    ["proposalId", parsedContract.proposalId],
+    ["proposalRevision", parsedContract.proposalRevision],
+    ["proposalHash", parsedContract.proposalHash],
+    ["approvalEvaluationId", parsedContract.approvalEvaluationId],
+    ["approvedAt", parsedContract.approvedAt],
+    ["expiresAt", parsedContract.expiresAt],
+    ["rationale", parsedContract.rationale],
+    ["approver.id", parsedContract.approver.id],
+    ["beneficiary", parsedContract.beneficiary],
+    ["riskOwner", parsedContract.riskOwner],
+    ["contractHash", parsedContract.contractHash]
+  ];
+  for (const [field, value] of requiredStrings) {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new Error(`Execution contract missing required field ${field}`);
+    }
+  }
+  if (parsedContract.schemaVersion !== 1 || parsedContract.sealed !== true) {
+    throw new Error("Execution contract must be schemaVersion=1 and sealed");
+  }
+  if (parsedContract.approvedSteps.length === 0) {
+    throw new Error("Execution contract must include at least one approved step");
+  }
+  if (Date.parse(parsedContract.expiresAt) <= Date.parse(parsedContract.approvedAt)) {
+    throw new Error("Execution contract expiry must be after approval time");
+  }
+  for (const approvedStep of parsedContract.approvedSteps) {
+    if (approvedStep.acceptanceCriteria.length === 0) {
+      throw new Error(
+        `Execution contract step ${approvedStep.index} has no acceptance criteria`
+      );
+    }
+    if (approvedStep.approvalDecision?.outcome !== "approved") {
+      throw new Error(
+        `Execution contract step ${approvedStep.index} is missing an approved decision`
+      );
+    }
+  }
+  if (parsedContract.contractHash !== sha256(unsignedContract)) {
+    throw new Error("Execution contract hash is invalid");
+  }
+  return parsedContract;
+}
+function validateExecutionContract(contract, proposal) {
+  const parsedContract = validateSealedExecutionContract(contract);
+  if (parsedContract.proposalId !== proposal.id) {
+    throw new Error("Execution contract proposalId does not match proposal");
+  }
+  if (parsedContract.proposalRevision !== proposalRevision(proposal)) {
+    throw new Error("Execution contract proposal revision does not match proposal");
+  }
+  if (parsedContract.proposalHash !== sha256(proposalSnapshot(proposal))) {
+    throw new Error("Execution contract proposal hash does not match proposal");
+  }
+  if (parsedContract.approvedSteps.length !== proposal.proposed_steps.length) {
+    throw new Error("Execution contract approved steps do not match proposal");
+  }
+  for (const approvedStep of parsedContract.approvedSteps) {
+    const proposedStep = proposal.proposed_steps[approvedStep.index];
+    if (!proposedStep || approvedStep.stepHash !== hashStep(proposedStep)) {
+      throw new Error(
+        `Execution contract step ${approvedStep.index} does not match proposal`
+      );
+    }
+  }
+  return parsedContract;
 }
 async function createMissionFromProposal(proposalId) {
   const [proposal] = await sql`
         SELECT * FROM ops_mission_proposals WHERE id = ${proposalId}
     `;
   if (!proposal) throw new Error(`Proposal ${proposalId} not found`);
+  const approvalEvaluation = await latestApprovedEvaluation(proposalId);
+  const executionContract = buildExecutionContract(
+    proposal,
+    approvalEvaluation
+  );
   const [mission] = await sql`
-        INSERT INTO ops_missions (proposal_id, title, description, status, created_by)
+        INSERT INTO ops_missions (proposal_id, title, description, status, created_by, execution_contract)
         VALUES (
             ${proposalId},
             ${proposal.title},
             ${proposal.description ?? null},
             'approved',
-            ${proposal.agent_id}
+            ${proposal.agent_id},
+            ${jsonb(executionContract)}
         )
         ON CONFLICT (proposal_id) WHERE proposal_id IS NOT NULL DO UPDATE
-            SET proposal_id = EXCLUDED.proposal_id
-        RETURNING id, (xmax = 0) AS created
+            SET execution_contract = COALESCE(ops_missions.execution_contract, EXCLUDED.execution_contract),
+                updated_at = CASE
+                    WHEN ops_missions.execution_contract IS NULL THEN NOW()
+                    ELSE ops_missions.updated_at
+                END
+        RETURNING id, (xmax = 0) AS created, execution_contract
     `;
   const missionId = mission.id;
+  validateExecutionContract(mission.execution_contract, proposal);
   if (!mission.created) {
     return missionId;
   }
@@ -3875,18 +4398,69 @@ async function countTodayProposals(agentId) {
     `;
   return count;
 }
-var log7;
+var import_crypto3, import_zod, log7, approvalEvaluationOutcomeSchema, approvalRiskClassSchema, recordSchema, stepApprovalDecisionSchema, missionExecutionContractSchema;
 var init_proposal_service = __esm({
   "src/lib/ops/proposal-service.ts"() {
     "use strict";
     init_db();
+    import_crypto3 = require("crypto");
+    import_zod = require("zod");
     init_policy();
+    init_proposal_runner();
     init_cap_gates();
     init_events2();
     init_review_packets();
     init_agents();
     init_logger();
     log7 = logger.child({ module: "proposal-service" });
+    approvalEvaluationOutcomeSchema = import_zod.z.enum([
+      "approved",
+      "held_for_review",
+      "pending_review"
+    ]);
+    approvalRiskClassSchema = import_zod.z.enum(["low", "medium", "high"]);
+    recordSchema = import_zod.z.record(import_zod.z.string(), import_zod.z.unknown());
+    stepApprovalDecisionSchema = import_zod.z.object({
+      stepHash: import_zod.z.string().min(1),
+      stepKind: import_zod.z.string().min(1),
+      outcome: approvalEvaluationOutcomeSchema,
+      riskClass: approvalRiskClassSchema,
+      matchedRule: import_zod.z.string().min(1),
+      reason: import_zod.z.string().min(1),
+      policyVersion: import_zod.z.string().min(1),
+      policyHash: import_zod.z.string().min(1)
+    }).strict();
+    missionExecutionContractSchema = import_zod.z.object({
+      schemaVersion: import_zod.z.literal(1),
+      sealed: import_zod.z.literal(true),
+      proposalId: import_zod.z.string().min(1),
+      proposalRevision: import_zod.z.string().min(1),
+      proposalHash: import_zod.z.string().min(1),
+      approvalEvaluationId: import_zod.z.string().min(1),
+      approvedAt: import_zod.z.string().datetime({ offset: true }),
+      expiresAt: import_zod.z.string().datetime({ offset: true }),
+      rationale: import_zod.z.string().min(1),
+      approver: import_zod.z.object({
+        type: import_zod.z.enum(["policy", "operator", "agent"]),
+        id: import_zod.z.string().min(1),
+        metadata: recordSchema
+      }).strict(),
+      beneficiary: import_zod.z.string().min(1),
+      riskOwner: import_zod.z.string().min(1),
+      approvedSteps: import_zod.z.array(
+        import_zod.z.object({
+          index: import_zod.z.number().int().nonnegative(),
+          kind: import_zod.z.string().min(1),
+          stepHash: import_zod.z.string().min(1),
+          payload: recordSchema,
+          assignedAgent: import_zod.z.string().min(1).nullable(),
+          outputPath: import_zod.z.string().min(1).nullable(),
+          acceptanceCriteria: import_zod.z.array(import_zod.z.string().min(1)),
+          approvalDecision: stepApprovalDecisionSchema.nullable()
+        }).strict()
+      ),
+      contractHash: import_zod.z.string().min(1)
+    }).strict();
   }
 });
 
@@ -8665,6 +9239,87 @@ var init_content_pipeline = __esm({
   }
 });
 
+// src/lib/ops/execution-evidence.ts
+var execution_evidence_exports = {};
+__export(execution_evidence_exports, {
+  blockerClassForOutcome: () => blockerClassForOutcome,
+  recordExecutionEvidence: () => recordExecutionEvidence
+});
+function normalizeArtifactPaths(paths) {
+  return [...new Set((paths ?? []).filter((path4) => path4.trim().length > 0))];
+}
+function defaultAcceptanceResults(criteria, outcome) {
+  return criteria.map((criterion) => ({
+    criterion,
+    status: outcome === "succeeded" ? "passed" : outcome === "dispatched" ? "pending" : "not_verified"
+  }));
+}
+function blockerClassForOutcome(outcome, reason) {
+  if (outcome === "succeeded" || outcome === "dispatched") return null;
+  const normalized = (reason ?? "").toLowerCase();
+  if (normalized.includes("veto")) return "veto";
+  if (normalized.includes("timed out") || normalized.includes("timeout")) {
+    return "timeout";
+  }
+  if (normalized.includes("blocked")) return "agent_blocked";
+  if (normalized.includes("contract") || normalized.includes("approval")) {
+    return "approval_boundary";
+  }
+  if (normalized.includes("tool") || normalized.includes("file") || normalized.includes("bash")) {
+    return "tooling";
+  }
+  return outcome;
+}
+async function recordExecutionEvidence(input) {
+  const [attempt] = await sql`
+        SELECT COUNT(*)::int AS retry_count
+        FROM ops_mission_step_execution_evidence
+        WHERE step_id = ${input.stepId}
+          AND outcome IN ('dispatched', 'failed', 'blocked')
+    `;
+  const acceptanceCriteria = input.contractStep.acceptanceCriteria;
+  const acceptanceResults = input.acceptanceResults ?? defaultAcceptanceResults(acceptanceCriteria, input.outcome);
+  await sql`
+        INSERT INTO ops_mission_step_execution_evidence (
+            mission_id,
+            step_id,
+            contract_hash,
+            contract_step_index,
+            step_hash,
+            step_kind,
+            outcome,
+            acceptance_criteria,
+            acceptance_results,
+            blocker_class,
+            retry_count,
+            artifact_paths,
+            evidence,
+            recorded_by
+        ) VALUES (
+            ${input.missionId},
+            ${input.stepId},
+            ${input.contract.contractHash},
+            ${input.contractStep.index},
+            ${input.contractStep.stepHash},
+            ${input.contractStep.kind},
+            ${input.outcome},
+            ${jsonb(acceptanceCriteria)},
+            ${jsonb(acceptanceResults)},
+            ${input.blockerClass ?? null},
+            ${attempt?.retry_count ?? 0},
+            ${normalizeArtifactPaths(input.artifactPaths)},
+            ${jsonb(input.evidence ?? {})},
+            ${input.recordedBy ?? null}
+        )
+    `;
+}
+var init_execution_evidence = __esm({
+  "src/lib/ops/execution-evidence.ts"() {
+    "use strict";
+    init_db();
+  }
+});
+
 // src/lib/ops/memory-archaeology.ts
 var memory_archaeology_exports = {};
 __export(memory_archaeology_exports, {
@@ -8676,7 +9331,7 @@ __export(memory_archaeology_exports, {
   performDig: () => performDig
 });
 async function performDig(config) {
-  const digId = import_crypto2.default.randomUUID();
+  const digId = import_crypto5.default.randomUUID();
   const agentId = config.agent_id ?? "system";
   const maxMemories = config.max_memories ?? DEFAULT_MAX_MEMORIES;
   log34.info("Starting archaeological dig", { digId, agentId, maxMemories });
@@ -8967,7 +9622,7 @@ async function getLastDigTimestamp() {
     `;
   return row?.latest ? new Date(row.latest) : null;
 }
-var import_crypto2, log34, DEFAULT_MAX_MEMORIES, MEMORIES_PER_BATCH, ANALYSIS_TEMPERATURE, ANALYSIS_MAX_TOKENS, CHARS_PER_TOKEN_ESTIMATE, TOKEN_WARNING_THRESHOLD;
+var import_crypto5, log34, DEFAULT_MAX_MEMORIES, MEMORIES_PER_BATCH, ANALYSIS_TEMPERATURE, ANALYSIS_MAX_TOKENS, CHARS_PER_TOKEN_ESTIMATE, TOKEN_WARNING_THRESHOLD;
 var init_memory_archaeology = __esm({
   "src/lib/ops/memory-archaeology.ts"() {
     "use strict";
@@ -8975,7 +9630,7 @@ var init_memory_archaeology = __esm({
     init_client();
     init_events2();
     init_logger();
-    import_crypto2 = __toESM(require("crypto"));
+    import_crypto5 = __toESM(require("crypto"));
     log34 = logger.child({ module: "memory-archaeology" });
     DEFAULT_MAX_MEMORIES = 100;
     MEMORIES_PER_BATCH = 15;
@@ -11275,7 +11930,7 @@ init_logger();
 init_formats();
 
 // src/lib/ops/content-publication.ts
-var import_crypto = __toESM(require("crypto"));
+var import_crypto4 = __toESM(require("crypto"));
 var import_promises = __toESM(require("fs/promises"));
 var import_path = __toESM(require("path"));
 init_db();
@@ -11444,7 +12099,7 @@ function createGhostJwt(adminApiKey) {
   const payload = Buffer.from(
     JSON.stringify({ iat: nowSeconds, exp: nowSeconds + 5 * 60, aud: "/admin/" })
   ).toString("base64url");
-  const signature = import_crypto.default.createHmac("sha256", Buffer.from(secret, "hex")).update(`${header}.${payload}`).digest("base64url");
+  const signature = import_crypto4.default.createHmac("sha256", Buffer.from(secret, "hex")).update(`${header}.${payload}`).digest("base64url");
   return `${header}.${payload}.${signature}`;
 }
 function escapeHtml(input) {
@@ -12276,6 +12931,60 @@ async function pollMissionSteps() {
   );
   return true;
 }
+function proposedStepFromRow(step) {
+  return {
+    kind: step.kind,
+    payload: step.payload ?? {},
+    assigned_agent: step.assigned_agent ?? void 0,
+    output_path: step.output_path ?? void 0
+  };
+}
+function proposedStepFromContract(contractStep) {
+  return {
+    kind: contractStep.kind,
+    payload: contractStep.payload,
+    assigned_agent: contractStep.assignedAgent ?? void 0,
+    output_path: contractStep.outputPath ?? void 0
+  };
+}
+async function appendStepExecutionEvidence(input) {
+  try {
+    const [mission] = await sql2`
+            SELECT execution_contract FROM ops_missions WHERE id = ${input.step.mission_id}
+        `;
+    if (!mission?.execution_contract) return;
+    const { hashStep: hashStep2 } = await Promise.resolve().then(() => (init_proposal_runner(), proposal_runner_exports));
+    const { validateSealedExecutionContract: validateSealedExecutionContract2 } = await Promise.resolve().then(() => (init_proposal_service(), proposal_service_exports));
+    const { recordExecutionEvidence: recordExecutionEvidence2, blockerClassForOutcome: blockerClassForOutcome2 } = await Promise.resolve().then(() => (init_execution_evidence(), execution_evidence_exports));
+    const contract = validateSealedExecutionContract2(mission.execution_contract);
+    const stepHash = hashStep2(proposedStepFromRow(input.step));
+    const contractStep = contract.approvedSteps.find(
+      (approvedStep) => approvedStep.stepHash === stepHash
+    );
+    if (!contractStep) return;
+    await recordExecutionEvidence2({
+      missionId: input.step.mission_id,
+      stepId: input.step.id,
+      contract,
+      contractStep,
+      outcome: input.outcome,
+      blockerClass: blockerClassForOutcome2(input.outcome, input.reason),
+      artifactPaths: input.step.output_path ? [input.step.output_path] : [],
+      evidence: {
+        ...input.evidence ?? {},
+        reason: input.reason ?? void 0
+      },
+      recordedBy: input.recordedBy ?? input.step.assigned_agent ?? null
+    });
+  } catch (err) {
+    log36.warn("Failed to append mission step execution evidence", {
+      error: err,
+      stepId: input.step.id,
+      missionId: input.step.mission_id,
+      outcome: input.outcome
+    });
+  }
+}
 async function dispatchMissionStep(step) {
   log36.info("Processing mission step", {
     stepId: step.id,
@@ -12300,6 +13009,12 @@ async function dispatchMissionStep(step) {
                     updated_at = NOW()
                 WHERE id = ${step.id}
             `;
+      await appendStepExecutionEvidence({
+        step,
+        outcome: "failed",
+        reason: `Blocked by ${missionVeto.severity} veto on mission: ${missionVeto.reason}`,
+        evidence: { vetoId: missionVeto.vetoId, severity: missionVeto.severity }
+      });
       await finalizeMissionIfComplete(step.mission_id);
       return;
     }
@@ -12318,6 +13033,12 @@ async function dispatchMissionStep(step) {
                     updated_at = NOW()
                 WHERE id = ${step.id}
             `;
+      await appendStepExecutionEvidence({
+        step,
+        outcome: "failed",
+        reason: `Blocked by ${stepVeto.severity} veto on step: ${stepVeto.reason}`,
+        evidence: { vetoId: stepVeto.vetoId, severity: stepVeto.severity }
+      });
       await finalizeMissionIfComplete(step.mission_id);
       return;
     }
@@ -12329,11 +13050,46 @@ async function dispatchMissionStep(step) {
   }
   try {
     const [mission] = await sql2`
-            SELECT title, created_by FROM ops_missions WHERE id = ${step.mission_id}
+            SELECT title, created_by, proposal_id, execution_contract
+            FROM ops_missions
+            WHERE id = ${step.mission_id}
         `;
-    const agentId = step.assigned_agent ?? mission?.created_by ?? "mux";
+    if (!mission) {
+      throw new Error(`Mission ${step.mission_id} not found`);
+    }
+    if (!mission.execution_contract) {
+      throw new Error(
+        `Mission ${step.mission_id} has no sealed execution contract`
+      );
+    }
+    const { hashStep: hashStep2 } = await Promise.resolve().then(() => (init_proposal_runner(), proposal_runner_exports));
+    const { validateSealedExecutionContract: validateSealedExecutionContract2 } = await Promise.resolve().then(() => (init_proposal_service(), proposal_service_exports));
+    const executionContract = validateSealedExecutionContract2(
+      mission.execution_contract
+    );
+    if (mission.proposal_id && executionContract.proposalId !== mission.proposal_id) {
+      throw new Error(
+        `Execution contract proposalId ${executionContract.proposalId} does not match mission proposal ${mission.proposal_id}`
+      );
+    }
+    if (Date.parse(executionContract.expiresAt) <= Date.now()) {
+      throw new Error(
+        `Execution contract ${executionContract.contractHash} expired before step ${step.id}`
+      );
+    }
+    const queuedStepHash = hashStep2(proposedStepFromRow(step));
+    const contractStep = executionContract.approvedSteps.find(
+      (approvedStep2) => approvedStep2.stepHash === queuedStepHash
+    );
+    if (!contractStep) {
+      throw new Error(
+        `Mission step ${step.id} is not covered by sealed execution contract ${executionContract.contractHash}`
+      );
+    }
+    const approvedStep = proposedStepFromContract(contractStep);
+    const agentId = approvedStep.assigned_agent ?? mission.created_by ?? "mux";
     const { emitEvent: emitEvent2 } = await Promise.resolve().then(() => (init_events2(), events_exports2));
-    if (step.kind === "memory_archaeology") {
+    if (approvedStep.kind === "memory_archaeology") {
       const { performDig: performDig2 } = await Promise.resolve().then(() => (init_memory_archaeology(), memory_archaeology_exports));
       const result = await performDig2({
         agent_id: agentId,
@@ -12351,6 +13107,19 @@ async function dispatchMissionStep(step) {
                     updated_at = NOW()
                 WHERE id = ${step.id}
             `;
+      await appendStepExecutionEvidence({
+        step,
+        outcome: "succeeded",
+        recordedBy: agentId,
+        evidence: {
+          directHandler: "memory_archaeology",
+          dig_id: result.dig_id,
+          finding_count: result.findings.length,
+          memories_analyzed: result.memories_analyzed,
+          contractHash: executionContract.contractHash,
+          contractStepIndex: contractStep.index
+        }
+      });
       await emitEvent2({
         agent_id: agentId,
         kind: "archaeology_complete",
@@ -12367,10 +13136,10 @@ async function dispatchMissionStep(step) {
       await finalizeMissionIfComplete(step.mission_id);
       return;
     }
-    if (step.kind === "convene_roundtable") {
-      const payload = step.payload ?? {};
+    if (approvedStep.kind === "convene_roundtable") {
+      const payload = approvedStep.payload ?? {};
       const format = payload.format ?? "brainstorm";
-      const topic = payload.topic ?? mission?.title ?? "Roundtable";
+      const topic = payload.topic ?? mission.title ?? "Roundtable";
       const participants = payload.participants ?? [
         "chora",
         "subrosa",
@@ -12399,6 +13168,19 @@ async function dispatchMissionStep(step) {
                     updated_at = NOW()
                 WHERE id = ${step.id}
             `;
+      await appendStepExecutionEvidence({
+        step,
+        outcome: "succeeded",
+        recordedBy: agentId,
+        evidence: {
+          directHandler: "convene_roundtable",
+          action: "roundtable_enqueued",
+          format,
+          topic,
+          contractHash: executionContract.contractHash,
+          contractStepIndex: contractStep.index
+        }
+      });
       await emitEvent2({
         agent_id: agentId,
         kind: "roundtable_enqueued",
@@ -12416,12 +13198,12 @@ async function dispatchMissionStep(step) {
     }
     const { buildStepPrompt: buildStepPrompt2 } = await Promise.resolve().then(() => (init_step_prompts(), step_prompts_exports));
     const { prompt, templateVersion } = await buildStepPrompt2(
-      step.kind,
+      approvedStep.kind,
       {
-        missionTitle: mission?.title ?? "Unknown",
+        missionTitle: mission.title ?? "Unknown",
         agentId,
-        payload: step.payload ?? {},
-        outputPath: step.output_path ?? void 0
+        payload: approvedStep.payload ?? {},
+        outputPath: approvedStep.output_path ?? void 0
       },
       { withVersion: true }
     );
@@ -12432,8 +13214,8 @@ async function dispatchMissionStep(step) {
                 WHERE id = ${step.id}
             `;
     }
-    if (step.output_path) {
-      const outputPrefix = step.output_path.endsWith("/") ? step.output_path : step.output_path + "/";
+    if (approvedStep.output_path) {
+      const outputPrefix = approvedStep.output_path.endsWith("/") ? approvedStep.output_path : approvedStep.output_path + "/";
       try {
         await sql2`
                     INSERT INTO ops_acl_grants (agent_id, path_prefix, source, source_id, expires_at)
@@ -12443,7 +13225,7 @@ async function dispatchMissionStep(step) {
         log36.warn("Failed to create ACL grant for step", {
           error: grantErr,
           agentId,
-          outputPath: step.output_path
+          outputPath: approvedStep.output_path
         });
       }
     }
@@ -12469,16 +13251,28 @@ async function dispatchMissionStep(step) {
                 updated_at = NOW()
             WHERE id = ${step.id}
         `;
+    await appendStepExecutionEvidence({
+      step: { ...step, assigned_agent: agentId },
+      outcome: "dispatched",
+      recordedBy: agentId,
+      evidence: {
+        agentSessionId: session.id,
+        contractHash: executionContract.contractHash,
+        contractStepIndex: contractStep.index
+      }
+    });
     await emitEvent2({
       agent_id: agentId,
       kind: "step_dispatched",
-      title: `Step dispatched to agent session: ${step.kind}`,
+      title: `Step dispatched to agent session: ${approvedStep.kind}`,
       tags: ["mission", "step", "dispatched"],
       metadata: {
         missionId: step.mission_id,
         stepId: step.id,
-        kind: step.kind,
-        agentSessionId: session.id
+        kind: approvedStep.kind,
+        agentSessionId: session.id,
+        contractHash: executionContract.contractHash,
+        contractStepIndex: contractStep.index
       }
     });
   } catch (err) {
@@ -12495,6 +13289,12 @@ async function dispatchMissionStep(step) {
                 updated_at = NOW()
             WHERE id = ${step.id}
         `;
+    await appendStepExecutionEvidence({
+      step,
+      outcome: "failed",
+      reason: err.message,
+      evidence: { agentSessionId, failureStage: "dispatch" }
+    });
     if (agentSessionId) {
       await sql2`
                 UPDATE ops_agent_sessions
@@ -12528,6 +13328,8 @@ async function finalizeMissionSteps() {
             s.id,
             s.mission_id,
             s.kind,
+            s.payload,
+            s.output_path,
             s.status as step_status,
             s.assigned_agent,
             sess.agent_id as session_agent_id,
@@ -12575,6 +13377,24 @@ async function finalizeMissionSteps() {
             `;
       if (updated.length === 0) continue;
       finalized++;
+      await appendStepExecutionEvidence({
+        step: {
+          id: step.id,
+          mission_id: step.mission_id,
+          kind: step.kind,
+          payload: step.payload,
+          assigned_agent: step.assigned_agent ?? step.session_agent_id,
+          output_path: step.output_path
+        },
+        outcome: "succeeded",
+        recordedBy: step.assigned_agent ?? step.session_agent_id,
+        evidence: {
+          agentSessionId: void 0,
+          sessionStatus: step.session_status,
+          sessionSummary: step.session_summary ?? void 0,
+          recoveredSweptFailure: step.step_status === "failed"
+        }
+      });
       await finalizeMissionIfComplete(step.mission_id, {
         recoverSweptFailure: step.step_status === "failed"
       });
@@ -12630,6 +13450,23 @@ async function finalizeMissionSteps() {
             `;
       if (updated.length === 0) continue;
       finalized++;
+      await appendStepExecutionEvidence({
+        step: {
+          id: step.id,
+          mission_id: step.mission_id,
+          kind: step.kind,
+          payload: step.payload,
+          assigned_agent: step.assigned_agent ?? step.session_agent_id,
+          output_path: step.output_path
+        },
+        outcome: "blocked",
+        reason: step.session_blocked_reason ?? "Agent session blocked",
+        recordedBy: step.assigned_agent ?? step.session_agent_id,
+        evidence: {
+          sessionStatus: step.session_status,
+          sessionSummary: step.session_summary ?? void 0
+        }
+      });
       await finalizeMissionIfComplete(step.mission_id);
     } else if (step.session_status === "failed" || step.session_status === "timed_out") {
       const updated = await sql2`
@@ -12644,6 +13481,20 @@ async function finalizeMissionSteps() {
             `;
       if (updated.length === 0) continue;
       finalized++;
+      await appendStepExecutionEvidence({
+        step: {
+          id: step.id,
+          mission_id: step.mission_id,
+          kind: step.kind,
+          payload: step.payload,
+          assigned_agent: step.assigned_agent ?? step.session_agent_id,
+          output_path: step.output_path
+        },
+        outcome: "failed",
+        reason: step.session_error ?? (step.session_status === "timed_out" ? "Agent session timed out" : "Agent session failed"),
+        recordedBy: step.assigned_agent ?? step.session_agent_id,
+        evidence: { sessionStatus: step.session_status }
+      });
       await finalizeMissionIfComplete(step.mission_id);
     }
   }

@@ -92,6 +92,7 @@ export interface Mission {
     description?: string;
     status: MissionStatus;
     created_by: string;
+    execution_contract?: Record<string, unknown>;
     completed_at?: string;
     failure_reason?: string;
     created_at: string;

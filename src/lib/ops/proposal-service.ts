@@ -1,6 +1,8 @@
 // Proposal service — create proposals, record approval evaluations, and manage
 // proposal-derived missions.
 import { sql, jsonb } from '@/lib/db';
+import { createHash } from 'crypto';
+import { z } from 'zod';
 import type { ProposalInput, Proposal } from '../types';
 import {
     getPolicyRecord,
@@ -8,7 +10,7 @@ import {
     policyVersion,
     type PolicyRecord,
 } from './policy';
-import { hashStep } from './proposal-runner';
+import { hashStep, stableJson } from './proposal-runner';
 import { checkCapGates } from './cap-gates';
 import { emitEvent, emitEventAndCheckReactions } from './events';
 import { upsertProposalReviewPacket } from './review-packets';
@@ -25,10 +27,13 @@ type ProposalCreateResult = {
     reason?: string;
 };
 
-type ApprovalEvaluationOutcome =
-    | 'approved'
-    | 'held_for_review'
-    | 'pending_review';
+const approvalEvaluationOutcomeSchema = z.enum([
+    'approved',
+    'held_for_review',
+    'pending_review',
+]);
+
+type ApprovalEvaluationOutcome = z.infer<typeof approvalEvaluationOutcomeSchema>;
 
 interface ApprovalEvaluation {
     outcome: ApprovalEvaluationOutcome;
@@ -43,7 +48,9 @@ interface ApprovalEvaluation {
     stepDecisions: Record<string, StepApprovalDecision>;
 }
 
-type ApprovalRiskClass = 'low' | 'medium' | 'high';
+const approvalRiskClassSchema = z.enum(['low', 'medium', 'high']);
+
+type ApprovalRiskClass = z.infer<typeof approvalRiskClassSchema>;
 
 interface StepApprovalDecision {
     stepHash: string;
@@ -55,6 +62,73 @@ interface StepApprovalDecision {
     policyVersion: string;
     policyHash: string;
 }
+
+const recordSchema = z.record(z.string(), z.unknown());
+
+const stepApprovalDecisionSchema = z
+    .object({
+        stepHash: z.string().min(1),
+        stepKind: z.string().min(1),
+        outcome: approvalEvaluationOutcomeSchema,
+        riskClass: approvalRiskClassSchema,
+        matchedRule: z.string().min(1),
+        reason: z.string().min(1),
+        policyVersion: z.string().min(1),
+        policyHash: z.string().min(1),
+    })
+    .strict();
+
+type ApprovalEvaluationRecord = {
+    id: string;
+    outcome: ApprovalEvaluationOutcome;
+    reason: string;
+    trusted_source: boolean;
+    step_decisions: Record<string, StepApprovalDecision>;
+    decision: Record<string, unknown>;
+    created_at: string;
+};
+
+const missionExecutionContractSchema = z
+    .object({
+        schemaVersion: z.literal(1),
+        sealed: z.literal(true),
+        proposalId: z.string().min(1),
+        proposalRevision: z.string().min(1),
+        proposalHash: z.string().min(1),
+        approvalEvaluationId: z.string().min(1),
+        approvedAt: z.string().datetime({ offset: true }),
+        expiresAt: z.string().datetime({ offset: true }),
+        rationale: z.string().min(1),
+        approver: z
+            .object({
+                type: z.enum(['policy', 'operator', 'agent']),
+                id: z.string().min(1),
+                metadata: recordSchema,
+            })
+            .strict(),
+        beneficiary: z.string().min(1),
+        riskOwner: z.string().min(1),
+        approvedSteps: z.array(
+            z
+                .object({
+                    index: z.number().int().nonnegative(),
+                    kind: z.string().min(1),
+                    stepHash: z.string().min(1),
+                    payload: recordSchema,
+                    assignedAgent: z.string().min(1).nullable(),
+                    outputPath: z.string().min(1).nullable(),
+                    acceptanceCriteria: z.array(z.string().min(1)),
+                    approvalDecision: stepApprovalDecisionSchema.nullable(),
+                })
+                .strict(),
+        ),
+        contractHash: z.string().min(1),
+    })
+    .strict();
+
+export type MissionExecutionContract = z.infer<
+    typeof missionExecutionContractSchema
+>;
 
 function isUniqueViolation(error: unknown): boolean {
     return (
@@ -550,6 +624,255 @@ function evaluationDecision(
     };
 }
 
+function sha256(value: unknown): string {
+    return createHash('sha256').update(stableJson(value)).digest('hex');
+}
+
+function proposalRevision(proposal: Proposal): string {
+    return `${proposal.id}:${proposal.updated_at}`;
+}
+
+function proposalSnapshot(proposal: Proposal): Record<string, unknown> {
+    return {
+        id: proposal.id,
+        agent_id: proposal.agent_id,
+        title: proposal.title,
+        description: proposal.description ?? null,
+        status: proposal.status,
+        proposed_steps: proposal.proposed_steps,
+        source: proposal.source,
+        source_trace_id: proposal.source_trace_id ?? null,
+        auto_approved: proposal.auto_approved,
+        created_at: proposal.created_at,
+        updated_at: proposal.updated_at,
+    };
+}
+
+function normalizeAcceptanceCriteria(value: unknown, fallback: string): string[] {
+    if (Array.isArray(value)) {
+        const criteria = value.filter(
+            (entry): entry is string =>
+                typeof entry === 'string' && entry.trim().length > 0,
+        );
+        if (criteria.length > 0) return criteria;
+    }
+
+    if (typeof value === 'string' && value.trim().length > 0) {
+        return [value.trim()];
+    }
+
+    return [fallback];
+}
+
+function stringFromPayload(
+    proposal: Proposal,
+    key: 'beneficiary' | 'risk_owner' | 'riskOwner',
+): string | null {
+    for (const step of proposal.proposed_steps) {
+        const value = step.payload?.[key];
+        if (typeof value === 'string' && value.trim().length > 0) {
+            return value.trim();
+        }
+    }
+    return null;
+}
+
+async function latestApprovedEvaluation(
+    proposalId: string,
+): Promise<ApprovalEvaluationRecord> {
+    const [evaluation] = await sql<[ApprovalEvaluationRecord]>`
+        SELECT id, outcome, reason, trusted_source, step_decisions, decision, created_at
+        FROM ops_proposal_approval_evaluations
+        WHERE proposal_id = ${proposalId}
+        ORDER BY created_at DESC
+        LIMIT 1
+    `;
+
+    if (!evaluation) {
+        throw new Error(
+            `Proposal ${proposalId} has no approval evaluation; refusing to create mission`,
+        );
+    }
+
+    if (evaluation.outcome !== 'approved') {
+        throw new Error(
+            `Proposal ${proposalId} latest evaluation is ${evaluation.outcome}; refusing to create mission`,
+        );
+    }
+
+    return evaluation;
+}
+
+function buildExecutionContract(
+    proposal: Proposal,
+    evaluation: ApprovalEvaluationRecord,
+): MissionExecutionContract {
+    if (proposal.status !== 'accepted') {
+        throw new Error(
+            `Proposal ${proposal.id} is ${proposal.status}; only accepted proposals can produce missions`,
+        );
+    }
+
+    const proposalHash = sha256(proposalSnapshot(proposal));
+    const approvedAt = new Date(evaluation.created_at).toISOString();
+    const expiresAt = new Date(
+        new Date(evaluation.created_at).getTime() + 7 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const decidedBy =
+        typeof evaluation.decision.decidedBy === 'string' ?
+            evaluation.decision.decidedBy
+        :   'unknown_approver';
+
+    const unsignedContract = {
+        schemaVersion: 1 as const,
+        sealed: true as const,
+        proposalId: proposal.id,
+        proposalRevision: proposalRevision(proposal),
+        proposalHash,
+        approvalEvaluationId: evaluation.id,
+        approvedAt,
+        expiresAt,
+        rationale: evaluation.reason,
+        approver: {
+            type: 'policy' as const,
+            id: decidedBy,
+            metadata: {
+                trustedSource: evaluation.trusted_source,
+                decision: evaluation.decision,
+            },
+        },
+        beneficiary:
+            stringFromPayload(proposal, 'beneficiary') ?? proposal.agent_id,
+        riskOwner:
+            stringFromPayload(proposal, 'risk_owner') ??
+            stringFromPayload(proposal, 'riskOwner') ??
+            proposal.agent_id,
+        approvedSteps: proposal.proposed_steps.map((step, index) => {
+            const stepHash = hashStep(step);
+            const payload = step.payload ?? {};
+            return {
+                index,
+                kind: step.kind,
+                stepHash,
+                payload,
+                assignedAgent: step.assigned_agent ?? null,
+                outputPath: step.output_path ?? null,
+                acceptanceCriteria: normalizeAcceptanceCriteria(
+                    payload.acceptance_criteria ?? payload.acceptanceCriteria,
+                    `Step ${index + 1} (${step.kind}) completes successfully without violating the approved payload boundary.`,
+                ),
+                approvalDecision: evaluation.step_decisions[stepHash] ?? null,
+            };
+        }),
+    };
+
+    const contract = {
+        ...unsignedContract,
+        contractHash: sha256(unsignedContract),
+    };
+
+    return validateExecutionContract(contract, proposal);
+}
+
+export function validateSealedExecutionContract(
+    contract: unknown,
+): MissionExecutionContract {
+    const parsedContract = missionExecutionContractSchema.parse(contract);
+    const unsignedContract = { ...parsedContract } as Omit<
+        MissionExecutionContract,
+        'contractHash'
+    > & { contractHash?: string };
+    delete unsignedContract.contractHash;
+
+    const requiredStrings: Array<[string, unknown]> = [
+        ['proposalId', parsedContract.proposalId],
+        ['proposalRevision', parsedContract.proposalRevision],
+        ['proposalHash', parsedContract.proposalHash],
+        ['approvalEvaluationId', parsedContract.approvalEvaluationId],
+        ['approvedAt', parsedContract.approvedAt],
+        ['expiresAt', parsedContract.expiresAt],
+        ['rationale', parsedContract.rationale],
+        ['approver.id', parsedContract.approver.id],
+        ['beneficiary', parsedContract.beneficiary],
+        ['riskOwner', parsedContract.riskOwner],
+        ['contractHash', parsedContract.contractHash],
+    ];
+
+    for (const [field, value] of requiredStrings) {
+        if (typeof value !== 'string' || value.trim().length === 0) {
+            throw new Error(`Execution contract missing required field ${field}`);
+        }
+    }
+
+    if (parsedContract.schemaVersion !== 1 || parsedContract.sealed !== true) {
+        throw new Error('Execution contract must be schemaVersion=1 and sealed');
+    }
+
+    if (parsedContract.approvedSteps.length === 0) {
+        throw new Error('Execution contract must include at least one approved step');
+    }
+
+    if (
+        Date.parse(parsedContract.expiresAt) <=
+        Date.parse(parsedContract.approvedAt)
+    ) {
+        throw new Error('Execution contract expiry must be after approval time');
+    }
+
+    for (const approvedStep of parsedContract.approvedSteps) {
+        if (approvedStep.acceptanceCriteria.length === 0) {
+            throw new Error(
+                `Execution contract step ${approvedStep.index} has no acceptance criteria`,
+            );
+        }
+        if (approvedStep.approvalDecision?.outcome !== 'approved') {
+            throw new Error(
+                `Execution contract step ${approvedStep.index} is missing an approved decision`,
+            );
+        }
+    }
+
+    if (parsedContract.contractHash !== sha256(unsignedContract)) {
+        throw new Error('Execution contract hash is invalid');
+    }
+
+    return parsedContract;
+}
+
+function validateExecutionContract(
+    contract: unknown,
+    proposal: Proposal,
+): MissionExecutionContract {
+    const parsedContract = validateSealedExecutionContract(contract);
+
+    if (parsedContract.proposalId !== proposal.id) {
+        throw new Error('Execution contract proposalId does not match proposal');
+    }
+
+    if (parsedContract.proposalRevision !== proposalRevision(proposal)) {
+        throw new Error('Execution contract proposal revision does not match proposal');
+    }
+
+    if (parsedContract.proposalHash !== sha256(proposalSnapshot(proposal))) {
+        throw new Error('Execution contract proposal hash does not match proposal');
+    }
+
+    if (parsedContract.approvedSteps.length !== proposal.proposed_steps.length) {
+        throw new Error('Execution contract approved steps do not match proposal');
+    }
+
+    for (const approvedStep of parsedContract.approvedSteps) {
+        const proposedStep = proposal.proposed_steps[approvedStep.index];
+        if (!proposedStep || approvedStep.stepHash !== hashStep(proposedStep)) {
+            throw new Error(
+                `Execution contract step ${approvedStep.index} does not match proposal`,
+            );
+        }
+    }
+
+    return parsedContract;
+}
+
 export async function createMissionFromProposal(
     proposalId: string,
 ): Promise<string> {
@@ -559,21 +882,36 @@ export async function createMissionFromProposal(
 
     if (!proposal) throw new Error(`Proposal ${proposalId} not found`);
 
-    const [mission] = await sql<[{ id: string; created: boolean }]>`
-        INSERT INTO ops_missions (proposal_id, title, description, status, created_by)
+    const approvalEvaluation = await latestApprovedEvaluation(proposalId);
+    const executionContract = buildExecutionContract(
+        proposal,
+        approvalEvaluation,
+    );
+
+    const [mission] = await sql<
+        [{ id: string; created: boolean; execution_contract: MissionExecutionContract }]
+    >`
+        INSERT INTO ops_missions (proposal_id, title, description, status, created_by, execution_contract)
         VALUES (
             ${proposalId},
             ${proposal.title},
             ${proposal.description ?? null},
             'approved',
-            ${proposal.agent_id}
+            ${proposal.agent_id},
+            ${jsonb(executionContract)}
         )
         ON CONFLICT (proposal_id) WHERE proposal_id IS NOT NULL DO UPDATE
-            SET proposal_id = EXCLUDED.proposal_id
-        RETURNING id, (xmax = 0) AS created
+            SET execution_contract = COALESCE(ops_missions.execution_contract, EXCLUDED.execution_contract),
+                updated_at = CASE
+                    WHEN ops_missions.execution_contract IS NULL THEN NOW()
+                    ELSE ops_missions.updated_at
+                END
+        RETURNING id, (xmax = 0) AS created, execution_contract
     `;
 
     const missionId = mission.id;
+
+    validateExecutionContract(mission.execution_contract, proposal);
 
     if (!mission.created) {
         return missionId;

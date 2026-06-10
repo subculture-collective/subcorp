@@ -2,6 +2,66 @@
 import { sql } from '@/lib/db';
 import { emitEvent } from './events';
 import { getPolicy } from './policy';
+import { hashStep } from './proposal-runner';
+import { validateSealedExecutionContract } from './proposal-service';
+import {
+    blockerClassForOutcome,
+    recordExecutionEvidence,
+    type ExecutionEvidenceOutcome,
+} from './execution-evidence';
+import type { StepKind } from '../types';
+
+async function appendRecoveryEvidence(input: {
+    stepId: string;
+    missionId: string;
+    outcome: ExecutionEvidenceOutcome;
+    reason?: string | null;
+    evidence?: Record<string, unknown>;
+}): Promise<void> {
+    try {
+        const [row] = await sql<
+            Array<{
+                kind: string;
+                payload: Record<string, unknown> | null;
+                assigned_agent: string | null;
+                output_path: string | null;
+                execution_contract: unknown;
+            }>
+        >`
+            SELECT s.kind, s.payload, s.assigned_agent, s.output_path, m.execution_contract
+            FROM ops_mission_steps s
+            JOIN ops_missions m ON m.id = s.mission_id
+            WHERE s.id = ${input.stepId}
+        `;
+        if (!row?.execution_contract) return;
+
+        const contract = validateSealedExecutionContract(row.execution_contract);
+        const stepHash = hashStep({
+            kind: row.kind as StepKind,
+            payload: row.payload ?? {},
+            assigned_agent: row.assigned_agent ?? undefined,
+            output_path: row.output_path ?? undefined,
+        });
+        const contractStep = contract.approvedSteps.find(
+            approvedStep => approvedStep.stepHash === stepHash,
+        );
+        if (!contractStep) return;
+
+        await recordExecutionEvidence({
+            missionId: input.missionId,
+            stepId: input.stepId,
+            contract,
+            contractStep,
+            outcome: input.outcome,
+            blockerClass: blockerClassForOutcome(input.outcome, input.reason),
+            artifactPaths: row.output_path ? [row.output_path] : [],
+            evidence: { recoveredBy: 'recovery', ...(input.evidence ?? {}) },
+            recordedBy: row.assigned_agent ?? null,
+        });
+    } catch {
+        // Evidence recording must never prevent recovery from resolving stale work.
+    }
+}
 
 export async function recoverStaleSteps(): Promise<{ recovered: number }> {
     const policy = await getPolicy('recovery_policy');
@@ -48,6 +108,12 @@ export async function recoverStaleSteps(): Promise<{ recovered: number }> {
                 `;
                 recovered++;
                 affectedMissionIds.add(row.mission_id);
+                await appendRecoveryEvidence({
+                    stepId: row.id,
+                    missionId: row.mission_id,
+                    outcome: 'succeeded',
+                    evidence: { sessionId: row.session_id, sessionStatus: row.session_status },
+                });
             } else if (row.session_status === 'blocked') {
                 // Session blocked — propagate blocker to step
                 const reason = row.session_error ?? 'Agent session blocked';
@@ -61,6 +127,13 @@ export async function recoverStaleSteps(): Promise<{ recovered: number }> {
                 `;
                 recovered++;
                 affectedMissionIds.add(row.mission_id);
+                await appendRecoveryEvidence({
+                    stepId: row.id,
+                    missionId: row.mission_id,
+                    outcome: 'blocked',
+                    reason,
+                    evidence: { sessionId: row.session_id, sessionStatus: row.session_status },
+                });
             } else if (row.session_status === 'failed' || row.session_status === 'timed_out') {
                 // Session failed — propagate failure to step
                 const reason = row.session_error ?? `Agent session ${row.session_status}`;
@@ -74,6 +147,13 @@ export async function recoverStaleSteps(): Promise<{ recovered: number }> {
                 `;
                 recovered++;
                 affectedMissionIds.add(row.mission_id);
+                await appendRecoveryEvidence({
+                    stepId: row.id,
+                    missionId: row.mission_id,
+                    outcome: 'failed',
+                    reason,
+                    evidence: { sessionId: row.session_id, sessionStatus: row.session_status },
+                });
             }
             // If session is still 'running' or 'pending', leave the step alone —
             // the session's own timeout (sweepStaleAgentSessions) handles that lifecycle.
@@ -91,6 +171,13 @@ export async function recoverStaleSteps(): Promise<{ recovered: number }> {
             `;
             recovered++;
             affectedMissionIds.add(row.mission_id);
+            await appendRecoveryEvidence({
+                stepId: row.id,
+                missionId: row.mission_id,
+                outcome: 'failed',
+                reason,
+                evidence: { sessionId: row.session_id, sessionStatus: row.session_status },
+            });
         }
     }
 
