@@ -1557,19 +1557,19 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
     const orphaned = await sql<
         { id: string; mission_id: string; kind: string; assigned_agent: string | null }[]
     >`
-        UPDATE ops_mission_steps
+        UPDATE ops_mission_steps step
         SET status = 'failed',
             failure_reason = 'Swept — step running with no live agent session',
             completed_at = NOW(),
             updated_at = NOW()
-        WHERE status = 'running'
-          AND started_at < NOW() - INTERVAL '2 hours'
-          AND result->>'agent_session_id' IS NOT NULL
+        WHERE step.status = 'running'
+          AND step.started_at < NOW() - INTERVAL '2 hours'
+          AND step.result->>'agent_session_id' IS NOT NULL
           AND NOT EXISTS (
               SELECT 1 FROM ops_agent_sessions s
-              WHERE s.id = (result->>'agent_session_id')::uuid
+              WHERE s.id = (step.result->>'agent_session_id')::uuid
           )
-        RETURNING id, mission_id, kind, assigned_agent
+        RETURNING step.id, step.mission_id, step.kind, step.assigned_agent
     `;
 
     if (requeued.length > 0) {

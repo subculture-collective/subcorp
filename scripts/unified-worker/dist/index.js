@@ -6446,7 +6446,7 @@ ${convLines.join("\n")}`
     );
   }
   const pendingProposals = await sql`
-        SELECT title, agent_id
+        SELECT id, title, agent_id
         FROM ops_mission_proposals
         WHERE status = 'pending'
         ORDER BY created_at DESC
@@ -6455,7 +6455,7 @@ ${convLines.join("\n")}`
   if (pendingProposals.length > 0) {
     const propLines = pendingProposals.map((p) => {
       const by = AGENTS[p.agent_id]?.displayName ?? p.agent_id;
-      return `- ${p.title} (proposed by ${by})`;
+      return `- ${p.title} [id: ${p.id}] (proposed by ${by})`;
     });
     sections.push(`Pending proposals:
 ${propLines.join("\n")}`);
@@ -13057,19 +13057,19 @@ async function sweepOrphanedMissionSteps() {
         RETURNING id, mission_id, kind, assigned_agent
     `;
   const orphaned = await sql2`
-        UPDATE ops_mission_steps
+        UPDATE ops_mission_steps step
         SET status = 'failed',
             failure_reason = 'Swept — step running with no live agent session',
             completed_at = NOW(),
             updated_at = NOW()
-        WHERE status = 'running'
-          AND started_at < NOW() - INTERVAL '2 hours'
-          AND result->>'agent_session_id' IS NOT NULL
+        WHERE step.status = 'running'
+          AND step.started_at < NOW() - INTERVAL '2 hours'
+          AND step.result->>'agent_session_id' IS NOT NULL
           AND NOT EXISTS (
               SELECT 1 FROM ops_agent_sessions s
-              WHERE s.id = (result->>'agent_session_id')::uuid
+              WHERE s.id = (step.result->>'agent_session_id')::uuid
           )
-        RETURNING id, mission_id, kind, assigned_agent
+        RETURNING step.id, step.mission_id, step.kind, step.assigned_agent
     `;
   if (requeued.length > 0) {
     log36.warn("Requeued mission steps without session links", {
