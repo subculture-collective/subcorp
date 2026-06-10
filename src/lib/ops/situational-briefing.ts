@@ -146,9 +146,9 @@ Maintain a knowledge base (company wiki) in your repos — document decisions, a
 
     // 5. Pending proposals
     const pendingProposals = await sql<
-        Array<{ title: string; agent_id: string }>
+        Array<{ id: string; title: string; agent_id: string }>
     >`
-        SELECT title, agent_id
+        SELECT id, title, agent_id
         FROM ops_mission_proposals
         WHERE status = 'pending'
         ORDER BY created_at DESC
@@ -158,7 +158,7 @@ Maintain a knowledge base (company wiki) in your repos — document decisions, a
     if (pendingProposals.length > 0) {
         const propLines = pendingProposals.map(p => {
             const by = AGENTS[p.agent_id as AgentId]?.displayName ?? p.agent_id;
-            return `- ${p.title} (proposed by ${by})`;
+            return `- ${p.title} [id: ${p.id}] (proposed by ${by})`;
         });
         sections.push(`Pending proposals:\n${propLines.join('\n')}`);
     }

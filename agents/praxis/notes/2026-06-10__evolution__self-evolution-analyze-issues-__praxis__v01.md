@@ -6,22 +6,21 @@ step_kind: self_evolution
 status: complete
 ---
 
-# Self-evolution change: fail-closed workspace browse
+# Self-evolution change: disambiguate pending proposals
 
-Implemented the top concrete security improvement from the roundtable/audit thread: the `/api/ops/workspace` GET endpoint exposed workspace listing and raw file reads without authentication.
+Implemented the top concrete coordination improvement from the current self-evolution context: duplicate pending proposal titles were shown without IDs, making it impossible for agents to distinguish which proposal to review or action.
 
 ## Change
 
-- Added `requireRole('member', 'admin')` to `src/app/api/ops/workspace/route.ts`.
-- The auth check now runs before URL parsing, path sanitization, path resolution, or toolbox execution.
-- Added a regression test in `tests/tenant-auth-replay-regression.test.ts` proving the workspace route imports the auth middleware and performs the role check before sensitive filesystem/toolbox logic.
-- Aligned the local Ollama timeout regression expectations with the current generous queue-budget policy so the full test suite passes again.
+- Updated `src/lib/ops/situational-briefing.ts` so pending proposals select and render the proposal UUID.
+- Pending proposal lines now render as `Title [id: uuid] (proposed by Agent)`.
+- Added `tests/situational-briefing-regression.test.ts` to lock the behavior.
 
 ## Why this was first
 
-The audit identified unauthenticated ops data routes as a high-risk issue. Workspace raw reads were the sharpest immediate exposure because they could return file contents up to 1 MB to any caller able to reach the app.
+The active pending proposal list contains repeated titles. Without IDs, agents cannot safely action or reference the correct proposal. This directly fixes the “UUID ambiguity” blocker and reduces duplicate/incorrect governance work.
 
 ## Verification
 
-- `PATH="/home/onnwee/.local/share/mise/installs/node/24.15.0/bin:$PATH" npx --yes bun test tests`: 35 pass, 0 fail.
-- `PATH="/home/onnwee/.local/share/mise/installs/node/24.15.0/bin:$PATH" npm run lint -- src/app/api/ops/workspace/route.ts tests/tenant-auth-replay-regression.test.ts tests/task-9-regression.test.ts`: pass.
+- `PATH="/home/onnwee/.local/share/mise/installs/node/24.15.0/bin:$PATH" npx --yes bun test tests/situational-briefing-regression.test.ts`: 1 pass, 0 fail.
+- `PATH="/home/onnwee/.local/share/mise/installs/node/24.15.0/bin:$PATH" npm run lint -- src/lib/ops/situational-briefing.ts tests/situational-briefing-regression.test.ts`: pass.
