@@ -1073,24 +1073,45 @@ async function tryOllamaFirst(messages, temperature, maxTokens, startTime, track
     } catch {
     }
   }
-  const ollamaResult = await ollamaChat(messages, temperature, {
-    maxTokens,
-    model: ollamaModel,
-    deadlineAt
-  });
-  if (ollamaResult?.text) {
-    log.debug("Ollama succeeded", {
-      model: ollamaResult.model,
-      context: trackingContext?.context,
-      textLength: ollamaResult.text.length
+  const maxAttempts = 1 + OLLAMA_EMPTY_RETRY_COUNT;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (deadlineAt && getRemainingBudget(deadlineAt) <= 1e3) break;
+    const attemptMessages = attempt === 1 ? messages : [
+      ...messages,
+      {
+        role: "user",
+        content: "The previous generation attempt returned no usable text. Retry now and produce a concrete, complete response. Do not return an empty message."
+      }
+    ];
+    const ollamaResult = await ollamaChat(attemptMessages, temperature, {
+      maxTokens,
+      model: ollamaModel,
+      deadlineAt
     });
-    void trackUsage(
-      `ollama/${ollamaResult.model}`,
-      toOpenResponsesUsage(ollamaResult.usage),
-      Date.now() - startTime,
-      trackingContext
-    );
-    return ollamaResult.text;
+    if (ollamaResult?.text) {
+      log.debug("Ollama succeeded", {
+        model: ollamaResult.model,
+        context: trackingContext?.context,
+        textLength: ollamaResult.text.length,
+        attempt
+      });
+      void trackUsage(
+        `ollama/${ollamaResult.model}`,
+        toOpenResponsesUsage(ollamaResult.usage),
+        Date.now() - startTime,
+        trackingContext
+      );
+      return ollamaResult.text;
+    }
+    if (attempt < maxAttempts) {
+      log.warn("Ollama returned empty; retrying once before provider fallback", {
+        context: trackingContext?.context,
+        agentId: trackingContext?.agentId,
+        attempt,
+        maxAttempts,
+        remainingBudgetMs: deadlineAt ? getRemainingBudget(deadlineAt) : void 0
+      });
+    }
   }
   log.debug("Ollama returned empty, falling through to OpenRouter", {
     context: trackingContext?.context,
@@ -2367,7 +2388,7 @@ function extractJson(text) {
   }
   return null;
 }
-var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TEXT_TIMEOUT_MS, OPENROUTER_TEXT_BUDGET_MS, OPENROUTER_TOOL_TIMEOUT_MS, OPENROUTER_TOOL_BUDGET_MS, OPENROUTER_MAX_INDIVIDUAL_FALLBACKS, LLM_TEXT_TOTAL_BUDGET_MS, LLM_TOOL_TOTAL_BUDGET_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_API_KEY, OLLAMA_TEXT_TIMEOUT_MS, OLLAMA_PREFERRED_TEXT_TIMEOUT_MS, OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS, OLLAMA_TOOL_TIMEOUT_MS, OLLAMA_BUDGET_MS, OLLAMA_TAGS_TIMEOUT_MS, OLLAMA_MODEL_CACHE_TTL_MS, OLLAMA_MODEL, ollamaModelCatalogCache, LLAMA_LINE_MODEL_PREFIXES;
+var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TEXT_TIMEOUT_MS, OPENROUTER_TEXT_BUDGET_MS, OPENROUTER_TOOL_TIMEOUT_MS, OPENROUTER_TOOL_BUDGET_MS, OPENROUTER_MAX_INDIVIDUAL_FALLBACKS, LLM_TEXT_TOTAL_BUDGET_MS, LLM_TOOL_TOTAL_BUDGET_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_API_KEY, OLLAMA_TEXT_TIMEOUT_MS, OLLAMA_PREFERRED_TEXT_TIMEOUT_MS, OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS, OLLAMA_TOOL_TIMEOUT_MS, OLLAMA_BUDGET_MS, OLLAMA_TAGS_TIMEOUT_MS, OLLAMA_MODEL_CACHE_TTL_MS, OLLAMA_MODEL, OLLAMA_EMPTY_RETRY_COUNT, ollamaModelCatalogCache, LLAMA_LINE_MODEL_PREFIXES;
 var init_client = __esm({
   "src/lib/llm/client.ts"() {
     "use strict";
@@ -2456,6 +2477,10 @@ var init_client = __esm({
     OLLAMA_TAGS_TIMEOUT_MS = 5e3;
     OLLAMA_MODEL_CACHE_TTL_MS = 3e4;
     OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "";
+    OLLAMA_EMPTY_RETRY_COUNT = Math.max(
+      0,
+      Number.parseInt(process.env.OLLAMA_EMPTY_RETRY_COUNT ?? "1", 10) || 0
+    );
     ollamaModelCatalogCache = null;
     LLAMA_LINE_MODEL_PREFIXES = (process.env.LLAMA_LINE_MODEL_PREFIXES ?? "openai/gpt-,github-copilot/").split(",").map((prefix) => prefix.trim()).filter(Boolean);
   }
@@ -11464,20 +11489,30 @@ var sql2 = (0, import_postgres2.default)(process.env.DATABASE_URL, {
   idle_timeout: 20,
   connect_timeout: 10
 });
+var AGENT_SESSION_CONCURRENCY = Math.max(
+  1,
+  Number.parseInt(process.env.WORKER_AGENT_SESSION_CONCURRENCY ?? "2", 10) || 1
+);
 async function pollAgentSessions() {
-  const [session] = await sql2`
+  const sessions = await sql2`
         UPDATE ops_agent_sessions
         SET status = 'running', started_at = NOW()
-        WHERE id = (
+        WHERE id = ANY(
+            ARRAY(
             SELECT id FROM ops_agent_sessions
             WHERE status = 'pending'
             ORDER BY created_at ASC
-            LIMIT 1
+                LIMIT ${AGENT_SESSION_CONCURRENCY}
             FOR UPDATE SKIP LOCKED
+            )
         )
         RETURNING *
     `;
-  if (!session) return false;
+  if (sessions.length === 0) return false;
+  await Promise.allSettled(sessions.map((session) => processAgentSession(session)));
+  return true;
+}
+async function processAgentSession(session) {
   log36.info("Processing agent session", {
     sessionId: session.id,
     agent: session.agent_id,
@@ -11705,7 +11740,6 @@ async function pollAgentSessions() {
             WHERE id = ${session.id}
         `;
   }
-  return true;
 }
 async function pollRoundtables() {
   const rows = await sql2`
@@ -11785,7 +11819,10 @@ async function pollRoundtables() {
   }
   return true;
 }
-var MAX_PARALLEL_STEPS = 3;
+var MAX_PARALLEL_STEPS = Math.max(
+  1,
+  Number.parseInt(process.env.WORKER_MISSION_STEP_CONCURRENCY ?? "5", 10) || 1
+);
 async function pollMissionSteps() {
   const steps = await sql2`
         UPDATE ops_mission_steps
@@ -12552,6 +12589,22 @@ async function sweepStaleRoundtables() {
   return stale.length > 0;
 }
 async function sweepOrphanedMissionSteps() {
+  const requeued = await sql2`
+        UPDATE ops_mission_steps
+        SET status = 'queued',
+            reserved_by = NULL,
+            started_at = NULL,
+            updated_at = NOW(),
+            failure_reason = NULL,
+            result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
+                'requeuedReason', 'Swept — running step had no agent session link',
+                'requeuedAt', NOW()
+            )
+        WHERE status = 'running'
+          AND started_at < NOW() - INTERVAL '15 minutes'
+          AND result->>'agent_session_id' IS NULL
+        RETURNING id, mission_id, kind, assigned_agent
+    `;
   const orphaned = await sql2`
         UPDATE ops_mission_steps
         SET status = 'failed',
@@ -12560,15 +12613,24 @@ async function sweepOrphanedMissionSteps() {
             updated_at = NOW()
         WHERE status = 'running'
           AND started_at < NOW() - INTERVAL '15 minutes'
-          AND (
-            result->>'agent_session_id' IS NULL
-            OR NOT EXISTS (
+          AND result->>'agent_session_id' IS NOT NULL
+          AND NOT EXISTS (
               SELECT 1 FROM ops_agent_sessions s
               WHERE s.id = (result->>'agent_session_id')::uuid
-            )
           )
         RETURNING id, mission_id, kind, assigned_agent
     `;
+  if (requeued.length > 0) {
+    log36.warn("Requeued mission steps without session links", {
+      count: requeued.length,
+      steps: requeued.map((s) => ({
+        id: s.id,
+        missionId: s.mission_id,
+        kind: s.kind,
+        agent: s.assigned_agent
+      }))
+    });
+  }
   if (orphaned.length > 0) {
     log36.warn("Swept orphaned mission steps", {
       count: orphaned.length,
@@ -12584,7 +12646,7 @@ async function sweepOrphanedMissionSteps() {
       await finalizeMissionIfComplete(missionId);
     }
   }
-  return orphaned.length > 0;
+  return requeued.length > 0 || orphaned.length > 0;
 }
 async function runMaintenanceTasks() {
   await sweepStaleAgentSessions();

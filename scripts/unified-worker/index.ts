@@ -124,23 +124,35 @@ const sql = postgres(process.env.DATABASE_URL, {
 
 // ─── Queue handlers ───
 
+const AGENT_SESSION_CONCURRENCY = Math.max(
+    1,
+    Number.parseInt(process.env.WORKER_AGENT_SESSION_CONCURRENCY ?? '2', 10) || 1,
+);
+
 /** Poll and process pending agent sessions (highest priority) */
 async function pollAgentSessions(): Promise<boolean> {
-    const [session] = await sql<AgentSession[]>`
+    const sessions = await sql<AgentSession[]>`
         UPDATE ops_agent_sessions
         SET status = 'running', started_at = NOW()
-        WHERE id = (
+        WHERE id = ANY(
+            ARRAY(
             SELECT id FROM ops_agent_sessions
             WHERE status = 'pending'
             ORDER BY created_at ASC
-            LIMIT 1
+                LIMIT ${AGENT_SESSION_CONCURRENCY}
             FOR UPDATE SKIP LOCKED
+            )
         )
         RETURNING *
     `;
 
-    if (!session) return false;
+    if (sessions.length === 0) return false;
 
+    await Promise.allSettled(sessions.map(session => processAgentSession(session)));
+    return true;
+}
+
+async function processAgentSession(session: AgentSession): Promise<void> {
     log.info('Processing agent session', {
         sessionId: session.id,
         agent: session.agent_id,
@@ -435,8 +447,6 @@ async function pollAgentSessions(): Promise<boolean> {
             WHERE id = ${session.id}
         `;
     }
-
-    return true;
 }
 
 /** Poll and process pending roundtable conversations */
@@ -536,7 +546,10 @@ async function pollRoundtables(): Promise<boolean> {
     return true;
 }
 
-const MAX_PARALLEL_STEPS = 3;
+const MAX_PARALLEL_STEPS = Math.max(
+    1,
+    Number.parseInt(process.env.WORKER_MISSION_STEP_CONCURRENCY ?? '5', 10) || 1,
+);
 
 /** Poll and process queued mission steps — routes through agent sessions for tool access */
 async function pollMissionSteps(): Promise<boolean> {
@@ -1482,6 +1495,25 @@ async function sweepStaleRoundtables(): Promise<boolean> {
 
 /** Sweep mission steps stuck in 'running' with no live agent session (e.g. after worker restart) */
 async function sweepOrphanedMissionSteps(): Promise<boolean> {
+    const requeued = await sql<
+        { id: string; mission_id: string; kind: string; assigned_agent: string | null }[]
+    >`
+        UPDATE ops_mission_steps
+        SET status = 'queued',
+            reserved_by = NULL,
+            started_at = NULL,
+            updated_at = NOW(),
+            failure_reason = NULL,
+            result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
+                'requeuedReason', 'Swept — running step had no agent session link',
+                'requeuedAt', NOW()
+            )
+        WHERE status = 'running'
+          AND started_at < NOW() - INTERVAL '15 minutes'
+          AND result->>'agent_session_id' IS NULL
+        RETURNING id, mission_id, kind, assigned_agent
+    `;
+
     const orphaned = await sql<
         { id: string; mission_id: string; kind: string; assigned_agent: string | null }[]
     >`
@@ -1492,15 +1524,25 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
             updated_at = NOW()
         WHERE status = 'running'
           AND started_at < NOW() - INTERVAL '15 minutes'
-          AND (
-            result->>'agent_session_id' IS NULL
-            OR NOT EXISTS (
+          AND result->>'agent_session_id' IS NOT NULL
+          AND NOT EXISTS (
               SELECT 1 FROM ops_agent_sessions s
               WHERE s.id = (result->>'agent_session_id')::uuid
-            )
           )
         RETURNING id, mission_id, kind, assigned_agent
     `;
+
+    if (requeued.length > 0) {
+        log.warn('Requeued mission steps without session links', {
+            count: requeued.length,
+            steps: requeued.map(s => ({
+                id: s.id,
+                missionId: s.mission_id,
+                kind: s.kind,
+                agent: s.assigned_agent,
+            })),
+        });
+    }
 
     if (orphaned.length > 0) {
         log.warn('Swept orphaned mission steps', {
@@ -1520,7 +1562,7 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
         }
     }
 
-    return orphaned.length > 0;
+    return requeued.length > 0 || orphaned.length > 0;
 }
 
 async function runMaintenanceTasks(): Promise<void> {

@@ -261,6 +261,10 @@ const OLLAMA_TAGS_TIMEOUT_MS = 5_000;
 const OLLAMA_MODEL_CACHE_TTL_MS = 30_000;
 /** Model override via env — when set, ONLY this model is used for local Ollama. */
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? '';
+const OLLAMA_EMPTY_RETRY_COUNT = Math.max(
+    0,
+    Number.parseInt(process.env.OLLAMA_EMPTY_RETRY_COUNT ?? '1', 10) || 0,
+);
 
 interface OllamaModelSpec {
     model: string;
@@ -540,24 +544,50 @@ async function tryOllamaFirst(
         } catch { /* routing unavailable, use default */ }
     }
 
-    const ollamaResult = await ollamaChat(messages, temperature, {
-        maxTokens,
-        model: ollamaModel,
-        deadlineAt,
-    });
-    if (ollamaResult?.text) {
-        log.debug('Ollama succeeded', {
-            model: ollamaResult.model,
-            context: trackingContext?.context,
-            textLength: ollamaResult.text.length,
+    const maxAttempts = 1 + OLLAMA_EMPTY_RETRY_COUNT;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (deadlineAt && getRemainingBudget(deadlineAt) <= 1_000) break;
+
+        const attemptMessages =
+            attempt === 1 ? messages : [
+                ...messages,
+                {
+                    role: 'user',
+                    content:
+                        'The previous generation attempt returned no usable text. Retry now and produce a concrete, complete response. Do not return an empty message.',
+                },
+            ];
+
+        const ollamaResult = await ollamaChat(attemptMessages, temperature, {
+            maxTokens,
+            model: ollamaModel,
+            deadlineAt,
         });
-        void trackUsage(
-            `ollama/${ollamaResult.model}`,
-            toOpenResponsesUsage(ollamaResult.usage),
-            Date.now() - startTime,
-            trackingContext,
-        );
-        return ollamaResult.text;
+        if (ollamaResult?.text) {
+            log.debug('Ollama succeeded', {
+                model: ollamaResult.model,
+                context: trackingContext?.context,
+                textLength: ollamaResult.text.length,
+                attempt,
+            });
+            void trackUsage(
+                `ollama/${ollamaResult.model}`,
+                toOpenResponsesUsage(ollamaResult.usage),
+                Date.now() - startTime,
+                trackingContext,
+            );
+            return ollamaResult.text;
+        }
+
+        if (attempt < maxAttempts) {
+            log.warn('Ollama returned empty; retrying once before provider fallback', {
+                context: trackingContext?.context,
+                agentId: trackingContext?.agentId,
+                attempt,
+                maxAttempts,
+                remainingBudgetMs: deadlineAt ? getRemainingBudget(deadlineAt) : undefined,
+            });
+        }
     }
 
     log.debug('Ollama returned empty, falling through to OpenRouter', {
