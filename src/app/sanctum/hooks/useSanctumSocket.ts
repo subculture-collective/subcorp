@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useAuth } from '@/lib/auth/client';
 
 // ─── Types ───
 
@@ -39,6 +40,7 @@ interface UseSanctumSocketReturn {
 // ─── Hook ───
 
 export function useSanctumSocket(): UseSanctumSocketReturn {
+    const { user } = useAuth();
     const [connected, setConnected] = useState(false);
     const [messages, setMessages] = useState<SanctumMessage[]>([]);
     const [typingAgents, setTypingAgents] = useState<TypingAgent[]>([]);
@@ -331,13 +333,16 @@ export function useSanctumSocket(): UseSanctumSocketReturn {
                     id: genId(),
                     payload: {
                         message: actualMessage,
-                        userId: 'user', // TODO: auth
+                        userId: user?.id ?? 'user',
+                        username: user?.username,
+                        displayName: user?.display_name || user?.username,
+                        avatarUrl: user?.avatar_url,
                         conversationId,
                     },
                 }),
             );
         },
-        [whisperTarget, conversationId],
+        [whisperTarget, conversationId, user],
     );
 
     const requestHistory = useCallback(() => {
@@ -348,10 +353,10 @@ export function useSanctumSocket(): UseSanctumSocketReturn {
             JSON.stringify({
                 type: 'chat.history',
                 id: genId(),
-                payload: { userId: 'user' },
+                payload: { userId: user?.id ?? 'user' },
             }),
         );
-    }, []);
+    }, [user]);
 
     return {
         connected,
