@@ -1,0 +1,53 @@
+ M .gitignore
+ M Makefile
+ M docker-compose.override.yml
+ M docker-compose.yml
+ M scripts/go-live/purge-discord.mjs
+ M scripts/go-live/seed-admin.mjs
+ M scripts/unified-worker/dist/index.js
+ M scripts/unified-worker/index.ts
+ M src/app/api/ops/memory/route.ts
+ M src/app/api/ops/missions/route.ts
+ M src/app/api/ops/subscribe/route.ts
+ M src/app/api/tts/session/[sessionId]/route.ts
+ M src/app/stage/AskTheRoom.tsx
+ M src/app/stage/AuthModal.tsx
+ M src/app/stage/FileBrowser.tsx
+ M src/app/stage/MemoryExplorer.tsx
+ M src/app/stage/QuestionsView.tsx
+ M src/app/stage/StageHeader.tsx
+ M src/app/stage/StageIntro.tsx
+ M src/app/stage/StageSidebar.tsx
+ M src/app/stage/office3d/AgentSprite.tsx
+ M src/app/stage/office3d/Office3DScene.tsx
+ M src/app/stage/office3d/OfficeEnvironment.tsx
+ M src/app/stage/office3d/useOfficeState.ts
+ M src/app/stage/page.tsx
+ M src/app/stage/useSpeechRecognition.ts
+ M src/app/stage/useTTS.ts
+ M src/components/SubscribeCTA.tsx
+ M src/lib/auth/oauth.ts
+ M src/lib/llm/client.ts
+ M src/lib/llm/embeddings.ts
+ M src/lib/ops/agent-proposal-voting.ts
+ M src/lib/ops/digest.ts
+ M src/lib/ops/governance.ts
+ M src/lib/ops/memory.ts
+ M src/lib/ops/newsletter.ts
+ M src/lib/ops/newspaper-pdf.tsx
+ M src/lib/ops/step-prompts.ts
+ M src/lib/ops/triggers.ts
+ M src/lib/ops/veto.ts
+ M src/lib/roundtable/orchestrator.ts
+ M src/lib/tools/executor.ts
+ M src/lib/tools/registry.ts
+ M src/lib/tools/tools/memory-search.ts
+ M types/bun-test.d.ts
+?? .deploy-backups/artifact-gallery-20260528/src/app/stage/StageHeader.tsx
+?? .deploy-backups/artifact-gallery-20260528/src/app/stage/StageSidebar.tsx
+?? .deploy-backups/artifact-gallery-20260528/src/app/stage/page.tsx
+?? .deploy-backups/reconcile-20260528/status.txt
+?? docs/superpowers/plans/2026-05-28-artifact-gallery.md
+?? scripts/go-live/reset-discord-channels.mjs
+?? src/app/api/ops/artifacts/route.ts
+?? src/app/stage/ArtifactGallery.tsx
