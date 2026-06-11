@@ -33,72 +33,8 @@ import { createLogger } from '../../src/lib/logger.ts';
 
 const log = createLogger({ module: 'sanctum-server' });
 const PORT = parseInt(process.env.SANCTUM_WS_PORT ?? '3011', 10);
-const DEFAULT_BLOCKED_DISCORD_USER_IDS = ['1508188866534707264'];
-const BLOCKED_DISCORD_USER_IDS = new Set([
-    ...DEFAULT_BLOCKED_DISCORD_USER_IDS,
-    ...(process.env.DISCORD_SANCTUM_BLOCKED_USER_IDS ?? '')
-        .split(',')
-        .map(id => id.trim())
-        .filter(Boolean),
-]);
 
 const server = createSanctumServer(PORT);
-
-function isGlyphSpam(content) {
-    if (!content) return false;
-    const normalized = content.normalize('NFKC');
-    if (/FABIUSFUNCTELIGENCE|ƎϽИƎꓨI⅃ƎTϽИUꟻƧUIᗺAꟻ/u.test(normalized)) return true;
-
-    const glyphMatches = normalized.match(/[𔗢𖡗𖡼᯽⚪◦୦◯]/gu) ?? [];
-    if (glyphMatches.length >= 24) return true;
-
-    const nonWhitespace = normalized.replace(/\s/gu, '');
-    if (nonWhitespace.length < 80) return false;
-
-    const asciiLetters = normalized.match(/[A-Za-z0-9]/g)?.length ?? 0;
-    const unusualSymbols = normalized.match(/[\p{So}\p{Sk}\p{Co}]/gu)?.length ?? 0;
-    return unusualSymbols >= 40 && asciiLetters / nonWhitespace.length < 0.2;
-}
-
-async function quarantineDiscordMessage(message, reason) {
-    log.warn('Quarantining Discord sanctum message', {
-        reason,
-        messageId: message.id,
-        channelId: message.channelId,
-        authorId: message.author?.id,
-        authorTag: message.author?.tag,
-    });
-
-    try {
-        if (message.deletable) {
-            await message.delete();
-            log.info('Deleted quarantined Discord sanctum message', {
-                reason,
-                messageId: message.id,
-                channelId: message.channelId,
-            });
-        } else {
-            log.warn('Quarantined Discord message was not deletable by bot', {
-                reason,
-                messageId: message.id,
-                channelId: message.channelId,
-            });
-        }
-    } catch (err) {
-        log.warn('Failed to delete quarantined Discord message', {
-            reason,
-            messageId: message.id,
-            channelId: message.channelId,
-            error: err?.message ?? String(err),
-        });
-    }
-}
-
-function getDiscordQuarantineReason(message, content) {
-    if (BLOCKED_DISCORD_USER_IDS.has(message.author?.id)) return 'blocked_user';
-    if (isGlyphSpam(content)) return 'glyph_spam';
-    return null;
-}
 
 // ─── Discord Bridge Helpers ───
 
@@ -689,20 +625,13 @@ async function startDiscordListener() {
         });
 
         discordClient.on('messageCreate', async (message) => {
+            // Ignore bots (prevents responding to own webhook posts)
+            if (message.author.bot) return;
             // Only listen to sanctum-chat channel
             if (message.channelId !== sanctumChannelId) return;
 
             const content = message.content?.trim();
             if (!content) return;
-
-            const quarantineReason = getDiscordQuarantineReason(message, content);
-            if (quarantineReason) {
-                await quarantineDiscordMessage(message, quarantineReason);
-                return;
-            }
-
-            // Ignore bots after quarantine so known spam bots/webhooks can still be deleted.
-            if (message.author.bot) return;
 
             const userId = `discord:${message.author.id}`;
             const displayName = message.member?.displayName || message.author.displayName || message.author.username;
