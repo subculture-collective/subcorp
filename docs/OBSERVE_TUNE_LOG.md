@@ -23,3 +23,13 @@
 - Validation: `bun test tests/agent-tooling-gitea-regression.test.ts` passed (9 tests), `bun test` passed (51 tests), `npx tsc --noEmit` passed, `rtk lint` had 0 errors and the same 7 pre-existing unused-var warnings in `step-prompts.ts`/`triggers.ts`. Next.js production build and worker bundle rebuilt successfully.
 - Post-fix observation: tool sessions now continue longer through multi-round `web_search`, `web_fetch`, and `file_read` work instead of immediately exhausting budget. Some Brave Search rate limiting persists and falls back to DuckDuckGo. One remaining `0666` inbox artifact was older than the final rebuild window and was normalized; next loop should verify no new `0666` files appear.
 - Next loop watch items: blocked-session rate after 240s budget, any new world-writable files, rate-limit impact on research quality, and whether running tool sessions convert to succeeded artifacts rather than blocked steps.
+
+
+## 2026-06-13 — next-wave stabilization
+
+- Fixed toolbox command contract so agents can use `/usr/local/bin/sync-workspace-to-gitea.sh` without PATH ambiguity.
+- Added host/container audit scope labelling so operational audits cannot mistake toolbox-local checks for host-level exposure checks.
+- Updated workspace permission hygiene to normalize world-writable files after detection and verify clean state after correction.
+- Added counters/provenance for empty LLM tool rounds and web-search provider fallback so noisy recovery paths are measurable instead of anecdotal.
+- Validation: `bun test` passed (71 tests), `rtk tsc --noEmit` passed, `rtk lint` passed, `make prod-heartbeat` returned `status: ok`, Subcorp containers were up, and the `/workspace` world-writable scan returned no files.
+- Watch next: qwen3 empty tool-round rate, Brave fallback frequency, stale session sweeps, and whether host-level audit snapshots reduce false-positive/false-negative audit reports.
