@@ -291,11 +291,13 @@ export function detectMissingRequiredToolEvidence(
             requiredAny
         :   [];
 
-    if (missingAll.length === 0 && missingAny.length === 0) {
+    const stepKind = stepKindFromPrompt(session.prompt);
+    const auditEvidence = detectAuditEvidenceIssues(stepKind, toolCalls);
+
+    if (missingAll.length === 0 && missingAny.length === 0 && !auditEvidence.blocked) {
         return { blocked: false, reason: '', evidence: [] };
     }
 
-    const stepKind = stepKindFromPrompt(session.prompt);
     const evidence = [
         `session source=${session.source}${stepKind ? ` step=${stepKind}` : ''}`,
         `successful tools: ${[...successfulToolNames].join(', ') || '(none)'}`,
@@ -308,12 +310,44 @@ export function detectMissingRequiredToolEvidence(
             `missing at least one required tool from: ${missingAny.join(', ')}`,
         );
     }
+    evidence.push(...auditEvidence.evidence);
 
     return {
         blocked: true,
-        reason: 'Required tool evidence missing',
+        reason: auditEvidence.blocked ? 'audit evidence missing' : 'Required tool evidence missing',
         evidence,
     };
+}
+
+function detectAuditEvidenceIssues(
+    stepKind: string | null,
+    toolCalls: ToolCallRecord[],
+): { blocked: boolean; evidence: string[] } {
+    if (stepKind !== 'audit_system') return { blocked: false, evidence: [] };
+
+    const successfulBash = toolCalls.filter(
+        tc => tc.name === 'bash' && isSuccessfulToolCall(tc),
+    );
+    const successfulAuditWrites = toolCalls.filter(tc => {
+        if (tc.name !== 'file_write' || !isSuccessfulToolCall(tc)) return false;
+        const args = tc.arguments as Record<string, unknown>;
+        const path = typeof args.path === 'string' ? args.path : '';
+        const content = typeof args.content === 'string' ? args.content : '';
+        return (
+            path.includes('output/reviews') &&
+            /evidence table|command_or_source|observed_output|hostAudit|bash/i.test(content)
+        );
+    });
+
+    if (successfulBash.length > 0 && successfulAuditWrites.length > 0) {
+        return { blocked: false, evidence: [] };
+    }
+
+    const evidence = [
+        `audit evidence missing: successful bash calls=${successfulBash.length}, evidence-bearing audit writes=${successfulAuditWrites.length}`,
+        'audit_system outputs must include command/source evidence before they can succeed',
+    ];
+    return { blocked: true, evidence };
 }
 
 export function detectBlockedOutcome(

@@ -4,7 +4,11 @@ import { execInToolbox } from '../executor';
 
 export const fileReadTool: NativeTool = {
     name: 'file_read',
-    description: 'Read a file from the shared workspace. Returns the file contents as text.',
+    description:
+        'Read a file from the shared workspace. Returns the file contents as text. ' +
+        '/workspace/projects is the product workspace root. ' +
+        '/workspace/projects/subcorp is the Subcorp source checkout. ' +
+        'Do not use /workspace/src; it is not a valid source path.',
     agents: ['chora', 'subrosa', 'thaum', 'praxis', 'mux', 'primus'],
     parameters: {
         type: 'object',
@@ -40,9 +44,21 @@ export const fileReadTool: NativeTool = {
         const result = await execInToolbox(command, 10_000);
 
         if (result.exitCode !== 0) {
-            return { error: `File read failed: ${result.stderr || 'file not found'}` };
+            return {
+                error: `File read failed: ${result.stderr || 'file not found'}${pathHintForMissingWorkspacePath(rawPath)}`,
+            };
         }
 
         return { path: fullPath, content: result.stdout, lines: result.stdout.split('\n').length };
     },
 };
+
+function pathHintForMissingWorkspacePath(rawPath: string): string {
+    if (rawPath.startsWith('/workspace/src') || rawPath.startsWith('src/')) {
+        return ' Hint: /workspace/src does not exist. Use /workspace/projects/subcorp/src for Subcorp source, or /workspace/projects/<project>/src for product code.';
+    }
+    if (rawPath.startsWith('/workspace/projects/') || rawPath.startsWith('projects/')) {
+        return ' Hint: verify the project slug under /workspace/projects before reading files; use /workspace/projects/subcorp for the Subcorp checkout.';
+    }
+    return '';
+}

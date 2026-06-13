@@ -14,6 +14,11 @@ const WORKSPACE_ROOT =
 const GITEA_BASE_URL = process.env.GITEA_BASE_URL ?? 'https://git.subcult.tv';
 const GITEA_ORG = process.env.GITEA_ORG ?? 'subculture-collective';
 
+const WORKSPACE_PATH_GUIDANCE =
+    `Workspace paths: /workspace/projects is the product workspace root; ` +
+    `/workspace/projects/subcorp is the Subcorp source checkout. ` +
+    `Do not assume /workspace/src exists. Verify paths with bash or file_read before making claims.\n`;
+
 const SELF_EVOLUTION_REPO_SETUP = [
     `REPO_DIR=${WORKSPACE_ROOT}`,
     `if [ ! -d "$REPO_DIR/.git" ]; then for CANDIDATE in /workspace/projects/subcorp /home/onnwee/projects/subcorp /home/onnwee/workspace/projects/subcorp; do if [ -d "$CANDIDATE/.git" ]; then REPO_DIR="$CANDIDATE"; break; fi; done; fi`,
@@ -74,6 +79,21 @@ function renderTemplate(
     );
 }
 
+function decorateRenderedTemplate(kind: StepKind, rendered: string): string {
+    if (kind === 'audit_system') {
+        return (
+            WORKSPACE_PATH_GUIDANCE +
+            `Audit evidence contract: include an evidence table with claim, command_or_source, observed_output, severity. ` +
+            `Do not claim exposed ports, services, or permissions without command output from bash or a cited hostAudit snapshot.\n` +
+            rendered
+        );
+    }
+    if (kind === 'patch_code' || kind === 'self_evolution') {
+        return WORKSPACE_PATH_GUIDANCE + rendered;
+    }
+    return rendered;
+}
+
 /**
  * Build an explicit, tool-aware prompt for a mission step.
  * Tries DB template first, falls back to hardcoded STEP_INSTRUCTIONS.
@@ -123,7 +143,10 @@ export async function buildStepPrompt(
             outputDir,
             payload: payloadStr,
         };
-        const rendered = renderTemplate(dbTemplate.template, vars);
+        const rendered = decorateRenderedTemplate(
+            kind,
+            renderTemplate(dbTemplate.template, vars),
+        );
         const prompt = header + rendered;
         return opts?.withVersion ?
                 { prompt, templateVersion: dbTemplate.version }
@@ -186,7 +209,11 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "critique_content", status: "complete".\n`,
 
     audit_system: (ctx, today) =>
+        WORKSPACE_PATH_GUIDANCE +
         `Use bash to run system checks relevant to the payload.\n` +
+        `You must include an evidence table with: claim, command_or_source, observed_output, severity.\n` +
+        `Do not claim exposed ports, services, or permissions without command output from bash or a cited hostAudit snapshot.\n` +
+        `If evidence is unavailable, write status: "blocked" with the missing command/source instead of inventing findings.\n` +
         `Check file permissions, exposed ports, running services, or whatever the payload specifies.\n` +
         `Write findings to output/reviews/${today}__audit__security__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
         `Rate findings by severity: critical, high, medium, low, info.\n` +
@@ -195,6 +222,7 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
     patch_code: (ctx, today, outputDir) => {
         const projectDir = (ctx.payload.project_dir as string) || '/workspace/projects';
         return `You are a software engineer. Your job is to write code.\n` +
+        WORKSPACE_PATH_GUIDANCE +
         `\nProject directory: ${projectDir}\n` +
         `Task: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
         `\nINSTRUCTIONS:\n` +
