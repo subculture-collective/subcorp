@@ -2,6 +2,7 @@
 import type { NativeTool } from '../types';
 import { ALL_AGENTS } from '@/lib/types';
 import { logger } from '@/lib/logger';
+import { incWebSearchFallback } from '@/lib/metrics';
 
 const log = logger.child({ module: 'web-search' });
 
@@ -31,6 +32,7 @@ export const webSearchTool: NativeTool = {
     execute: async (params) => {
         const query = params.query as string;
         const count = Math.min((params.count as number) || 5, 20);
+        let fallback: { from: 'brave'; reason: 'rate_limited' | 'error' | 'exception' } | null = null;
 
         // ─── Try Brave first ───
         if (BRAVE_API_KEY) {
@@ -50,6 +52,7 @@ export const webSearchTool: NativeTool = {
 
                 if (response.status === 429) {
                     log.warn('Brave Search rate-limited, falling back to DuckDuckGo', { query });
+                    fallback = { from: 'brave', reason: 'rate_limited' };
                 } else if (response.ok) {
                     const data = await response.json() as {
                         web?: { results?: Array<{ title: string; url: string; description: string }> };
@@ -61,19 +64,36 @@ export const webSearchTool: NativeTool = {
                         description: r.description,
                     }));
 
-                    return { results, query, count: results.length, source: 'brave' };
+                    return {
+                        results,
+                        query,
+                        count: results.length,
+                        source: 'brave',
+                        provider: 'brave',
+                        fallback: null,
+                    };
                 } else {
                     log.warn('Brave Search error, falling back to DuckDuckGo', {
                         status: response.status,
                         query,
                     });
+                    fallback = { from: 'brave', reason: 'error' };
                 }
             } catch (err) {
                 log.warn('Brave Search failed, falling back to DuckDuckGo', {
                     error: (err as Error).message,
                     query,
                 });
+                fallback = { from: 'brave', reason: 'exception' };
             }
+        }
+
+        if (fallback) {
+            incWebSearchFallback({
+                fromProvider: fallback.from,
+                toProvider: 'duckduckgo',
+                reason: fallback.reason,
+            });
         }
 
         // ─── Fallback: DuckDuckGo Instant Answer API (no key required) ───
@@ -90,7 +110,11 @@ export const webSearchTool: NativeTool = {
             });
 
             if (!response.ok) {
-                return { error: `Both Brave and DuckDuckGo search failed. DuckDuckGo returned ${response.status}.` };
+                return {
+                    error: `Both Brave and DuckDuckGo search failed. DuckDuckGo returned ${response.status}.`,
+                    provider: 'duckduckgo',
+                    fallback,
+                };
             }
 
             const data = await response.json() as {
@@ -113,13 +137,31 @@ export const webSearchTool: NativeTool = {
             });
 
             if (results.length === 0) {
-                return { results: [], query, count: 0, source: 'ddg' };
+                return {
+                    results: [],
+                    query,
+                    count: 0,
+                    source: 'ddg',
+                    provider: 'duckduckgo',
+                    fallback,
+                };
             }
 
-            return { results, query, count: results.length, source: 'ddg' };
+            return {
+                results,
+                query,
+                count: results.length,
+                source: 'ddg',
+                provider: 'duckduckgo',
+                fallback,
+            };
         } catch (err) {
             log.error('DuckDuckGo fallback also failed', { error: err, query });
-            return { error: `Search failed: ${(err as Error).message}` };
+            return {
+                error: `Search failed: ${(err as Error).message}`,
+                provider: 'duckduckgo',
+                fallback,
+            };
         }
     },
 };
