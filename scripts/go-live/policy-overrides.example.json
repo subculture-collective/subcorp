@@ -1,0 +1,26 @@
+{
+  "x_daily_quota": {
+    "limit": 10
+  },
+  "content_caps": {
+    "max_drafts_per_day": 12
+  },
+  "content_focus_policy": {
+    "external_target_ratio": 0.85,
+    "internal_cap_per_day": 3
+  },
+  "roundtable_policy": {
+    "max_daily_conversations": 24,
+    "min_conversation_gap_minutes": 20
+  },
+  "veto_authority": {
+    "default_expiry_hours": 96
+  },
+  "ci_cd_gate_enforcement": {
+    "mandatory_gates": [
+      "governance_checks.yaml",
+      "failure_artifact_validation.py",
+      "custom_gate.yaml"
+    ]
+  }
+}

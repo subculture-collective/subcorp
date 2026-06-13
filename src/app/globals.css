@@ -1,0 +1,238 @@
+@import 'tailwindcss' source(none);
+@plugin '@tailwindcss/typography';
+@source "../app";
+@source "../lib";
+
+:root {
+    --background: #11111b;
+    --foreground: #cdd6f4;
+}
+
+@theme inline {
+    /* ═══════════════════════════════════════════════════════════
+       DRACULA × CATPPUCCIN MOCHA HYBRID
+       Green/Purple contrast with Pink/Orange accents
+       ═══════════════════════════════════════════════════════════ */
+
+    /* ── Core ─────────────────────────────────────────────── */
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+
+    /* ── Background Scale (Deep purples → Catppuccin Mocha) ── */
+    --color-void: #11111b;
+    --color-soot: #181825;
+    --color-ash: #1e1e2e;
+    --color-smoke: #313244;
+    --color-fog: #45475a;
+    --color-mist: #585b70;
+
+    /* ── Text Scale ───────────────────────────────────────── */
+    --color-dust: #6c7086;
+    --color-stone: #7f849c;
+    --color-bone: #bac2de;
+    --color-chalk: #cdd6f4;
+    --color-glow: #f5e0dc;
+
+    /* ── Primary: Green (Dracula-bright) ──────────────────── */
+    --color-static: #50fa7b;
+    --color-static-dim: #a6e3a1;
+    --color-static-deep: #40c463;
+
+    /* ── Primary: Purple (Catppuccin Mauve) ────────────────── */
+    --color-scan: #cba6f7;
+    --color-scan-dim: #bd93f9;
+    --color-scan-deep: #9d7cd8;
+
+    /* ── Accent: Pink (Dracula × Catppuccin) ──────────────── */
+    --color-signal: #ff79c6;
+    --color-signal-dim: #f5c2e7;
+    --color-signal-deep: #eb6aae;
+
+    /* ── Accent: Orange/Peach ─────────────────────────────── */
+    --color-flicker: #ffb86c;
+    --color-flicker-dim: #fab387;
+    --color-flicker-deep: #e89b5a;
+
+    /* ── Supporting: Cyan/Sky ─────────────────────────────── */
+    --color-cyan: #8be9fd;
+    --color-cyan-dim: #89dceb;
+    --color-cyan-deep: #74c7ec;
+
+    /* ── Supporting: Yellow ───────────────────────────────── */
+    --color-yellow: #f1fa8c;
+    --color-yellow-dim: #f9e2af;
+    --color-yellow-deep: #e0c080;
+
+    /* ── Supporting: Red ──────────────────────────────────── */
+    --color-red: #ff5555;
+    --color-red-dim: #f38ba8;
+    --color-red-deep: #e05f6f;
+
+    /* ── Supporting: Blue/Lavender ────────────────────────── */
+    --color-blue: #89b4fa;
+    --color-lavender: #b4befe;
+    --color-sapphire: #74c7ec;
+
+    /* ── Supporting: Teal/Mint ────────────────────────────── */
+    --color-teal: #94e2d5;
+    --color-mint: #a6e3a1;
+
+    /* ── Supporting: Warm Pinks ───────────────────────────── */
+    --color-flamingo: #f2cdcd;
+    --color-rosewater: #f5e0dc;
+    --color-marmalade: #eba0ac;
+
+    /* ── VHS/Glitch Colors ────────────────────────────────── */
+    --color-vhs-red: #ff5555;
+    --color-vhs-blue: #89b4fa;
+    --color-vhs-magenta: #ff79c6;
+    --color-vhs-green: #50fa7b;
+    --color-vhs-purple: #bd93f9;
+
+    /* ── Legacy accent aliases (used throughout codebase) ─── */
+    --color-accent: #cba6f7;
+    --color-accent-pink: #f5c2e7;
+    --color-accent-green: #a6e3a1;
+    --color-accent-red: #f38ba8;
+    --color-accent-yellow: #f9e2af;
+    --color-accent-blue: #89b4fa;
+    --color-accent-sky: #89dceb;
+    --color-accent-lavender: #b4befe;
+    --color-accent-sapphire: #74c7ec;
+    --color-accent-peach: #fab387;
+
+    /* ── Typography ───────────────────────────────────────── */
+    --font-sans: var(--font-geist-sans);
+    --font-mono: var(--font-geist-mono);
+    --font-display: 'Oswald', 'Impact', sans-serif;
+    --font-body: 'Libre Baskerville', 'Georgia', serif;
+
+    /* ── Shadows ──────────────────────────────────────────── */
+    --shadow-glow: 0 0 20px rgba(255, 121, 198, 0.3);
+    --shadow-scan: 0 0 30px rgba(203, 166, 247, 0.25);
+    --shadow-static: 0 0 15px rgba(80, 250, 123, 0.25);
+    --shadow-hard: 4px 4px 0 rgba(17, 17, 27, 0.9);
+    --shadow-brutal: 6px 6px 0 #11111b;
+    --shadow-pink: 0 0 20px rgba(255, 121, 198, 0.4);
+    --shadow-purple: 0 0 20px rgba(203, 166, 247, 0.4);
+    --shadow-green: 0 0 20px rgba(80, 250, 123, 0.4);
+    --shadow-orange: 0 0 20px rgba(255, 184, 108, 0.4);
+}
+
+body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family:
+        var(--font-sans),
+        system-ui,
+        -apple-system,
+        sans-serif;
+}
+
+/* ─── Scrollbar – slim dark ─── */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #45475a transparent;
+}
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #45475a;
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #585b70;
+}
+
+/* ─── Pulse animation for skeletons ─── */
+@keyframes skeleton-pulse {
+    0%,
+    100% {
+        opacity: 0.4;
+    }
+    50% {
+        opacity: 0.15;
+    }
+}
+.animate-skeleton {
+    animation: skeleton-pulse 2s ease-in-out infinite;
+}
+
+/* ─── Signal feed event entrance ─── */
+@keyframes slide-in {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+.animate-slide-in {
+    animation: slide-in 0.25s ease-out;
+}
+
+/* ─── Office pixel art crisp rendering ─── */
+.pixel-art {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+}
+
+/* ─── Glow effects for status indicators ─── */
+.glow-green {
+    box-shadow: 0 0 6px rgba(166, 227, 161, 0.4);
+}
+.glow-violet {
+    box-shadow: 0 0 6px rgba(203, 166, 247, 0.4);
+}
+.glow-cyan {
+    box-shadow: 0 0 6px rgba(137, 220, 235, 0.4);
+}
+.glow-amber {
+    box-shadow: 0 0 6px rgba(249, 226, 175, 0.4);
+}
+
+/* ─── Sanctum animations ─── */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+.animate-fadeIn {
+    animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes blink {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0;
+    }
+}
+.animate-blink {
+    animation: blink 0.8s step-end infinite;
+}
+
+/* ─── Reduced motion — disable animations for users who prefer it ─── */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}

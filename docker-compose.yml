@@ -1,0 +1,87 @@
+networks:
+  projects:
+    name: projects
+    external: true
+  dev:
+    name: dev
+    external: true
+
+volumes:
+  workspace:
+
+services:
+  subcorp-app:
+    build: .
+    container_name: subcorp-app
+    networks: [projects, dev]
+    dns:
+      - 10.0.0.200
+      - 1.1.1.1
+    env_file: .env
+    environment:
+      - LOG_FORMAT=pretty
+    group_add:
+      - "${DOCKER_SOCK_GID:-967}"
+    volumes:
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
+      - workspace:/workspace
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+    restart: unless-stopped
+
+  subcorp-worker:
+    build: .
+    container_name: subcorp-worker
+    command: ["node", "scripts/unified-worker/dist/index.js"]
+    networks: [projects, dev]
+    dns:
+      - 10.0.0.200
+      - 1.1.1.1
+    env_file: .env
+    environment:
+      - LOG_FORMAT=pretty
+      - WORKER_HEARTBEAT_ENABLED=true
+      - WORKER_AGENT_SESSION_CONCURRENCY=2
+      - WORKER_MISSION_STEP_CONCURRENCY=5
+      - OLLAMA_EMPTY_RETRY_COUNT=1
+    group_add:
+      - "${DOCKER_SOCK_GID:-967}"
+    volumes:
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
+      - workspace:/workspace
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+    restart: unless-stopped
+
+  subcorp-toolbox:
+    build:
+      context: .
+      dockerfile: docker/toolbox/Dockerfile
+    container_name: subcorp-toolbox
+    networks: [projects]
+    env_file: .env
+    volumes:
+      - workspace:/workspace
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+    restart: unless-stopped
+
+  subcorp-sanctum:
+    build: .
+    container_name: subcorp-sanctum
+    command: ["node", "scripts/sanctum-server/dist/server.js"]
+    networks: [projects, dev]
+    dns:
+      - 10.0.0.200
+      - 1.1.1.1
+    env_file: .env
+    environment:
+      - LOG_FORMAT=pretty
+    group_add:
+      - "${DOCKER_SOCK_GID:-967}"
+    volumes:
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
+      - workspace:/workspace
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+    restart: unless-stopped

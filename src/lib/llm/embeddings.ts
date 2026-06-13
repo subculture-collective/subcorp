@@ -1,0 +1,99 @@
+// Embedding client — local llama-line/Ollama only.
+// Both produce 1024-dim vectors matching the pgvector column.
+import { logger } from '@/lib/logger';
+
+const log = logger.child({ module: 'embeddings' });
+
+// ─── Ollama (local on almaz) ───────────────────────────────
+const EMBEDDING_OLLAMA_URL = process.env.EMBEDDING_OLLAMA_URL ?? 'http://localhost:11434';
+const OLLAMA_EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? 'bge-m3';
+// llama-line broker requires Bearer auth on all inference endpoints (including /v1/embeddings)
+const EMBEDDING_OLLAMA_API_KEY = process.env.OLLAMA_API_KEY ?? process.env.EMBEDDING_OLLAMA_API_KEY ?? '';
+
+// Embeddings are best-effort context enrichment. Keep the timeout short so a
+// slow/busy llama-line queue cannot starve worker mission dispatch.
+const EMBEDDING_TIMEOUT_MS = Number.parseInt(
+    process.env.EMBEDDING_TIMEOUT_MS ?? '5000',
+    10,
+);
+const LLAMA_LINE_TERMINAL_STATUSES = new Set([
+    'ollama_unavailable',
+    'dropped_by_admin',
+]);
+
+/**
+ * Get embedding vector via the configured provider.
+ * Returns null on failure (fire-and-forget safe).
+ */
+export async function getEmbedding(text: string): Promise<number[] | null> {
+    return getEmbeddingOllama(text);
+}
+
+/** Embedding via local Ollama on almaz. */
+async function getEmbeddingOllama(text: string): Promise<number[] | null> {
+    if (!EMBEDDING_OLLAMA_URL) return null;
+
+    try {
+        const embeddingHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (EMBEDDING_OLLAMA_API_KEY) embeddingHeaders['Authorization'] = `Bearer ${EMBEDDING_OLLAMA_API_KEY}`;
+        const response = await fetch(
+            `${EMBEDDING_OLLAMA_URL}/v1/embeddings`,
+            {
+                method: 'POST',
+                headers: embeddingHeaders,
+                body: JSON.stringify({
+                    model: OLLAMA_EMBEDDING_MODEL,
+                    input: text,
+                }),
+                signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS),
+            },
+        );
+
+        if (!response.ok) {
+            log.debug('Ollama embedding request failed', {
+                status: response.status,
+                url: EMBEDDING_OLLAMA_URL,
+                model: OLLAMA_EMBEDDING_MODEL,
+            });
+            return null;
+        }
+
+        const data = await readEmbeddingResponse(response);
+        return data.data?.[0]?.embedding ?? null;
+    } catch {
+        log.debug('Ollama embedding error (host unreachable?)', {
+            url: EMBEDDING_OLLAMA_URL,
+            model: OLLAMA_EMBEDDING_MODEL,
+        });
+        return null;
+    }
+}
+
+async function readEmbeddingResponse(
+    response: Response,
+): Promise<{ data?: Array<{ embedding: number[] }> }> {
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.includes('text/event-stream')) {
+        return (await response.json()) as { data?: Array<{ embedding: number[] }> };
+    }
+
+    const text = await response.text();
+    for (const line of text.split(/\r?\n/)) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice('data: '.length).trim();
+        if (!raw || raw === '[DONE]') continue;
+
+        const payload = JSON.parse(raw) as {
+            status?: string;
+            message?: string;
+            data?: Array<{ embedding: number[] }>;
+        };
+        if (payload.status === 'queued') continue;
+        if (payload.status && LLAMA_LINE_TERMINAL_STATUSES.has(payload.status)) {
+            throw new Error(payload.message ?? payload.status);
+        }
+        if (payload.data?.[0]?.embedding) return payload;
+    }
+
+    return {};
+}
