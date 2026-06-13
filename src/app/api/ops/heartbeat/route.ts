@@ -24,6 +24,7 @@ import {
 import { fetchAllFeeds, generateNewsDigest } from '@/lib/ops/rss';
 import { generateDailyNewspaper } from '@/lib/ops/newspaper';
 import { checkWorkspaceWorldWritableFiles } from '@/lib/ops/workspace-permissions';
+import { checkHostAuditSnapshot } from '@/lib/ops/host-audit';
 import { AGENT_IDS } from '@/lib/agents';
 import { logger } from '@/lib/logger';
 import { withRequestContext } from '@/lib/with-request-context';
@@ -310,6 +311,14 @@ export async function GET(req: NextRequest) {
         } catch (err) {
             results.workspacePermissions = { error: (err as Error).message };
             log.error('Workspace permission check failed', { error: err });
+        }
+
+        // ── Phase 10c: Host/container audit scope snapshot ──
+        try {
+            results.hostAudit = await checkHostAuditSnapshot();
+        } catch (err) {
+            results.hostAudit = { error: (err as Error).message };
+            log.error('Host audit snapshot failed', { error: err });
         }
 
         // ── Phase 11: Daily digest (once per day, ~11PM Chicago local) ──
