@@ -4,7 +4,7 @@ import { execInToolbox } from '../executor';
 
 export const bashTool: NativeTool = {
     name: 'bash',
-    description: 'Execute a bash command in the toolbox environment. Has access to standard Linux utilities, curl, jq, git, node, python3, gh CLI, ripgrep, and fd-find.',
+    description: 'Execute a bash command in the toolbox environment. Has access to standard Linux utilities, curl, jq, git, node, python3, gh CLI, ripgrep, fd-find, and /usr/local/bin/sync-workspace-to-gitea.sh. Host audit commands must be explicitly labelled; ordinary commands run inside the toolbox container, not on the host.',
     agents: ['praxis', 'mux'],
     parameters: {
         type: 'object',

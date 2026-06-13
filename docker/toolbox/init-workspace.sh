@@ -24,6 +24,7 @@ chmod 700 /usr/local/bin/gitea-askpass
 
 cat > /etc/workspace-env.sh << 'ENVSH'
 umask 0022
+export PATH="/usr/local/bin:$PATH"
 export GIT_ASKPASS=/usr/local/bin/gitea-askpass
 export GIT_TERMINAL_PROMPT=0
 ENVSH
@@ -32,6 +33,12 @@ git config --global user.email "agents@subcult.tv"
 git config --global user.name "Subcorp Agents"
 git config --global init.defaultBranch main
 git config --global core.askPass /usr/local/bin/gitea-askpass
+
+if command -v sync-workspace-to-gitea.sh >/dev/null 2>&1; then
+    echo "Workspace sync helper available: /usr/local/bin/sync-workspace-to-gitea.sh"
+else
+    echo "Warning: sync-workspace-to-gitea.sh is missing from PATH" >&2
+fi
 
 # ── Create directory structure ──
 for agent in chora subrosa thaum praxis mux primus; do
