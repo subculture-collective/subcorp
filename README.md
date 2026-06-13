@@ -2,6 +2,8 @@
 
 A self-hosted, closed-loop multi-agent system with 6 AI agents running autonomous workflows — proposals, missions, roundtable conversations, tool-augmented sessions, memory distillation, and initiative generation.
 
+> **Security boundary:** Subcorp is currently **single-tenant and trusted-network only**. Do not expose `/api/ops/*`, `/stage`, or `/sanctum` directly to the public internet. See [docs/SECURITY_BOUNDARY.md](docs/SECURITY_BOUNDARY.md).
+
 ## Architecture
 
 ```
@@ -140,8 +142,9 @@ Required variables:
 # llama-line/Ollama broker
 OLLAMA_BASE_URL=http://10.0.0.50:11434
 OLLAMA_API_KEY=your-llama-line-client-key
-OLLAMA_MODEL=qwen3:14b
-MODEL_ROUTING_DEFAULT=qwen3:14b
+OLLAMA_MODEL=openai/gpt-5.5      # text/general route via OpenCode harness
+OLLAMA_TOOL_MODEL=qwen3:14b       # must be a local Ollama model, not openai/*
+MODEL_ROUTING_DEFAULT=openai/gpt-5.5
 
 # Brave Search API — used by web_search tool (optional, falls back to DuckDuckGo if unset)
 BRAVE_API_KEY=your-brave-api-key
@@ -149,6 +152,15 @@ BRAVE_API_KEY=your-brave-api-key
 # Ghost Admin API key (optional) — enables automatic Ghost mirroring for published blog posts
 # Format: <key_id>:<hex_secret>
 GHOST_ADMIN_API_KEY=your-ghost-admin-key
+
+# Gitea agent push access
+GITEA_BASE_URL=https://git.subcult.tv
+GITEA_ORG=subculture-collective
+GITEA_USERNAME=x-access-token
+GITEA_TOKEN=your-gitea-personal-access-token
+GITEA_WORKSPACE_REPO=subcorp-workspace
+GITEA_WORKSPACE_PRIVATE=true
+GITEA_PROJECT_PRIVATE=false
 
 # PostgreSQL (used by Docker Compose)
 POSTGRES_PASSWORD=your-secure-password
@@ -208,6 +220,20 @@ make lint            # ESLint
 make typecheck       # tsc --noEmit
 ```
 
+### Gitea workspace sync
+
+Agents push through Gitea, not GitHub. Set `GITEA_TOKEN` in `.env`; `GITHUB_TOKEN` is only a legacy fallback. The toolbox keeps remotes tokenless and supplies credentials with `GIT_ASKPASS`, so tokens are not written into `.git/config`.
+
+From the toolbox container:
+
+```bash
+sync-workspace-to-gitea.sh all        # full /workspace snapshot + /workspace/projects/* repos
+sync-workspace-to-gitea.sh workspace  # only sanitized /workspace snapshot
+sync-workspace-to-gitea.sh projects   # only individual project repos
+```
+
+The full workspace snapshot excludes secrets, nested `.git` metadata, dependency folders, caches, and build artifacts. Product projects under `/workspace/projects/*` are pushed separately to repos of the same slug in `GITEA_ORG`.
+
 ## Makefile Commands
 
 Run `make help` for the full list. Highlights:
@@ -225,6 +251,7 @@ Run `make help` for the full list. Highlights:
 | `make seed`       | Seed baseline ops data         |
 | `make verify`     | Launch verification checks     |
 | `make heartbeat`  | Trigger heartbeat via Docker   |
+| `make prod-sync-workspace` | Push `/workspace` snapshot + project repos to Gitea |
 
 ## API Routes
 

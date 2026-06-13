@@ -1,6 +1,7 @@
 import { randomBytes, createHash } from 'crypto';
 import { cookies } from 'next/headers';
 import { sql } from '@/lib/db';
+import { getCurrentTenantContext } from '@/lib/tenant/context';
 import type { User, Session, AuthUser } from './types';
 
 const SESSION_COOKIE = 'auth_session';
@@ -24,10 +25,11 @@ export async function createSession(
     const token = generateToken();
     const tokenHash = hashToken(token);
     const expiresAt = new Date(Date.now() + SESSION_MAX_AGE * 1000);
+    const tenant = getCurrentTenantContext();
 
     const [session] = await sql<[Session]>`
-        INSERT INTO user_sessions (user_id, token_hash, expires_at, ip_address, user_agent)
-        VALUES (${userId}, ${tokenHash}, ${expiresAt.toISOString()}, ${ip ?? null}, ${userAgent ?? null})
+        INSERT INTO user_sessions (user_id, token_hash, expires_at, ip_address, user_agent, tenant_id, workspace_id)
+        VALUES (${userId}, ${tokenHash}, ${expiresAt.toISOString()}, ${ip ?? null}, ${userAgent ?? null}, ${tenant.tenantId}, ${tenant.workspaceId})
         RETURNING *
     `;
 
@@ -67,14 +69,18 @@ export async function validateSession(): Promise<AuthUser | null> {
         role: string;
         created_at: string;
         updated_at: string;
+        user_tenant_id: string | null;
+        session_tenant_id: string | null;
+        workspace_id: string | null;
     }
 
     const rows = await sql<SessionUserRow[]>`
         SELECT
             s.id as session_id, s.user_id, s.token_hash, s.expires_at,
             s.ip_address, s.user_agent, s.created_at as session_created_at,
+            s.tenant_id as session_tenant_id, s.workspace_id,
             u.id, u.email, u.username, u.display_name, u.avatar_url,
-            u.role, u.created_at, u.updated_at
+            u.role, u.created_at, u.updated_at, u.tenant_id as user_tenant_id
         FROM user_sessions s
         JOIN users u ON u.id = s.user_id
         WHERE s.token_hash = ${tokenHash}
@@ -115,6 +121,7 @@ export async function validateSession(): Promise<AuthUser | null> {
             role: row.role as User['role'],
             created_at: row.created_at,
             updated_at: row.updated_at,
+            tenant_id: row.user_tenant_id,
         },
         session: {
             id: row.session_id,
@@ -124,6 +131,8 @@ export async function validateSession(): Promise<AuthUser | null> {
             ip_address: row.ip_address,
             user_agent: row.user_agent,
             created_at: row.session_created_at,
+            tenant_id: row.session_tenant_id,
+            workspace_id: row.workspace_id,
         },
     };
 }

@@ -5,6 +5,7 @@ import { enqueueConversation } from '@/lib/roundtable/orchestrator';
 import type { ConversationFormat } from '@/lib/types';
 import { logger } from '@/lib/logger';
 import { withRequestContext } from '@/lib/with-request-context';
+import { requireOpsRead, requireOpsAdminOrCron } from '@/lib/auth/middleware';
 
 const log = logger.child({ route: 'roundtable' });
 
@@ -33,15 +34,8 @@ const VALID_FORMATS: ConversationFormat[] = [
 // POST — manually trigger a conversation
 export async function POST(req: NextRequest) {
     return withRequestContext(req, async () => {
-        const authHeader = req.headers.get('authorization');
-        const cronSecret = process.env.CRON_SECRET;
-
-        if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-            return NextResponse.json(
-                { error: 'Unauthorized' },
-                { status: 401 },
-            );
-        }
+        const authResult = await requireOpsAdminOrCron(req);
+        if (authResult instanceof NextResponse) return authResult;
 
         try {
             const body = await req.json();
@@ -104,8 +98,11 @@ export async function POST(req: NextRequest) {
     }); // withRequestContext
 }
 
-// GET — list conversation sessions (public for dashboard)
+// GET — list conversation sessions (member/admin dashboard)
 export async function GET(req: NextRequest) {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
     const format = searchParams.get('format');

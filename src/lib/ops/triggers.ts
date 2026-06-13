@@ -190,7 +190,7 @@ async function checkTrigger(
         case 'proactive_build':
             return checkProactiveBuild(conditions, targetAgent);
         case 'proactive_explore_org':
-            return checkProactiveBuild(conditions, targetAgent);
+            return checkProactiveExploreOrg(conditions, targetAgent);
         case 'proactive_content_plan': {
             const conditions = rule.conditions as Record<string, unknown>;
             const skipProb = (conditions.skip_probability as number) ?? 0.1;

@@ -940,6 +940,34 @@ function isLlamaLineRoutedModel(model) {
 function isOllamaRoutedModel(model) {
   return isLocalModelId(model) || isLlamaLineRoutedModel(model);
 }
+function getDefaultOllamaToolModel() {
+  const explicitToolModel = OLLAMA_TOOL_MODEL.trim();
+  if (explicitToolModel) {
+    if (isLocalModelId(explicitToolModel)) return normalizeModel(explicitToolModel);
+    log.warn("Ignoring non-local OLLAMA_TOOL_MODEL for tool execution", {
+      toolModel: explicitToolModel
+    });
+  }
+  if (isLocalModelId(OLLAMA_MODEL)) return normalizeModel(OLLAMA_MODEL);
+  const fallbackLocalModel = OLLAMA_FALLBACK_MODELS.find(isLocalModelId);
+  if (fallbackLocalModel) return fallbackLocalModel;
+  return DEFAULT_OLLAMA_FALLBACK_MODELS[0];
+}
+function resolveOllamaModelForToolRequest(model) {
+  if (isLocalModelId(model)) return normalizeModel(model);
+  const toolModel = getDefaultOllamaToolModel();
+  if (model && isLlamaLineRoutedModel(model)) {
+    log.info("Routing tool request away from llama-line OpenCode harness model", {
+      requestedModel: model,
+      toolModel
+    });
+  }
+  return toolModel;
+}
+function resolvePreferredOllamaModel(model, hasTools) {
+  if (hasTools) return resolveOllamaModelForToolRequest(model);
+  return model && isOllamaRoutedModel(model) ? model : void 0;
+}
 function canUseOpenRouter() {
   return OPENROUTER_ENABLED && !!OPENROUTER_API_KEY;
 }
@@ -1210,7 +1238,8 @@ function filterPhantomToolCalls(toolCalls, context) {
   return toolCalls;
 }
 async function ollamaChat(messages, temperature, options) {
-  const preferredModel = options?.model && isOllamaRoutedModel(options.model) ? options.model : void 0;
+  const hasTools = !!options?.tools?.length;
+  const preferredModel = resolvePreferredOllamaModel(options?.model, hasTools);
   const models = getOllamaModelsWithFallback(preferredModel);
   if (models.length === 0) return null;
   const maxTokens = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
@@ -1418,10 +1447,25 @@ async function ollamaChatWithModel(input) {
         id: tc.id ?? `call_${round}_${i}`,
         function: tc.function
       }));
-      const ollamaPendingToolCalls = filterPhantomToolCalls(
+      let ollamaPendingToolCalls = filterPhantomToolCalls(
         rawToolCalls,
         { model, round }
       );
+      if (!ollamaPendingToolCalls || ollamaPendingToolCalls.length === 0) {
+        const raw = msg.content ?? "";
+        if (tools && tools.length > 0 && raw.length > 0) {
+          const dsmlCalls = parseDsmlToolCalls(raw, tools);
+          if (dsmlCalls.length > 0) {
+            ollamaPendingToolCalls = dsmlCalls;
+            log.info("Recovered Ollama tool calls from DSML text", {
+              count: dsmlCalls.length,
+              tools: dsmlCalls.map((tc) => tc.function.name),
+              model,
+              round
+            });
+          }
+        }
+      }
       if (!ollamaPendingToolCalls || ollamaPendingToolCalls.length === 0) {
         const raw = msg.content ?? "";
         const thinking = msg.thinking ?? msg.reasoning ?? "";
@@ -2189,7 +2233,7 @@ async function llmGenerateWithTools(options) {
     } catch {
     }
   }
-  const preferOllamaFirst = shouldTryOllamaFirst(resolvedModel);
+  const preferOllamaFirst = hasTools || shouldTryOllamaFirst(resolvedModel);
   if (preferOllamaFirst) {
     const ollamaResult = await ollamaChat(messages, temperature, {
       maxTokens,
@@ -2388,7 +2432,7 @@ function extractJson(text) {
   }
   return null;
 }
-var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TEXT_TIMEOUT_MS, OPENROUTER_TEXT_BUDGET_MS, OPENROUTER_TOOL_TIMEOUT_MS, OPENROUTER_TOOL_BUDGET_MS, OPENROUTER_MAX_INDIVIDUAL_FALLBACKS, LLM_TEXT_TOTAL_BUDGET_MS, LLM_TOOL_TOTAL_BUDGET_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_API_KEY, OLLAMA_TEXT_TIMEOUT_MS, OLLAMA_PREFERRED_TEXT_TIMEOUT_MS, OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS, OLLAMA_TOOL_TIMEOUT_MS, OLLAMA_BUDGET_MS, OLLAMA_TAGS_TIMEOUT_MS, OLLAMA_MODEL_CACHE_TTL_MS, OLLAMA_MODEL, OLLAMA_EMPTY_RETRY_COUNT, ollamaModelCatalogCache, LLAMA_LINE_MODEL_PREFIXES;
+var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TEXT_TIMEOUT_MS, OPENROUTER_TEXT_BUDGET_MS, OPENROUTER_TOOL_TIMEOUT_MS, OPENROUTER_TOOL_BUDGET_MS, OPENROUTER_MAX_INDIVIDUAL_FALLBACKS, LLM_TEXT_TOTAL_BUDGET_MS, LLM_TOOL_TOTAL_BUDGET_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_API_KEY, OLLAMA_TEXT_TIMEOUT_MS, OLLAMA_PREFERRED_TEXT_TIMEOUT_MS, OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS, OLLAMA_TOOL_TIMEOUT_MS, OLLAMA_BUDGET_MS, OLLAMA_TAGS_TIMEOUT_MS, OLLAMA_MODEL_CACHE_TTL_MS, OLLAMA_MODEL, OLLAMA_TOOL_MODEL, OLLAMA_EMPTY_RETRY_COUNT, ollamaModelCatalogCache, LLAMA_LINE_MODEL_PREFIXES;
 var init_client = __esm({
   "src/lib/llm/client.ts"() {
     "use strict";
@@ -2409,7 +2453,7 @@ var init_client = __esm({
     OPENROUTER_TOOL_BUDGET_MS = 75e3;
     OPENROUTER_MAX_INDIVIDUAL_FALLBACKS = 2;
     LLM_TEXT_TOTAL_BUDGET_MS = 75e3;
-    LLM_TOOL_TOTAL_BUDGET_MS = 9e4;
+    LLM_TOOL_TOTAL_BUDGET_MS = 24e4;
     DEFAULT_OLLAMA_FALLBACK_MODELS = ["qwen3:14b"];
     OLLAMA_FALLBACK_MODELS = (process.env.OLLAMA_FALLBACK_MODELS ?? DEFAULT_OLLAMA_FALLBACK_MODELS.join(",")).split(",").map((model) => model.trim()).filter(Boolean);
     TOOL_PARAM_ALIASES = {
@@ -2477,6 +2521,7 @@ var init_client = __esm({
     OLLAMA_TAGS_TIMEOUT_MS = 5e3;
     OLLAMA_MODEL_CACHE_TTL_MS = 3e4;
     OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "";
+    OLLAMA_TOOL_MODEL = process.env.OLLAMA_TOOL_MODEL ?? "";
     OLLAMA_EMPTY_RETRY_COUNT = Math.max(
       0,
       Number.parseInt(process.env.OLLAMA_EMPTY_RETRY_COUNT ?? "1", 10) || 0
@@ -6933,11 +6978,12 @@ async function buildBriefing(agentId) {
   sections.push(`\u2550\u2550\u2550 YOUR ORGANIZATION \u2550\u2550\u2550
 You are part of the SUBCORP collective \u2014 an autonomous AI agent organization.
 Today is ${dateStr}. Current period: ${quarter} ${year}. Use this for all planning \u2014 never reference past quarters.
-Gitea org: https://git.subcult.tv/subculture-collective (you have FULL ACCESS)
-Platform repo: https://git.subcult.tv/subculture-collective/subcorp.git
+Gitea org: ${GITEA_BASE_URL}/${GITEA_ORG} (you have FULL ACCESS when GITEA_TOKEN is configured)
+Platform repo: ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp.git
 You can create repos, issues, PRs, labels, projects \u2014 anything. The org is yours to run like a business.
-Your product projects should be public repos in the subculture-collective org on git.subcult.tv.
+Your product projects should be public repos in the ${GITEA_ORG} org on ${GITEA_BASE_URL}.
 Use git and the Gitea web UI/API for all org operations.
+Use sync-workspace-to-gitea.sh to push the full /workspace snapshot and individual /workspace/projects/* repos when requested.
 If you need human help (accounts, API keys, infrastructure), use notify_human to send a request via ntfy.
 Maintain a knowledge base (company wiki) in your repos \u2014 document decisions, architecture, processes, lessons learned, and anything a new team member would need. Be meticulous note-takers.
 \u2550\u2550\u2550 END \u2550\u2550\u2550`);
@@ -7062,7 +7108,7 @@ function timeAgo(date) {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
 }
-var CACHE_TTL_MS4, cache;
+var CACHE_TTL_MS4, cache, GITEA_BASE_URL, GITEA_ORG;
 var init_situational_briefing = __esm({
   "src/lib/ops/situational-briefing.ts"() {
     "use strict";
@@ -7070,6 +7116,8 @@ var init_situational_briefing = __esm({
     init_agents();
     CACHE_TTL_MS4 = 5 * 60 * 1e3;
     cache = /* @__PURE__ */ new Map();
+    GITEA_BASE_URL = process.env.GITEA_BASE_URL ?? "https://git.subcult.tv";
+    GITEA_ORG = process.env.GITEA_ORG ?? "subculture-collective";
   }
 });
 
@@ -9722,17 +9770,19 @@ Payload: ${payloadStr}
 function slugify(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30);
 }
-var WORKSPACE_ROOT2, SELF_EVOLUTION_REPO_SETUP, TEMPLATE_CACHE_TTL_MS, templateCache, STEP_INSTRUCTIONS;
+var WORKSPACE_ROOT2, GITEA_BASE_URL2, GITEA_ORG2, SELF_EVOLUTION_REPO_SETUP, TEMPLATE_CACHE_TTL_MS, templateCache, STEP_INSTRUCTIONS;
 var init_step_prompts = __esm({
   "src/lib/ops/step-prompts.ts"() {
     "use strict";
     init_db();
     init_voices();
     WORKSPACE_ROOT2 = process.env.WORKSPACE_ROOT ?? "/workspace/projects/subcorp";
+    GITEA_BASE_URL2 = process.env.GITEA_BASE_URL ?? "https://git.subcult.tv";
+    GITEA_ORG2 = process.env.GITEA_ORG ?? "subculture-collective";
     SELF_EVOLUTION_REPO_SETUP = [
       `REPO_DIR=${WORKSPACE_ROOT2}`,
       `if [ ! -d "$REPO_DIR/.git" ]; then for CANDIDATE in /workspace/projects/subcorp /home/onnwee/projects/subcorp /home/onnwee/workspace/projects/subcorp; do if [ -d "$CANDIDATE/.git" ]; then REPO_DIR="$CANDIDATE"; break; fi; done; fi`,
-      `if [ ! -d "$REPO_DIR/.git" ]; then mkdir -p /home/onnwee/projects && git clone https://git.subcult.tv/subculture-collective/subcorp.git /home/onnwee/projects/subcorp && REPO_DIR=/home/onnwee/projects/subcorp; fi`,
+      `if [ ! -d "$REPO_DIR/.git" ]; then mkdir -p /home/onnwee/projects && git clone ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp.git /home/onnwee/projects/subcorp && REPO_DIR=/home/onnwee/projects/subcorp; fi`,
       `cd "$REPO_DIR"`
     ].join("; ");
     TEMPLATE_CACHE_TTL_MS = 6e4;
@@ -9784,7 +9834,9 @@ INSTRUCTIONS:
 1. If the project directory doesn't exist yet, create it. Use file_write to create package.json, tsconfig.json, README.md, and source files.
 2. If the project exists, use file_read to read the existing source files first.
 3. Use file_write to create or modify source files. Write real, working code \u2014 not pseudocode or descriptions.
-4. Write a brief changelog to ${outputDir}/${today}__patch__code__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md
+4. After writing source files, use bash to verify they exist (for example: find ${projectDir} -maxdepth 3 -type f).
+5. Write a brief changelog to ${outputDir}/${today}__patch__code__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
+6. If GITEA_TOKEN is available and the code is ready, use bash to run sync-workspace-to-gitea.sh projects so individual project repos are pushed to Gitea.
 
 Your primary output is SOURCE CODE files written via file_write. Do NOT just describe what you would build \u2014 actually build it.
 `;
@@ -9861,9 +9913,9 @@ Write the spec to output/reports/${today}__product__spec__${slugify(ctx.missionT
 Use bash to check the diff:
   cd ${WORKSPACE_ROOT2} && git diff --stat HEAD~5
   cd ${WORKSPACE_ROOT2} && git log --oneline -10
-If GITEA_TOKEN is set, push and create a PR on git.subcult.tv:
+If GITEA_TOKEN is set, push and create a PR on ${GITEA_BASE_URL2}:
   cd ${WORKSPACE_ROOT2} && git push -u origin agents/workspace 2>&1
-  Open the pull request in the Gitea UI at https://git.subcult.tv/subculture-collective/subcorp/pulls/new
+  Open the pull request in the Gitea UI at ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp/pulls/new
 If GITEA_TOKEN is NOT set or push fails, write a PR summary to ${outputDir}/${today}__pr__summary__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
 The summary should include: branch name, commit list, diff stats, and a description of all changes.
 Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "create_pull_request", status: "complete".
@@ -9872,8 +9924,8 @@ Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "create
 Your source code is at ${WORKSPACE_ROOT2}/.
 
 \u2550\u2550\u2550 CONTEXT \u2550\u2550\u2550
-You belong to the subculture-collective Gitea organization (https://git.subcult.tv/subculture-collective).
-Your platform repo is https://git.subcult.tv/subculture-collective/subcorp.git.
+You belong to the ${GITEA_ORG2} Gitea organization (${GITEA_BASE_URL2}/${GITEA_ORG2}).
+Your platform repo is ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp.git.
 You have FULL ACCESS to the org \u2014 you can create repos, issues, PRs, manage projects, everything.
 The org is yours to run like a business. Any action available to you is authorized.
 \u2550\u2550\u2550 END CONTEXT \u2550\u2550\u2550
@@ -9888,29 +9940,29 @@ INSTRUCTIONS:
 4. Use file_write to make your changes.
 5. Use bash to commit and push:
    ${SELF_EVOLUTION_REPO_SETUP} && git add -A && git commit -m "${ctx.missionTitle}" && git push -u origin HEAD
-6. Open a PR in Gitea on https://git.subcult.tv/subculture-collective/subcorp.
+6. Open a PR in Gitea on ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp.
 7. Write a summary to ${outputDir}/${today}__evolution__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md
 
 Your output is a MERGED PULL REQUEST with real code changes. Do not just describe what you would change.
 `,
       github_issue: (ctx, _today, _outputDir) => `You are managing the subculture-collective Gitea organization.
-Org: https://git.subcult.tv/subculture-collective
-Platform repo: https://git.subcult.tv/subculture-collective/subcorp.git
+Org: ${GITEA_BASE_URL2}/${GITEA_ORG2}
+Platform repo: ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp.git
 You have FULL ACCESS \u2014 create repos, issues, PRs, labels, projects, anything.
 
 Task: ${ctx.payload.description || ctx.missionTitle}
 
 Use bash and the Gitea web UI/API. Examples:
-  Open issues at https://git.subcult.tv/subculture-collective/subcorp/issues/new
-  Browse issues at https://git.subcult.tv/subculture-collective/subcorp/issues
-  Create repos under https://git.subcult.tv/subculture-collective
+  Open issues at ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp/issues/new
+  Browse issues at ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp/issues
+  Create repos under ${GITEA_BASE_URL2}/${GITEA_ORG2}
   Manage labels in the repo settings on git.subcult.tv
 
 Create well-structured issues with clear titles, descriptions, acceptance criteria, and appropriate labels.
 `,
       github_pr: (ctx, _today, _outputDir) => `You are managing code in the subculture-collective Gitea organization.
-Org: https://git.subcult.tv/subculture-collective
-Platform repo: https://git.subcult.tv/subculture-collective/subcorp.git
+Org: ${GITEA_BASE_URL2}/${GITEA_ORG2}
+Platform repo: ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp.git
 You have FULL ACCESS.
 
 Task: ${ctx.payload.description || ctx.missionTitle}
@@ -9919,22 +9971,22 @@ INSTRUCTIONS:
 1. Use bash to check current branch and status: cd ${WORKSPACE_ROOT2} && git status
 2. Create a branch, make changes via file_write, commit, push, and open a PR in Gitea.
 3. PR should have a clear title, description of changes, and context for reviewers.
-4. Use the pull request page on https://git.subcult.tv/subculture-collective/subcorp.
+4. Use the pull request page on ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp.
 `,
       explore_repo: (ctx, _today, outputDir) => `You are exploring repositories in the subculture-collective Gitea organization.
-Org: https://git.subcult.tv/subculture-collective
+Org: ${GITEA_BASE_URL2}/${GITEA_ORG2}
 You have FULL ACCESS to all repos.
 
 Task: ${ctx.payload.description || ctx.missionTitle}
 
 INSTRUCTIONS:
-1. Use bash to browse the Gitea org page or API: https://git.subcult.tv/subculture-collective
+1. Use bash to browse the Gitea org page or API: ${GITEA_BASE_URL2}/${GITEA_ORG2}
 2. For a specific repo, explore it:
-   https://git.subcult.tv/subculture-collective/[repo-name]
-   https://git.subcult.tv/subculture-collective/[repo-name]/issues
-   https://git.subcult.tv/subculture-collective/[repo-name]/pulls
+   ${GITEA_BASE_URL2}/${GITEA_ORG2}/[repo-name]
+   ${GITEA_BASE_URL2}/${GITEA_ORG2}/[repo-name]/issues
+   ${GITEA_BASE_URL2}/${GITEA_ORG2}/[repo-name]/pulls
 3. Clone and read source code if needed:
-   cd /workspace/projects && git clone https://git.subcult.tv/subculture-collective/[repo-name].git 2>/dev/null || true
+   cd /workspace/projects && git clone ${GITEA_BASE_URL2}/${GITEA_ORG2}/[repo-name].git 2>/dev/null || true
    Then use file_read to read files.
 4. IMPORTANT: Check for existing Gitea issues, README, and docs \u2014 respect the existing development plan.
 5. If you find improvements to make, create detailed PRs with clear descriptions of what you changed and why.
@@ -10636,7 +10688,9 @@ function createFileWriteExecute(agentId) {
     const b64 = Buffer.from(content).toString("base64");
     const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
     const op = append ? ">>" : ">";
-    const command = `mkdir -p '${dir.replace(/'/g, "'\\''")}' && echo '${b64}' | base64 -d ${op} '${fullPath.replace(/'/g, "'\\''")}'`;
+    const escapedDir = dir.replace(/'/g, "'\\''");
+    const escapedPath = fullPath.replace(/'/g, "'\\''");
+    const command = `mkdir -p '${escapedDir}' && echo '${b64}' | base64 -d ${op} '${escapedPath}' && chmod 0644 '${escapedPath}'`;
     const result = await execInToolbox(command, 1e4);
     if (result.exitCode !== 0) {
       return { error: `File write failed: ${result.stderr || "unknown error"}` };
@@ -10725,7 +10779,7 @@ var sendToAgentTool = {
     const fullPath = `/workspace/agents/${target}/inbox/${safeName}`;
     const b64 = Buffer.from(content).toString("base64");
     const dir = `/workspace/agents/${target}/inbox`;
-    const command = `mkdir -p '${dir}' && echo '${b64}' | base64 -d > '${fullPath}'`;
+    const command = `mkdir -p '${dir}' && echo '${b64}' | base64 -d > '${fullPath}' && chmod 0644 '${fullPath}'`;
     const result = await execInToolbox(command, 1e4);
     if (result.exitCode !== 0) {
       return { error: `Send failed: ${result.stderr || "unknown error"}` };
@@ -10790,7 +10844,7 @@ ${task}
 Write results to: ${outputPath}
 `;
       const b64 = Buffer.from(taskContent).toString("base64");
-      await execInToolbox(`echo '${b64}' | base64 -d > '${droidDir}/task.md'`, 5e3);
+      await execInToolbox(`echo '${b64}' | base64 -d > '${droidDir}/task.md' && chmod 0644 '${droidDir}/task.md'`, 5e3);
     } catch {
       return { error: "Failed to create droid workspace" };
     }
@@ -11507,6 +11561,42 @@ var TOOL_ERROR_PATTERNS = [
   /timed out/i,
   /tool\s+"?.+"?\s+does not exist/i
 ];
+var STEP_TOOL_REQUIREMENTS = {
+  // Work that must create or modify files.
+  patch_code: { allOf: ["file_write"] },
+  self_evolution: { allOf: ["bash", "file_write"] },
+  draft_essay: { allOf: ["file_write"] },
+  draft_thread: { allOf: ["file_write"] },
+  draft_product_spec: { allOf: ["file_write"] },
+  critique_content: { allOf: ["file_write"] },
+  distill_insight: { allOf: ["file_write"] },
+  document_lesson: { allOf: ["file_write"] },
+  consolidate_memory: { allOf: ["file_write"] },
+  content_revision: { allOf: ["file_write"] },
+  update_directive: { allOf: ["file_write"] },
+  analyze_discourse: { allOf: ["file_write"] },
+  classify_pattern: { allOf: ["file_write"] },
+  trace_incentive: { allOf: ["file_write"] },
+  identify_assumption: { allOf: ["file_write"] },
+  refine_narrative: { allOf: ["file_write"] },
+  prepare_statement: { allOf: ["file_write"] },
+  write_issue: { allOf: ["file_write"] },
+  review_policy: { allOf: ["file_write"] },
+  map_dependency: { allOf: ["file_write"] },
+  log_event: { allOf: ["file_write"] },
+  tag_memory: { allOf: ["file_write"] },
+  escalate_risk: { allOf: ["file_write"] },
+  // Work that must consult external/runtime state.
+  research_topic: { allOf: ["web_search"] },
+  scan_signals: { allOf: ["web_search"] },
+  audit_system: { allOf: ["bash", "file_write"] },
+  github_issue: { allOf: ["bash"] },
+  github_pr: { allOf: ["bash"] },
+  create_pull_request: { allOf: ["bash"] },
+  explore_repo: { allOf: ["bash"] },
+  publish_blog: { anyOf: ["bash", "file_write"] },
+  notify_human: { allOf: ["bash"] }
+};
 function toolErrorText(result) {
   if (typeof result === "string") return result;
   if (!result || typeof result !== "object") return "";
@@ -11523,9 +11613,91 @@ function isSuccessfulToolCall(toolCall) {
     if (TOOL_ERROR_PATTERNS.some((p) => p.test(text))) return false;
   }
   if (typeof toolCall.result === "object" && toolCall.result !== null) {
+    const exitCode = toolCall.result.exitCode;
+    if (typeof exitCode === "number" && exitCode !== 0) return false;
     return !(typeof toolCall.result.error === "string");
   }
   return true;
+}
+function mergeToolRequirements(left, right) {
+  return {
+    allOf: [.../* @__PURE__ */ new Set([...left.allOf ?? [], ...right.allOf ?? []])],
+    anyOf: [.../* @__PURE__ */ new Set([...left.anyOf ?? [], ...right.anyOf ?? []])]
+  };
+}
+function stepKindFromPrompt(prompt) {
+  return prompt.match(/^Step:\s*([^\n]+)/m)?.[1]?.trim() ?? null;
+}
+function inferPromptToolRequirements(prompt) {
+  let requirement = {};
+  const text = prompt.toLowerCase();
+  if (/\bfile_write\b|using file_write|write (?:the |a |your )?[\s\S]*\bto\b/.test(
+    text
+  )) {
+    requirement = mergeToolRequirements(requirement, {
+      allOf: ["file_write"]
+    });
+  }
+  if (/\bweb_search\b|search the web|web search/.test(text)) {
+    requirement = mergeToolRequirements(requirement, { allOf: ["web_search"] });
+  }
+  if (/\bweb_fetch\b/.test(text)) {
+    requirement = mergeToolRequirements(requirement, { allOf: ["web_fetch"] });
+  }
+  if (/\bmemory_search\b/.test(text)) {
+    requirement = mergeToolRequirements(requirement, { allOf: ["memory_search"] });
+  }
+  if (/\bbash\b|run system checks|git\s+(?:status|diff|log|push|clone|commit)/.test(
+    text
+  )) {
+    requirement = mergeToolRequirements(requirement, { allOf: ["bash"] });
+  }
+  return requirement;
+}
+function requirementsForSession(session) {
+  if (!["mission", "cron", "droid"].includes(session.source)) return {};
+  const inferred = inferPromptToolRequirements(session.prompt);
+  if (session.source !== "mission") return inferred;
+  const stepKind = stepKindFromPrompt(session.prompt);
+  if (!stepKind) return inferred;
+  return mergeToolRequirements(
+    inferred,
+    STEP_TOOL_REQUIREMENTS[stepKind] ?? {}
+  );
+}
+function detectMissingRequiredToolEvidence(session, toolCalls) {
+  const requirement = requirementsForSession(session);
+  const requiredAll = requirement.allOf ?? [];
+  const requiredAny = requirement.anyOf ?? [];
+  if (requiredAll.length === 0 && requiredAny.length === 0) {
+    return { blocked: false, reason: "", evidence: [] };
+  }
+  const successfulToolNames = new Set(
+    toolCalls.filter(isSuccessfulToolCall).map((tc) => tc.name)
+  );
+  const missingAll = requiredAll.filter((name) => !successfulToolNames.has(name));
+  const missingAny = requiredAny.length > 0 && !requiredAny.some((name) => successfulToolNames.has(name)) ? requiredAny : [];
+  if (missingAll.length === 0 && missingAny.length === 0) {
+    return { blocked: false, reason: "", evidence: [] };
+  }
+  const stepKind = stepKindFromPrompt(session.prompt);
+  const evidence = [
+    `session source=${session.source}${stepKind ? ` step=${stepKind}` : ""}`,
+    `successful tools: ${[...successfulToolNames].join(", ") || "(none)"}`
+  ];
+  if (missingAll.length > 0) {
+    evidence.push(`missing required tool(s): ${missingAll.join(", ")}`);
+  }
+  if (missingAny.length > 0) {
+    evidence.push(
+      `missing at least one required tool from: ${missingAny.join(", ")}`
+    );
+  }
+  return {
+    blocked: true,
+    reason: "Required tool evidence missing",
+    evidence
+  };
 }
 function detectBlockedOutcome(summary, toolCalls, options) {
   const evidence = [];
@@ -11628,7 +11800,9 @@ ${ctx.primeDirective}
 `;
   prompt += `When your task is complete, provide a clear summary of what you accomplished.
 `;
-  prompt += `IMPORTANT: Never output raw XML tags like <function_calls> or <invoke>. Use the structured tool calling API instead.
+  prompt += `IMPORTANT: When the task asks you to read, write, search, run commands, inspect Git, or publish, you MUST call the relevant tool. Do not claim you completed work without tool results.
+`;
+  prompt += `IMPORTANT: Prefer the structured tool calling API. If your runtime cannot emit native tool calls, emit exactly <function_calls><invoke name="tool_name"><parameter name="param">value</parameter></invoke></function_calls>; the runtime will execute it. Do not leave tool XML in your final answer.
 `;
   prompt += `IMPORTANT: Only call tools from the list below. Do NOT invent tool names.
 
@@ -11822,7 +11996,16 @@ async function executeAgentSession(session) {
         ignoreSummaryBlockers: isHeartbeatReportSession
       }
     );
-    const finalStatus = blockedOutcome.blocked ? "blocked" : "succeeded";
+    const missingToolEvidence = detectMissingRequiredToolEvidence(
+      session,
+      loopResult.toolCalls
+    );
+    const finalStatus = blockedOutcome.blocked || missingToolEvidence.blocked ? "blocked" : "succeeded";
+    const blockedReason = blockedOutcome.blocked ? blockedOutcome.reason : missingToolEvidence.blocked ? missingToolEvidence.reason : void 0;
+    const blockedEvidence = [
+      ...blockedOutcome.evidence,
+      ...missingToolEvidence.evidence
+    ];
     await completeSession(
       session.id,
       finalStatus,
@@ -11830,30 +12013,30 @@ async function executeAgentSession(session) {
         text: cleanedText,
         summary,
         rounds: loopResult.rounds,
-        ...blockedOutcome.blocked ? {
-          blocked_reason: blockedOutcome.reason,
-          blocked_evidence: blockedOutcome.evidence
+        ...blockedReason ? {
+          blocked_reason: blockedReason,
+          blocked_evidence: blockedEvidence
         } : {}
       },
       loopResult.toolCalls,
       loopResult.rounds,
-      blockedOutcome.blocked ? blockedOutcome.reason : void 0
+      blockedReason
     );
     const summaryPreview = truncateToFirstSentences(cleanedText, 2e3);
-    if (blockedOutcome.blocked) {
+    if (blockedReason) {
       await emitEvent({
         agent_id: agentId,
         kind: "agent_session_blocked",
         title: `${voiceName} session blocked`,
-        summary: summaryPreview || blockedOutcome.reason,
+        summary: summaryPreview || blockedReason,
         tags: ["agent_session", "blocked", session.source],
         metadata: {
           sessionId: session.id,
           source: session.source,
           rounds: loopResult.rounds,
           toolCalls: loopResult.toolCalls.length,
-          blockedReason: blockedOutcome.reason,
-          blockedEvidence: blockedOutcome.evidence
+          blockedReason,
+          blockedEvidence
         }
       });
     } else {
@@ -12052,7 +12235,7 @@ async function publishLocally(draft, existingLocal) {
   const filename = `${slug}.md`;
   const filePath = import_path.default.join(outputDir, filename);
   const markdown = renderLocalMarkdown(draft.title, draft.body, publishedAt);
-  await import_promises.default.writeFile(filePath, markdown, "utf-8");
+  await import_promises.default.writeFile(filePath, markdown, { encoding: "utf-8", mode: 420 });
   let relativePath;
   const normalizedFilePath = filePath.replace(/\\/g, "/");
   const normalizedWorkspace = WORKSPACE_ROOT.replace(/\\/g, "/");

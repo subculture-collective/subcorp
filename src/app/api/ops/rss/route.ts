@@ -3,14 +3,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { withRequestContext } from '@/lib/with-request-context';
+import { requireOpsRead, requireOpsAdminOrCron } from '@/lib/auth/middleware';
 
 const log = logger.child({ route: 'rss' });
 
 export const dynamic = 'force-dynamic';
 
-// GET — List feeds or digests (public, like roundtable GET)
+// GET — List feeds or digests (member/admin dashboard)
 export async function GET(req: NextRequest) {
     return withRequestContext(req, async () => {
+        const authResult = await requireOpsRead();
+        if (authResult instanceof NextResponse) return authResult;
+
         const type = req.nextUrl.searchParams.get('type') ?? 'digests';
 
         if (type === 'feeds') {
@@ -37,15 +41,11 @@ export async function GET(req: NextRequest) {
     });
 }
 
-// POST — Manage feeds (requires CRON_SECRET auth)
+// POST — Manage feeds (admin or cron)
 export async function POST(req: NextRequest) {
     return withRequestContext(req, async () => {
-        const authHeader = req.headers.get('authorization');
-        const cronSecret = process.env.CRON_SECRET;
-
-        if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+        const authResult = await requireOpsAdminOrCron(req);
+        if (authResult instanceof NextResponse) return authResult;
 
         try {
             const body = await req.json();

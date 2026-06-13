@@ -11,6 +11,7 @@ import {
 } from '@/lib/ops/memory-archaeology';
 import { withRequestContext } from '@/lib/with-request-context';
 import { logger } from '@/lib/logger';
+import { requireOpsRead, requireRoleOrCron } from '@/lib/auth/middleware';
 
 const log = logger.child({ module: 'api-archaeology' });
 
@@ -26,6 +27,9 @@ const VALID_FINDING_TYPES = new Set([
 
 export async function GET(req: NextRequest) {
     return withRequestContext(req, async () => {
+        const authResult = await requireOpsRead();
+        if (authResult instanceof NextResponse) return authResult;
+
         const { searchParams } = req.nextUrl;
         const digId = searchParams.get('dig_id') ?? undefined;
         const memoryId = searchParams.get('memory_id') ?? undefined;
@@ -61,6 +65,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
     return withRequestContext(req, async () => {
+        const authResult = await requireRoleOrCron(req, 'member', 'admin');
+        if (authResult instanceof NextResponse) return authResult;
+
         try {
             const body = await req.json().catch(() => ({}));
             const { agent_id, time_range, max_memories, finding_types } =

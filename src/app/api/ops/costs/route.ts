@@ -1,6 +1,7 @@
 // /api/ops/costs — LLM usage cost aggregation endpoint
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
+import { requireOpsRead } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,6 +39,9 @@ interface TotalRow {
 }
 
 export async function GET(request: NextRequest) {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     try {
         const { searchParams } = new URL(request.url);
         const period = (searchParams.get('period') ?? 'all') as Period;

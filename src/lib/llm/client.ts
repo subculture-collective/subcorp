@@ -13,6 +13,7 @@ import type {
 } from '../types';
 import { sql } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import { incLlmEmptyText } from '@/lib/metrics';
 import { resolveModels } from './model-routing';
 
 const log = logger.child({ module: 'llm' });
@@ -68,8 +69,12 @@ const OPENROUTER_MAX_INDIVIDUAL_FALLBACKS = 2;
 /** Hard cap for a full text-generation request across all providers. */
 const LLM_TEXT_TOTAL_BUDGET_MS = 75_000;
 
-/** Hard cap for a full tool-calling request across all providers. */
-const LLM_TOOL_TOTAL_BUDGET_MS = 90_000;
+/**
+ * Hard cap for a full tool-calling request across all providers.
+ * Local Ollama tool loops routinely need multiple qwen3 rounds plus tool I/O;
+ * 90s caused healthy multi-tool sessions to be cut off and blocked.
+ */
+const LLM_TOOL_TOTAL_BUDGET_MS = 240_000;
 
 /**
  * Local Ollama fallback chain used only when OLLAMA_MODEL is not set.
@@ -261,6 +266,8 @@ const OLLAMA_TAGS_TIMEOUT_MS = 5_000;
 const OLLAMA_MODEL_CACHE_TTL_MS = 30_000;
 /** Model override via env — when set, ONLY this model is used for local Ollama. */
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? '';
+/** Local Ollama model reserved for tool execution. Avoid openai/* routes here. */
+const OLLAMA_TOOL_MODEL = process.env.OLLAMA_TOOL_MODEL ?? '';
 const OLLAMA_EMPTY_RETRY_COUNT = Math.max(
     0,
     Number.parseInt(process.env.OLLAMA_EMPTY_RETRY_COUNT ?? '1', 10) || 0,
@@ -317,6 +324,41 @@ function isLlamaLineRoutedModel(model?: string): boolean {
 
 function isOllamaRoutedModel(model?: string): boolean {
     return isLocalModelId(model) || isLlamaLineRoutedModel(model);
+}
+
+function getDefaultOllamaToolModel(): string {
+    const explicitToolModel = OLLAMA_TOOL_MODEL.trim();
+    if (explicitToolModel) {
+        if (isLocalModelId(explicitToolModel)) return normalizeModel(explicitToolModel);
+        log.warn('Ignoring non-local OLLAMA_TOOL_MODEL for tool execution', {
+            toolModel: explicitToolModel,
+        });
+    }
+
+    if (isLocalModelId(OLLAMA_MODEL)) return normalizeModel(OLLAMA_MODEL);
+
+    const fallbackLocalModel = OLLAMA_FALLBACK_MODELS.find(isLocalModelId);
+    if (fallbackLocalModel) return fallbackLocalModel;
+
+    return DEFAULT_OLLAMA_FALLBACK_MODELS[0];
+}
+
+export function resolveOllamaModelForToolRequest(model?: string): string {
+    if (isLocalModelId(model)) return normalizeModel(model!);
+
+    const toolModel = getDefaultOllamaToolModel();
+    if (model && isLlamaLineRoutedModel(model)) {
+        log.info('Routing tool request away from llama-line OpenCode harness model', {
+            requestedModel: model,
+            toolModel,
+        });
+    }
+    return toolModel;
+}
+
+function resolvePreferredOllamaModel(model: string | undefined, hasTools: boolean): string | undefined {
+    if (hasTools) return resolveOllamaModelForToolRequest(model);
+    return model && isOllamaRoutedModel(model) ? model : undefined;
 }
 
 function canUseOpenRouter(): boolean {
@@ -562,6 +604,7 @@ async function tryOllamaFirst(
             maxTokens,
             model: ollamaModel,
             deadlineAt,
+            trackingContext,
         });
         if (ollamaResult?.text) {
             log.debug('Ollama succeeded', {
@@ -614,6 +657,7 @@ async function tryOllamaLastResort(
     const retryResult = await ollamaChat(messages, temperature, {
         maxTokens,
         deadlineAt,
+        trackingContext,
     });
     if (retryResult?.text) {
         void trackUsage(
@@ -765,10 +809,11 @@ async function ollamaChat(
         maxToolRounds?: number;
         model?: string;
         deadlineAt?: number;
+        trackingContext?: LLMGenerateOptions['trackingContext'];
     },
 ): Promise<OllamaChatResult | null> {
-    const preferredModel =
-        options?.model && isOllamaRoutedModel(options.model) ? options.model : undefined;
+    const hasTools = !!options?.tools?.length;
+    const preferredModel = resolvePreferredOllamaModel(options?.model, hasTools);
     const models = getOllamaModelsWithFallback(preferredModel);
     if (models.length === 0) return null;
 
@@ -833,6 +878,7 @@ async function ollamaChat(
             deadlineAt,
             preferredModel,
             isFirstLocalAttempt: !spec.apiKey && index === 0,
+            trackingContext: options?.trackingContext,
         });
         if (attempt.result) return attempt.result;
         if (attempt.stopLocalFallback) {
@@ -868,6 +914,7 @@ interface OllamaChatWithModelInput {
     deadlineAt: number;
     preferredModel?: string;
     isFirstLocalAttempt?: boolean;
+    trackingContext?: LLMGenerateOptions['trackingContext'];
 }
 
 /**
@@ -941,6 +988,7 @@ async function ollamaChatWithModel(
         deadlineAt,
         preferredModel,
         isFirstLocalAttempt,
+        trackingContext,
     } = input;
     const { model, baseUrl, apiKey } = spec;
     const toolCallRecords: ToolCallRecord[] = [];
@@ -1087,10 +1135,34 @@ async function ollamaChatWithModel(
                 id: (tc as { id?: string }).id ?? `call_${round}_${i}`,
                 function: tc.function,
             }));
-            const ollamaPendingToolCalls = filterPhantomToolCalls(
+            let ollamaPendingToolCalls = filterPhantomToolCalls(
                 rawToolCalls,
                 { model, round },
             );
+
+            // Some local/brokered models do not surface native tool_calls even when
+            // tool schemas are supplied. They may emit Anthropic/DSML-style text
+            // calls instead. Recover those before accepting a text-only answer;
+            // otherwise agents can hallucinate that they wrote files without any
+            // executable tool evidence.
+            if (
+                !ollamaPendingToolCalls ||
+                ollamaPendingToolCalls.length === 0
+            ) {
+                const raw = msg.content ?? '';
+                if (tools && tools.length > 0 && raw.length > 0) {
+                    const dsmlCalls = parseDsmlToolCalls(raw, tools);
+                    if (dsmlCalls.length > 0) {
+                        ollamaPendingToolCalls = dsmlCalls;
+                        log.info('Recovered Ollama tool calls from DSML text', {
+                            count: dsmlCalls.length,
+                            tools: dsmlCalls.map(tc => tc.function.name),
+                            model,
+                            round,
+                        });
+                    }
+                }
+            }
 
             // No tool calls → return text (extract content from XML wrappers if present)
             if (
@@ -1104,6 +1176,11 @@ async function ollamaChatWithModel(
                 // the model put useful output inside thinking tags — preserve it.
                 const text = stripped.length > 0 ? stripped : extractFromXml(raw).trim();
                 if (text.length === 0 && toolCallRecords.length === 0) {
+                    incLlmEmptyText({
+                        provider: 'ollama',
+                        context: trackingContext?.context,
+                        agentId: trackingContext?.agentId,
+                    });
                     log.warn('Ollama model returned empty text', {
                         model,
                         doneReason: rawData.done_reason,
@@ -1491,6 +1568,11 @@ export async function llmGenerate(
 
     // ── OpenRouter fallback (only when enabled) ──
     if (!canUseOpenRouter()) {
+        incLlmEmptyText({
+            provider: 'ollama',
+            context: trackingContext?.context,
+            agentId: trackingContext?.agentId,
+        });
         log.warn('Ollama returned empty and OpenRouter is disabled', {
             context: trackingContext?.context,
             agentId: trackingContext?.agentId,
@@ -1572,6 +1654,11 @@ export async function llmGenerate(
         void trackUsage(usedModel, usage, durationMs, trackingContext);
 
         if (text.length === 0) {
+            incLlmEmptyText({
+                provider: 'openrouter',
+                context: trackingContext?.context,
+                agentId: trackingContext?.agentId,
+            });
             log.warn('LLM returned empty text', {
                 model: usedModel,
                 context: trackingContext?.context,
@@ -2143,7 +2230,7 @@ export async function llmGenerateWithTools(
             if (ollamaCandidate) resolvedModel = ollamaCandidate;
         } catch { /* use default */ }
     }
-    const preferOllamaFirst = shouldTryOllamaFirst(resolvedModel);
+    const preferOllamaFirst = hasTools || shouldTryOllamaFirst(resolvedModel);
     if (preferOllamaFirst) {
         const ollamaResult = await ollamaChat(messages, temperature, {
             maxTokens,
@@ -2151,6 +2238,7 @@ export async function llmGenerateWithTools(
             maxToolRounds,
             model: resolvedModel,
             deadlineAt: totalDeadlineAt,
+            trackingContext,
         });
         if (ollamaResult?.text || (ollamaResult?.toolCalls && ollamaResult.toolCalls.length > 0)) {
             log.debug('Ollama succeeded (with tools)', {
@@ -2179,6 +2267,11 @@ export async function llmGenerateWithTools(
 
     // ── OpenRouter fallback (only when enabled) ──
     if (!canUseOpenRouter()) {
+        incLlmEmptyText({
+            provider: 'ollama-tools',
+            context: trackingContext?.context,
+            agentId: trackingContext?.agentId,
+        });
         log.warn('Ollama returned empty and OpenRouter is disabled (tool call)', {
             context: trackingContext?.context,
             agentId: trackingContext?.agentId,

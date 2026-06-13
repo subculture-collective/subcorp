@@ -4,6 +4,7 @@ import {
     getGovernanceProposals,
     type ProposalStatus,
 } from '@/lib/ops/governance';
+import { requireOpsRead } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,6 +16,9 @@ const VALID_STATUSES = new Set<ProposalStatus>([
 ]);
 
 export async function GET(req: NextRequest) {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     const { searchParams } = new URL(req.url);
     const statusParam = searchParams.get('status');
     const proposer = searchParams.get('proposer');

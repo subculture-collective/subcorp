@@ -500,7 +500,7 @@ export async function generateDailyNewspaper(): Promise<string | null> {
     const markdownPath = `${WORKSPACE_BASE}/${today}.md`;
     try {
         await mkdir(dirname(markdownPath), { recursive: true });
-        await writeFile(markdownPath, markdown, 'utf-8');
+        await writeFile(markdownPath, markdown, { encoding: 'utf-8', mode: 0o644 });
     } catch (err) {
         log.warn('Failed to save newspaper markdown', {
             error: (err as Error).message,
@@ -526,7 +526,7 @@ export async function generateDailyNewspaper(): Promise<string | null> {
         });
         pdfPath = `${WORKSPACE_BASE}/${today}.pdf`;
         await mkdir(dirname(pdfPath), { recursive: true });
-        await writeFile(pdfPath, pdfBuffer);
+        await writeFile(pdfPath, pdfBuffer, { mode: 0o644 });
         log.info('PDF rendered', { path: pdfPath, size: pdfBuffer.length });
     } catch (err) {
         log.warn('PDF generation failed (non-fatal)', {

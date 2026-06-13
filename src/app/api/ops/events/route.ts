@@ -1,10 +1,14 @@
 // /api/ops/events — List recent events
 import { NextRequest, NextResponse } from 'next/server';
 import { sql, jsonb } from '@/lib/db';
+import { requireOpsRead } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     const { searchParams } = new URL(req.url);
     const agentId = searchParams.get('agent_id');
     const kind = searchParams.get('kind');

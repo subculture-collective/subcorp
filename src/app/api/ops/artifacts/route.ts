@@ -4,6 +4,7 @@ import path from 'node:path';
 import { sql } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { execInToolbox } from '@/lib/tools/executor';
+import { requireOpsRead } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
@@ -224,6 +225,9 @@ async function loadWorkspaceArtifacts(limit: number): Promise<ArtifactItem[]> {
 }
 
 export async function GET(req: NextRequest) {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     const { searchParams } = new URL(req.url);
     const limit = clampLimit(searchParams.get('limit'));
     const q = searchParams.get('q')?.trim() ?? '';

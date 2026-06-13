@@ -211,7 +211,7 @@ async function publishLocally(
     const filePath = path.join(outputDir, filename);
     const markdown = renderLocalMarkdown(draft.title, draft.body, publishedAt);
 
-    await fs.writeFile(filePath, markdown, 'utf-8');
+    await fs.writeFile(filePath, markdown, { encoding: 'utf-8', mode: 0o644 });
 
     // Derive relative_path from the actual output directory so that it
     // stays consistent with where the file was written, even when

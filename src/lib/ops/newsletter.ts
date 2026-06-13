@@ -733,7 +733,7 @@ export async function generateWeeklyNewsletter(): Promise<string | null> {
     const markdownPath = `${WORKSPACE_BASE}/${weekString}.md`;
     try {
         await mkdir(dirname(markdownPath), { recursive: true });
-        await writeFile(markdownPath, markdown, 'utf-8');
+        await writeFile(markdownPath, markdown, { encoding: 'utf-8', mode: 0o644 });
     } catch (err) {
         log.warn('Failed to save newsletter markdown', {
             error: (err as Error).message,
@@ -762,7 +762,7 @@ export async function generateWeeklyNewsletter(): Promise<string | null> {
         });
         pdfPath = `${WORKSPACE_BASE}/${weekString}.pdf`;
         await mkdir(dirname(pdfPath), { recursive: true });
-        await writeFile(pdfPath, pdfBuffer);
+        await writeFile(pdfPath, pdfBuffer, { mode: 0o644 });
         log.info('Newsletter PDF rendered', {
             path: pdfPath,
             size: pdfBuffer.length,

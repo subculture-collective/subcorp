@@ -3,12 +3,16 @@ import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import type { AgentRelationship } from '@/lib/types';
 import { logger } from '@/lib/logger';
+import { requireOpsRead } from '@/lib/auth/middleware';
 
 const log = logger.child({ module: 'api:relationships' });
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     try {
         const relationships = await sql<AgentRelationship[]>`
             SELECT * FROM ops_agent_relationships

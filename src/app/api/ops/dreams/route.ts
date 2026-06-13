@@ -6,6 +6,7 @@ import {
     type DreamType,
 } from '@/lib/ops/dreams';
 import { withRequestContext } from '@/lib/with-request-context';
+import { requireOpsRead } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +19,9 @@ const VALID_DREAM_TYPES = new Set([
 
 export async function GET(req: NextRequest) {
     return withRequestContext(req, async () => {
+        const authResult = await requireOpsRead();
+        if (authResult instanceof NextResponse) return authResult;
+
         const { searchParams } = req.nextUrl;
         const agentId = searchParams.get('agent_id') ?? undefined;
         const dreamType = searchParams.get('dream_type') ?? undefined;

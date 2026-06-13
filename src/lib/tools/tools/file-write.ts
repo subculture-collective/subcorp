@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { sql } from '@/lib/db';
 import path from 'node:path';
 import { createLogger } from '@/lib/logger';
+import { tenantCacheKey } from '@/lib/tenant/cache-key';
 
 /**
  * Per-agent write ACLs.
@@ -46,7 +47,8 @@ const GRANT_CACHE_TTL_MS = 30_000;
 const grantCache = new Map<string, { prefixes: string[]; ts: number }>();
 
 async function getActiveGrants(agentId: string): Promise<string[]> {
-    const cached = grantCache.get(agentId);
+    const cacheKey = tenantCacheKey('acl-grants', agentId);
+    const cached = grantCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < GRANT_CACHE_TTL_MS) {
         return cached.prefixes;
     }
@@ -57,7 +59,7 @@ async function getActiveGrants(agentId: string): Promise<string[]> {
     `;
 
     const prefixes = rows.map(r => r.path_prefix);
-    grantCache.set(agentId, { prefixes, ts: Date.now() });
+    grantCache.set(cacheKey, { prefixes, ts: Date.now() });
     return prefixes;
 }
 
@@ -161,7 +163,9 @@ export function createFileWriteExecute(agentId: string) {
         const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
         const op = append ? '>>' : '>';
 
-        const command = `mkdir -p '${dir.replace(/'/g, "'\\''")}' && echo '${b64}' | base64 -d ${op} '${fullPath.replace(/'/g, "'\\''")}'`;
+        const escapedDir = dir.replace(/'/g, "'\\''");
+        const escapedPath = fullPath.replace(/'/g, "'\\''");
+        const command = `mkdir -p '${escapedDir}' && echo '${b64}' | base64 -d ${op} '${escapedPath}' && chmod 0644 '${escapedPath}'`;
 
         const result = await execInToolbox(command, 10_000);
 

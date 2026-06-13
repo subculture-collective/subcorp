@@ -75,7 +75,8 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
         await execInToolbox(
             `mkdir -p '/workspace/projects/${input.slug}/src' '/workspace/projects/${input.slug}/docs' && ` +
             `echo '${readmeB64}' | base64 -d > '/workspace/projects/${input.slug}/README.md' && ` +
-            `echo '${statusB64}' | base64 -d > '/workspace/projects/${input.slug}/.status.json'`,
+            `echo '${statusB64}' | base64 -d > '/workspace/projects/${input.slug}/.status.json' && ` +
+            `chmod 0644 '/workspace/projects/${input.slug}/README.md' '/workspace/projects/${input.slug}/.status.json'`,
             10_000,
         );
     } catch (err) {
@@ -174,7 +175,7 @@ async function updateProjectRegistry(): Promise<void> {
     const b64 = Buffer.from(registry).toString('base64');
 
     await execInToolbox(
-        `echo '${b64}' | base64 -d > /workspace/shared/project-registry.json`,
+        `echo '${b64}' | base64 -d > /workspace/shared/project-registry.json && chmod 0644 /workspace/shared/project-registry.json`,
         5_000,
     );
 }

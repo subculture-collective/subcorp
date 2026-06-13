@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Networking & fetching
     curl wget jq ca-certificates gnupg dnsutils net-tools iputils-ping whois \
     # Core utilities
-    coreutils findutils diffutils patch gawk sed grep less file unzip zip tar gzip bzip2 xz-utils xxd \
+    coreutils findutils diffutils patch gawk sed grep less file unzip zip tar gzip bzip2 xz-utils xxd rsync \
     # Text processing & editing
     vim-tiny nano \
     # Development — compilers & build tools
@@ -94,7 +94,8 @@ RUN npm install -g \
 # ── Copy repo source + init script ──
 COPY . /opt/subcorp-repo
 COPY docker/toolbox/init-workspace.sh /usr/local/bin/init-workspace.sh
-RUN chmod +x /usr/local/bin/init-workspace.sh
+COPY docker/toolbox/sync-workspace-to-gitea.sh /usr/local/bin/sync-workspace-to-gitea.sh
+RUN chmod +x /usr/local/bin/init-workspace.sh /usr/local/bin/sync-workspace-to-gitea.sh
 
 RUN echo 'umask 0000' > /etc/workspace-env.sh
 ENV BASH_ENV=/etc/workspace-env.sh

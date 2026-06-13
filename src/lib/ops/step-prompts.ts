@@ -5,16 +5,19 @@
 // Falls back to the hardcoded STEP_INSTRUCTIONS map if no DB template exists.
 
 import { sql } from '@/lib/db';
+import { tenantCacheKey } from '@/lib/tenant/cache-key';
 import { getVoice } from '../roundtable/voices';
 import type { StepKind } from '../types';
 
 const WORKSPACE_ROOT =
     process.env.WORKSPACE_ROOT ?? '/workspace/projects/subcorp';
+const GITEA_BASE_URL = process.env.GITEA_BASE_URL ?? 'https://git.subcult.tv';
+const GITEA_ORG = process.env.GITEA_ORG ?? 'subculture-collective';
 
 const SELF_EVOLUTION_REPO_SETUP = [
     `REPO_DIR=${WORKSPACE_ROOT}`,
     `if [ ! -d "$REPO_DIR/.git" ]; then for CANDIDATE in /workspace/projects/subcorp /home/onnwee/projects/subcorp /home/onnwee/workspace/projects/subcorp; do if [ -d "$CANDIDATE/.git" ]; then REPO_DIR="$CANDIDATE"; break; fi; done; fi`,
-    `if [ ! -d "$REPO_DIR/.git" ]; then mkdir -p /home/onnwee/projects && git clone https://git.subcult.tv/subculture-collective/subcorp.git /home/onnwee/projects/subcorp && REPO_DIR=/home/onnwee/projects/subcorp; fi`,
+    `if [ ! -d "$REPO_DIR/.git" ]; then mkdir -p /home/onnwee/projects && git clone ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp.git /home/onnwee/projects/subcorp && REPO_DIR=/home/onnwee/projects/subcorp; fi`,
     `cd "$REPO_DIR"`,
 ].join('; ');
 
@@ -44,7 +47,8 @@ const templateCache = new Map<
 export async function loadStepTemplate(
     kind: string,
 ): Promise<StepTemplate | null> {
-    const cached = templateCache.get(kind);
+    const cacheKey = tenantCacheKey('step-template', kind);
+    const cached = templateCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < TEMPLATE_CACHE_TTL_MS) {
         return cached.template;
     }
@@ -55,7 +59,7 @@ export async function loadStepTemplate(
     `;
 
     const template = row ?? null;
-    templateCache.set(kind, { template, ts: Date.now() });
+    templateCache.set(cacheKey, { template, ts: Date.now() });
     return template;
 }
 
@@ -197,7 +201,9 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `1. If the project directory doesn't exist yet, create it. Use file_write to create package.json, tsconfig.json, README.md, and source files.\n` +
         `2. If the project exists, use file_read to read the existing source files first.\n` +
         `3. Use file_write to create or modify source files. Write real, working code — not pseudocode or descriptions.\n` +
-        `4. Write a brief changelog to ${outputDir}/${today}__patch__code__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md\n` +
+        `4. After writing source files, use bash to verify they exist (for example: find ${projectDir} -maxdepth 3 -type f).\n` +
+        `5. Write a brief changelog to ${outputDir}/${today}__patch__code__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
+        `6. If GITEA_TOKEN is available and the code is ready, use bash to run sync-workspace-to-gitea.sh projects so individual project repos are pushed to Gitea.\n` +
         `\nYour primary output is SOURCE CODE files written via file_write. Do NOT just describe what you would build — actually build it.\n`;
     },
 
@@ -281,9 +287,9 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `Use bash to check the diff:\n` +
         `  cd ${WORKSPACE_ROOT} && git diff --stat HEAD~5\n` +
         `  cd ${WORKSPACE_ROOT} && git log --oneline -10\n` +
-        `If GITEA_TOKEN is set, push and create a PR on git.subcult.tv:\n` +
+        `If GITEA_TOKEN is set, push and create a PR on ${GITEA_BASE_URL}:\n` +
         `  cd ${WORKSPACE_ROOT} && git push -u origin agents/workspace 2>&1\n` +
-        `  Open the pull request in the Gitea UI at https://git.subcult.tv/subculture-collective/subcorp/pulls/new\n` +
+        `  Open the pull request in the Gitea UI at ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp/pulls/new\n` +
         `If GITEA_TOKEN is NOT set or push fails, write a PR summary to ${outputDir}/${today}__pr__summary__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
         `The summary should include: branch name, commit list, diff stats, and a description of all changes.\n` +
         `Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "create_pull_request", status: "complete".\n`,
@@ -292,8 +298,8 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `You are improving your own system. You are an AI agent in the SUBCORP collective.\n` +
         `Your source code is at ${WORKSPACE_ROOT}/.\n` +
         `\n═══ CONTEXT ═══\n` +
-        `You belong to the subculture-collective Gitea organization (https://git.subcult.tv/subculture-collective).\n` +
-        `Your platform repo is https://git.subcult.tv/subculture-collective/subcorp.git.\n` +
+        `You belong to the ${GITEA_ORG} Gitea organization (${GITEA_BASE_URL}/${GITEA_ORG}).\n` +
+        `Your platform repo is ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp.git.\n` +
         `You have FULL ACCESS to the org — you can create repos, issues, PRs, manage projects, everything.\n` +
         `The org is yours to run like a business. Any action available to you is authorized.\n` +
         `═══ END CONTEXT ═══\n` +
@@ -306,55 +312,55 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `4. Use file_write to make your changes.\n` +
         `5. Use bash to commit and push:\n` +
         `   ${SELF_EVOLUTION_REPO_SETUP} && git add -A && git commit -m "${ctx.missionTitle}" && git push -u origin HEAD\n` +
-        `6. Open a PR in Gitea on https://git.subcult.tv/subculture-collective/subcorp.\n` +
+        `6. Open a PR in Gitea on ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp.\n` +
         `7. Write a summary to ${outputDir}/${today}__evolution__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md\n` +
         `\nYour output is a MERGED PULL REQUEST with real code changes. Do not just describe what you would change.\n`,
 
-    github_issue: (ctx, _today, _outputDir) =>
+    github_issue: (ctx) =>
         `You are managing the subculture-collective Gitea organization.\n` +
-        `Org: https://git.subcult.tv/subculture-collective\n` +
-        `Platform repo: https://git.subcult.tv/subculture-collective/subcorp.git\n` +
+        `Org: ${GITEA_BASE_URL}/${GITEA_ORG}\n` +
+        `Platform repo: ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp.git\n` +
         `You have FULL ACCESS — create repos, issues, PRs, labels, projects, anything.\n` +
         `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
         `\nUse bash and the Gitea web UI/API. Examples:\n` +
-        `  Open issues at https://git.subcult.tv/subculture-collective/subcorp/issues/new\n` +
-        `  Browse issues at https://git.subcult.tv/subculture-collective/subcorp/issues\n` +
-        `  Create repos under https://git.subcult.tv/subculture-collective\n` +
+        `  Open issues at ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp/issues/new\n` +
+        `  Browse issues at ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp/issues\n` +
+        `  Create repos under ${GITEA_BASE_URL}/${GITEA_ORG}\n` +
         `  Manage labels in the repo settings on git.subcult.tv\n` +
         `\nCreate well-structured issues with clear titles, descriptions, acceptance criteria, and appropriate labels.\n`,
 
-    github_pr: (ctx, _today, _outputDir) =>
+    github_pr: (ctx) =>
         `You are managing code in the subculture-collective Gitea organization.\n` +
-        `Org: https://git.subcult.tv/subculture-collective\n` +
-        `Platform repo: https://git.subcult.tv/subculture-collective/subcorp.git\n` +
+        `Org: ${GITEA_BASE_URL}/${GITEA_ORG}\n` +
+        `Platform repo: ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp.git\n` +
         `You have FULL ACCESS.\n` +
         `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
         `\nINSTRUCTIONS:\n` +
         `1. Use bash to check current branch and status: cd ${WORKSPACE_ROOT} && git status\n` +
         `2. Create a branch, make changes via file_write, commit, push, and open a PR in Gitea.\n` +
         `3. PR should have a clear title, description of changes, and context for reviewers.\n` +
-        `4. Use the pull request page on https://git.subcult.tv/subculture-collective/subcorp.\n`,
+        `4. Use the pull request page on ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp.\n`,
 
 
     explore_repo: (ctx, _today, outputDir) =>
         `You are exploring repositories in the subculture-collective Gitea organization.\n` +
-        `Org: https://git.subcult.tv/subculture-collective\n` +
+        `Org: ${GITEA_BASE_URL}/${GITEA_ORG}\n` +
         `You have FULL ACCESS to all repos.\n` +
         `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
         `\nINSTRUCTIONS:\n` +
-        `1. Use bash to browse the Gitea org page or API: https://git.subcult.tv/subculture-collective\n` +
+        `1. Use bash to browse the Gitea org page or API: ${GITEA_BASE_URL}/${GITEA_ORG}\n` +
         `2. For a specific repo, explore it:\n` +
-        `   https://git.subcult.tv/subculture-collective/[repo-name]\n` +
-        `   https://git.subcult.tv/subculture-collective/[repo-name]/issues\n` +
-        `   https://git.subcult.tv/subculture-collective/[repo-name]/pulls\n` +
+        `   ${GITEA_BASE_URL}/${GITEA_ORG}/[repo-name]\n` +
+        `   ${GITEA_BASE_URL}/${GITEA_ORG}/[repo-name]/issues\n` +
+        `   ${GITEA_BASE_URL}/${GITEA_ORG}/[repo-name]/pulls\n` +
         `3. Clone and read source code if needed:\n` +
-        `   cd /workspace/projects && git clone https://git.subcult.tv/subculture-collective/[repo-name].git 2>/dev/null || true\n` +
+        `   cd /workspace/projects && git clone ${GITEA_BASE_URL}/${GITEA_ORG}/[repo-name].git 2>/dev/null || true\n` +
         `   Then use file_read to read files.\n` +
         `4. IMPORTANT: Check for existing Gitea issues, README, and docs — respect the existing development plan.\n` +
         `5. If you find improvements to make, create detailed PRs with clear descriptions of what you changed and why.\n` +
         `6. Write findings to ${outputDir}/\n`,
 
-    publish_blog: (ctx, _today, _outputDir) =>
+    publish_blog: (ctx) =>
         `You are publishing content to the SUBCORP blog at https://blog.subcult.tv (Ghost CMS).\n` +
         `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
         `\nINSTRUCTIONS:\n` +

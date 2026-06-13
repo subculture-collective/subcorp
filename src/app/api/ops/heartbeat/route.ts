@@ -23,9 +23,11 @@ import {
 } from '@/lib/ops/rebellion';
 import { fetchAllFeeds, generateNewsDigest } from '@/lib/ops/rss';
 import { generateDailyNewspaper } from '@/lib/ops/newspaper';
+import { checkWorkspaceWorldWritableFiles } from '@/lib/ops/workspace-permissions';
 import { AGENT_IDS } from '@/lib/agents';
 import { logger } from '@/lib/logger';
 import { withRequestContext } from '@/lib/with-request-context';
+import { requireOpsAdminOrCron } from '@/lib/auth/middleware';
 
 const log = logger.child({ route: 'heartbeat' });
 
@@ -197,16 +199,8 @@ export async function GET(req: NextRequest) {
     return withRequestContext(req, async () => {
         const startTime = Date.now();
 
-        // ── Auth check ──
-        const authHeader = req.headers.get('authorization');
-        const cronSecret = process.env.CRON_SECRET;
-
-        if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-            return NextResponse.json(
-                { error: 'Unauthorized' },
-                { status: 401 },
-            );
-        }
+        const authResult = await requireOpsAdminOrCron(req);
+        if (authResult instanceof NextResponse) return authResult;
 
         // ── Kill switch check ──
         const systemPolicy = await getPolicy('system_enabled');
@@ -308,6 +302,14 @@ export async function GET(req: NextRequest) {
         } catch (err) {
             results.templateHealth = { error: (err as Error).message };
             log.error('Template health check failed', { error: err });
+        }
+
+        // ── Phase 10b: Workspace permission hygiene ──
+        try {
+            results.workspacePermissions = await checkWorkspaceWorldWritableFiles();
+        } catch (err) {
+            results.workspacePermissions = { error: (err as Error).message };
+            log.error('Workspace permission check failed', { error: err });
         }
 
         // ── Phase 11: Daily digest (once per day, ~11PM Chicago local) ──

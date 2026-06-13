@@ -131,6 +131,51 @@ const TOOL_ERROR_PATTERNS: RegExp[] = [
     /tool\s+"?.+"?\s+does not exist/i,
 ];
 
+type ToolRequirement = {
+    /** Every listed tool must have at least one successful call. */
+    allOf?: string[];
+    /** At least one listed tool must have a successful call. */
+    anyOf?: string[];
+};
+
+const STEP_TOOL_REQUIREMENTS: Record<string, ToolRequirement> = {
+    // Work that must create or modify files.
+    patch_code: { allOf: ['file_write'] },
+    self_evolution: { allOf: ['bash', 'file_write'] },
+    draft_essay: { allOf: ['file_write'] },
+    draft_thread: { allOf: ['file_write'] },
+    draft_product_spec: { allOf: ['file_write'] },
+    critique_content: { allOf: ['file_write'] },
+    distill_insight: { allOf: ['file_write'] },
+    document_lesson: { allOf: ['file_write'] },
+    consolidate_memory: { allOf: ['file_write'] },
+    content_revision: { allOf: ['file_write'] },
+    update_directive: { allOf: ['file_write'] },
+    analyze_discourse: { allOf: ['file_write'] },
+    classify_pattern: { allOf: ['file_write'] },
+    trace_incentive: { allOf: ['file_write'] },
+    identify_assumption: { allOf: ['file_write'] },
+    refine_narrative: { allOf: ['file_write'] },
+    prepare_statement: { allOf: ['file_write'] },
+    write_issue: { allOf: ['file_write'] },
+    review_policy: { allOf: ['file_write'] },
+    map_dependency: { allOf: ['file_write'] },
+    log_event: { allOf: ['file_write'] },
+    tag_memory: { allOf: ['file_write'] },
+    escalate_risk: { allOf: ['file_write'] },
+
+    // Work that must consult external/runtime state.
+    research_topic: { allOf: ['web_search'] },
+    scan_signals: { allOf: ['web_search'] },
+    audit_system: { allOf: ['bash', 'file_write'] },
+    github_issue: { allOf: ['bash'] },
+    github_pr: { allOf: ['bash'] },
+    create_pull_request: { allOf: ['bash'] },
+    explore_repo: { allOf: ['bash'] },
+    publish_blog: { anyOf: ['bash', 'file_write'] },
+    notify_human: { allOf: ['bash'] },
+};
+
 function toolErrorText(result: unknown): string {
     if (typeof result === 'string') return result;
     if (!result || typeof result !== 'object') return '';
@@ -151,10 +196,124 @@ function isSuccessfulToolCall(toolCall: ToolCallRecord): boolean {
     }
 
     if (typeof toolCall.result === 'object' && toolCall.result !== null) {
-        return !(typeof (toolCall.result as Record<string, unknown>).error === 'string');
+        const exitCode = (toolCall.result as Record<string, unknown>).exitCode;
+        if (typeof exitCode === 'number' && exitCode !== 0) return false;
+
+        return !(
+            typeof (toolCall.result as Record<string, unknown>).error === 'string'
+        );
     }
 
     return true;
+}
+
+function mergeToolRequirements(
+    left: ToolRequirement,
+    right: ToolRequirement,
+): ToolRequirement {
+    return {
+        allOf: [...new Set([...(left.allOf ?? []), ...(right.allOf ?? [])])],
+        anyOf: [...new Set([...(left.anyOf ?? []), ...(right.anyOf ?? [])])],
+    };
+}
+
+function stepKindFromPrompt(prompt: string): string | null {
+    return prompt.match(/^Step:\s*([^\n]+)/m)?.[1]?.trim() ?? null;
+}
+
+function inferPromptToolRequirements(prompt: string): ToolRequirement {
+    let requirement: ToolRequirement = {};
+    const text = prompt.toLowerCase();
+
+    if (
+        /\bfile_write\b|using file_write|write (?:the |a |your )?[\s\S]*\bto\b/.test(
+            text,
+        )
+    ) {
+        requirement = mergeToolRequirements(requirement, {
+            allOf: ['file_write'],
+        });
+    }
+    if (/\bweb_search\b|search the web|web search/.test(text)) {
+        requirement = mergeToolRequirements(requirement, { allOf: ['web_search'] });
+    }
+    if (/\bweb_fetch\b/.test(text)) {
+        requirement = mergeToolRequirements(requirement, { allOf: ['web_fetch'] });
+    }
+    if (/\bmemory_search\b/.test(text)) {
+        requirement = mergeToolRequirements(requirement, { allOf: ['memory_search'] });
+    }
+    if (
+        /\bbash\b|run system checks|git\s+(?:status|diff|log|push|clone|commit)/.test(
+            text,
+        )
+    ) {
+        requirement = mergeToolRequirements(requirement, { allOf: ['bash'] });
+    }
+
+    return requirement;
+}
+
+function requirementsForSession(session: AgentSession): ToolRequirement {
+    if (!['mission', 'cron', 'droid'].includes(session.source)) return {};
+
+    const inferred = inferPromptToolRequirements(session.prompt);
+    if (session.source !== 'mission') return inferred;
+
+    const stepKind = stepKindFromPrompt(session.prompt);
+    if (!stepKind) return inferred;
+
+    return mergeToolRequirements(
+        inferred,
+        STEP_TOOL_REQUIREMENTS[stepKind] ?? {},
+    );
+}
+
+export function detectMissingRequiredToolEvidence(
+    session: AgentSession,
+    toolCalls: ToolCallRecord[],
+): { blocked: boolean; reason: string; evidence: string[] } {
+    const requirement = requirementsForSession(session);
+    const requiredAll = requirement.allOf ?? [];
+    const requiredAny = requirement.anyOf ?? [];
+
+    if (requiredAll.length === 0 && requiredAny.length === 0) {
+        return { blocked: false, reason: '', evidence: [] };
+    }
+
+    const successfulToolNames = new Set(
+        toolCalls.filter(isSuccessfulToolCall).map(tc => tc.name),
+    );
+    const missingAll = requiredAll.filter(name => !successfulToolNames.has(name));
+    const missingAny =
+        requiredAny.length > 0 &&
+        !requiredAny.some(name => successfulToolNames.has(name)) ?
+            requiredAny
+        :   [];
+
+    if (missingAll.length === 0 && missingAny.length === 0) {
+        return { blocked: false, reason: '', evidence: [] };
+    }
+
+    const stepKind = stepKindFromPrompt(session.prompt);
+    const evidence = [
+        `session source=${session.source}${stepKind ? ` step=${stepKind}` : ''}`,
+        `successful tools: ${[...successfulToolNames].join(', ') || '(none)'}`,
+    ];
+    if (missingAll.length > 0) {
+        evidence.push(`missing required tool(s): ${missingAll.join(', ')}`);
+    }
+    if (missingAny.length > 0) {
+        evidence.push(
+            `missing at least one required tool from: ${missingAny.join(', ')}`,
+        );
+    }
+
+    return {
+        blocked: true,
+        reason: 'Required tool evidence missing',
+        evidence,
+    };
 }
 
 export function detectBlockedOutcome(
@@ -326,7 +485,8 @@ function buildAgentSystemPrompt(ctx: {
     prompt += `You are ${ctx.voiceName}, operating in an autonomous agent session.\n`;
     prompt += `You have tools available to accomplish your task. Use them through the provided function calling interface.\n`;
     prompt += `When your task is complete, provide a clear summary of what you accomplished.\n`;
-    prompt += `IMPORTANT: Never output raw XML tags like <function_calls> or <invoke>. Use the structured tool calling API instead.\n`;
+    prompt += `IMPORTANT: When the task asks you to read, write, search, run commands, inspect Git, or publish, you MUST call the relevant tool. Do not claim you completed work without tool results.\n`;
+    prompt += `IMPORTANT: Prefer the structured tool calling API. If your runtime cannot emit native tool calls, emit exactly <function_calls><invoke name="tool_name"><parameter name="param">value</parameter></invoke></function_calls>; the runtime will execute it. Do not leave tool XML in your final answer.\n`;
     prompt += `IMPORTANT: Only call tools from the list below. Do NOT invent tool names.\n\n`;
 
     if (ctx.toolNames.length > 0) {
@@ -512,6 +672,7 @@ export async function executeAgentSession(
         UPDATE ops_agent_sessions
         SET status = 'running', started_at = NOW()
         WHERE id = ${session.id}
+          AND status IN ('pending', 'queued', 'running')
     `;
 
     try {
@@ -542,42 +703,60 @@ export async function executeAgentSession(
                 ignoreSummaryBlockers: isHeartbeatReportSession,
             },
         );
+        const missingToolEvidence = detectMissingRequiredToolEvidence(
+            session,
+            loopResult.toolCalls,
+        );
 
-        const finalStatus = blockedOutcome.blocked ? 'blocked' : 'succeeded';
-        await completeSession(
+        const finalStatus =
+            blockedOutcome.blocked || missingToolEvidence.blocked ?
+                'blocked'
+            :   'succeeded';
+        const blockedReason =
+            blockedOutcome.blocked ?
+                blockedOutcome.reason
+            : missingToolEvidence.blocked ?
+                missingToolEvidence.reason
+            :   undefined;
+        const blockedEvidence = [
+            ...blockedOutcome.evidence,
+            ...missingToolEvidence.evidence,
+        ];
+        const completed = await completeSession(
             session.id,
             finalStatus,
             {
                 text: cleanedText,
                 summary,
                 rounds: loopResult.rounds,
-                ...(blockedOutcome.blocked ?
+                ...(blockedReason ?
                     {
-                        blocked_reason: blockedOutcome.reason,
-                        blocked_evidence: blockedOutcome.evidence,
+                        blocked_reason: blockedReason,
+                        blocked_evidence: blockedEvidence,
                     }
                 :   {}),
             },
             loopResult.toolCalls,
             loopResult.rounds,
-            blockedOutcome.blocked ? blockedOutcome.reason : undefined,
+            blockedReason,
         );
+        if (!completed) return;
 
         const summaryPreview = truncateToFirstSentences(cleanedText, 2000);
-        if (blockedOutcome.blocked) {
+        if (blockedReason) {
             await emitEvent({
                 agent_id: agentId,
                 kind: 'agent_session_blocked',
                 title: `${voiceName} session blocked`,
-                summary: summaryPreview || blockedOutcome.reason,
+                summary: summaryPreview || blockedReason,
                 tags: ['agent_session', 'blocked', session.source],
                 metadata: {
                     sessionId: session.id,
                     source: session.source,
                     rounds: loopResult.rounds,
                     toolCalls: loopResult.toolCalls.length,
-                    blockedReason: blockedOutcome.reason,
-                    blockedEvidence: blockedOutcome.evidence,
+                    blockedReason,
+                    blockedEvidence,
                 },
             });
         } else {
@@ -599,10 +778,11 @@ export async function executeAgentSession(
         const errorMsg = (err as Error).message;
         log.error('Agent session failed', { error: err, sessionId: session.id, agentId });
 
-        await completeSession(
+        const completed = await completeSession(
             session.id, 'failed', { error: errorMsg, rounds: 0 },
             [], 0, errorMsg,
         );
+        if (!completed) return;
 
         await emitEvent({
             agent_id: agentId,
@@ -638,8 +818,8 @@ async function completeSession(
     toolCalls: ToolCallRecord[],
     llmRounds: number,
     error?: string,
-): Promise<void> {
-    await sql`
+): Promise<boolean> {
+    const updated = await sql<{ id: string }[]>`
         UPDATE ops_agent_sessions
         SET status = ${status},
             result = ${jsonb(sanitizeForJsonb(result) as Record<string, unknown>)},
@@ -657,5 +837,15 @@ async function completeSession(
             error = ${error ?? null},
             completed_at = NOW()
         WHERE id = ${sessionId}
+          AND status = 'running'
+        RETURNING id
     `;
+    if (updated.length === 0) {
+        log.warn('Skipped terminal session update because session was not running', {
+            sessionId,
+            status,
+        });
+        return false;
+    }
+    return true;
 }

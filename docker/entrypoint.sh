@@ -24,14 +24,17 @@ if [ -d /app/db/migrations ] && [ -n "$DATABASE_URL" ]; then
     "
 fi
 
-# Configure git and gh for agent operations
+# Configure git for agent operations. Toolbox pushes use Gitea askpass; the app
+# container keeps only identity/default-branch config because it should not embed
+# credentials in remotes.
 if command -v git >/dev/null 2>&1; then
     git config --global user.name "subcorp-agents"
     git config --global user.email "subcorp@subcult.tv"
     git config --global init.defaultBranch main
 fi
-if command -v gh >/dev/null 2>&1 && [ -n "$GITHUB_TOKEN" ]; then
-    # gh uses GITHUB_TOKEN env var automatically — no login needed
+if command -v gh >/dev/null 2>&1 && [ -n "${GITHUB_TOKEN:-}" ]; then
+    # Legacy GitHub mirror support only. Gitea operations should use GITEA_TOKEN
+    # with curl/Git HTTPS through the toolbox.
     gh config set git_protocol https 2>/dev/null || true
 fi
 

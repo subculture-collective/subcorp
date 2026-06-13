@@ -4,6 +4,7 @@ import { sql } from '@/lib/db';
 import { createProposalAndMaybeAutoApprove } from '@/lib/ops/proposal-service';
 import { logger } from '@/lib/logger';
 import { withRequestContext } from '@/lib/with-request-context';
+import { requireOpsRead, requireOpsAdminOrCron } from '@/lib/auth/middleware';
 
 const log = logger.child({ route: 'proposals' });
 
@@ -12,15 +13,8 @@ export const dynamic = 'force-dynamic';
 // POST — submit a new proposal
 export async function POST(req: NextRequest) {
     return withRequestContext(req, async () => {
-        const authHeader = req.headers.get('authorization');
-        const cronSecret = process.env.CRON_SECRET;
-
-        if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-            return NextResponse.json(
-                { error: 'Unauthorized' },
-                { status: 401 },
-            );
-        }
+        const authResult = await requireOpsAdminOrCron(req);
+        if (authResult instanceof NextResponse) return authResult;
 
         try {
             const body = await req.json();
@@ -59,15 +53,8 @@ export async function POST(req: NextRequest) {
 // GET — list proposals with optional filters
 export async function GET(req: NextRequest) {
     return withRequestContext(req, async () => {
-        const authHeader = req.headers.get('authorization');
-        const cronSecret = process.env.CRON_SECRET;
-
-        if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-            return NextResponse.json(
-                { error: 'Unauthorized' },
-                { status: 401 },
-            );
-        }
+        const authResult = await requireOpsRead();
+        if (authResult instanceof NextResponse) return authResult;
 
         const { searchParams } = new URL(req.url);
         const status = searchParams.get('status');
