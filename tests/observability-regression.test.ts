@@ -28,4 +28,15 @@ describe('operational observability regressions', () => {
         expect(checker).toContain('find /workspace -type f -perm -0002');
         expect(metrics).toContain('subcorp_workspace_world_writable_files_total');
     });
+
+    test('workspace permission check can normalize world-writable files', () => {
+        const checker = fs.readFileSync(
+            path.join(WORKSPACE_ROOT, 'src/lib/ops/workspace-permissions.ts'),
+            'utf8',
+        );
+
+        expect(checker).toContain('normalizeWorkspacePermissions');
+        expect(checker).toContain('find /workspace -type f -perm -0002 -exec chmod 0644 {} +');
+        expect(checker).toContain('find /workspace -type d -perm -0002 -exec chmod o-w {} +');
+    });
 });

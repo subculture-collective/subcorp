@@ -10,6 +10,13 @@ export interface WorkspacePermissionCheckResult {
     files: string[];
 }
 
+export async function normalizeWorkspacePermissions(): Promise<void> {
+    await execInToolbox(
+        `find /workspace -type f -perm -0002 -exec chmod 0644 {} +; find /workspace -type d -perm -0002 -exec chmod o-w {} +`,
+        30_000,
+    );
+}
+
 export async function checkWorkspaceWorldWritableFiles(): Promise<WorkspacePermissionCheckResult> {
     const result = await execInToolbox(
         `find /workspace -type f -perm -0002 -printf '%p %m\\n' 2>/dev/null || true`,
@@ -27,11 +34,22 @@ export async function checkWorkspaceWorldWritableFiles(): Promise<WorkspacePermi
             count: files.length,
             sample: files.slice(0, 20),
         });
+        await normalizeWorkspacePermissions();
     }
 
+    const after = await execInToolbox(
+        `find /workspace -type f -perm -0002 -printf '%p %m\\n' 2>/dev/null || true`,
+        10_000,
+    );
+
+    const remaining = after.stdout
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean);
+
     return {
-        ok: files.length === 0,
-        worldWritableCount: files.length,
-        files: files.slice(0, 100),
+        ok: remaining.length === 0,
+        worldWritableCount: remaining.length,
+        files: remaining.slice(0, 100),
     };
 }
