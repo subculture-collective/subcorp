@@ -542,7 +542,7 @@ async function runAgentToolLoop(opts: {
     tools: ToolDefinition[];
     messages: LLMMessage[];
     startTime: number;
-}): Promise<{ lastText: string; toolCalls: ToolCallRecord[]; rounds: number }> {
+}): Promise<{ lastText: string; toolCalls: ToolCallRecord[]; rounds: number; emptyRounds: number }> {
     const { session, agentId, tools, messages, startTime } = opts;
     const allToolCalls: ToolCallRecord[] = [];
     const maxRounds = session.max_tool_rounds;
@@ -550,6 +550,7 @@ async function runAgentToolLoop(opts: {
     const softDeadlineMs = timeoutMs - SESSION_SOFT_DEADLINE_BUFFER_MS;
     let lastText = '';
     let consecutiveEmptyRounds = 0;
+    let emptyRounds = 0;
     let llmRounds = 0;
 
     for (let round = 0; round < maxRounds; round++) {
@@ -558,10 +559,14 @@ async function runAgentToolLoop(opts: {
         if (elapsed > timeoutMs) {
             await completeSession(
                 session.id, 'timed_out',
-                { summary: lastText || 'Session timed out before completing', rounds: llmRounds },
+                {
+                    summary: lastText || 'Session timed out before completing',
+                    rounds: llmRounds,
+                    empty_tool_rounds: emptyRounds,
+                },
                 allToolCalls, llmRounds, 'Timeout exceeded',
             );
-            return { lastText, toolCalls: allToolCalls, rounds: -1 }; // -1 signals timed_out (already written)
+            return { lastText, toolCalls: allToolCalls, rounds: -1, emptyRounds }; // -1 signals timed_out (already written)
         }
 
         if (elapsed > softDeadlineMs && round > 0 && lastText) {
@@ -589,6 +594,7 @@ async function runAgentToolLoop(opts: {
             consecutiveEmptyRounds = 0;
         } else {
             consecutiveEmptyRounds++;
+            emptyRounds++;
         }
         allToolCalls.push(...result.toolCalls);
 
@@ -599,6 +605,7 @@ async function runAgentToolLoop(opts: {
             cumulativeToolCalls: allToolCalls.length,
             hasLastText: !!lastText,
             consecutiveEmptyRounds,
+            emptyRounds,
         });
 
         if (result.toolCalls.length === 0) break;
@@ -654,7 +661,7 @@ async function runAgentToolLoop(opts: {
         });
     }
 
-    return { lastText, toolCalls: allToolCalls, rounds: llmRounds };
+    return { lastText, toolCalls: allToolCalls, rounds: llmRounds, emptyRounds };
 }
 
 /**
@@ -729,6 +736,7 @@ export async function executeAgentSession(
                 text: cleanedText,
                 summary,
                 rounds: loopResult.rounds,
+                empty_tool_rounds: loopResult.emptyRounds,
                 ...(blockedReason ?
                     {
                         blocked_reason: blockedReason,

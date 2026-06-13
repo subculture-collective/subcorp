@@ -13,7 +13,7 @@ import type {
 } from '../types';
 import { sql } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { incLlmEmptyText } from '@/lib/metrics';
+import { incLlmEmptyText, incLlmEmptyToolRound } from '@/lib/metrics';
 import { resolveModels } from './model-routing';
 
 const log = logger.child({ module: 'llm' });
@@ -2241,6 +2241,13 @@ export async function llmGenerateWithTools(
             trackingContext,
         });
         if (ollamaResult?.text || (ollamaResult?.toolCalls && ollamaResult.toolCalls.length > 0)) {
+            if (!ollamaResult.text && ollamaResult.toolCalls.length > 0) {
+                incLlmEmptyToolRound({
+                    provider: 'ollama-tools',
+                    context: trackingContext?.context,
+                    agentId: trackingContext?.agentId,
+                });
+            }
             log.debug('Ollama succeeded (with tools)', {
                 model: ollamaResult.model,
                 context: trackingContext?.context,

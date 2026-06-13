@@ -7,6 +7,13 @@ export const llmEmptyTextTotal = new Counter({
     registers: [register],
 });
 
+export const llmEmptyToolRoundTotal = new Counter({
+    name: 'subcorp_llm_empty_tool_round_total',
+    help: 'LLM tool rounds that returned no final text but did execute one or more tools.',
+    labelNames: ['provider', 'context', 'agent_id'] as const,
+    registers: [register],
+});
+
 export const workspaceWorldWritableFilesTotal = new Counter({
     name: 'subcorp_workspace_world_writable_files_total',
     help: 'World-writable files found during heartbeat workspace permission checks.',
@@ -20,6 +27,18 @@ export function incLlmEmptyText(labels: {
     agentId?: string | null;
 }): void {
     llmEmptyTextTotal.inc({
+        provider: labels.provider,
+        context: labels.context ?? 'unknown',
+        agent_id: labels.agentId ?? 'unknown',
+    });
+}
+
+export function incLlmEmptyToolRound(labels: {
+    provider: string;
+    context?: string | null;
+    agentId?: string | null;
+}): void {
+    llmEmptyToolRoundTotal.inc({
         provider: labels.provider,
         context: labels.context ?? 'unknown',
         agent_id: labels.agentId ?? 'unknown',
