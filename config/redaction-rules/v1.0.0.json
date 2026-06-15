@@ -1,0 +1,1 @@
+{"rules":{"pii":{"pattern":"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}","replacement":"<EMAIL_REDACTED>","audit_field":"redacted_pii"},"strategy":{"pattern":"(\\b[A-Z]{3,}\\b)","replacement":"<STRATEGY_REDACTED>","audit_field":"redacted_strategy"}}}
