@@ -95,10 +95,16 @@ describe('Gitea workspace push regressions', () => {
         const dockerfile = readRepoFile('docker/toolbox/Dockerfile');
 
         expect(source).toContain('GITEA_WORKSPACE_REPO');
+        expect(source).toContain('GITEA_WORKSPACE_ORG');
+        expect(source).toContain('GITEA_PROJECT_ORG');
+        expect(source).toContain('GITEA_WORKSPACE_TOKEN or GITEA_TOKEN is required');
+        expect(source).toContain('should_skip_project_dir');
+        expect(source).toContain('agents|app|core|db|deploy|docker|docs|drift_report');
         expect(source).toContain('sync_workspace');
         expect(source).toContain('sync_projects');
-        expect(source).toContain('rsync -a --delete');
+        expect(source).toContain('rsync -a --no-owner --no-group --delete');
         expect(source).toContain('--delete-excluded');
+        expect(source).toContain("'projects/'");
         expect(source).toContain("--filter='P /.git/'");
         expect(source).toContain("--exclude='.git'");
         expect(source).toContain("nested Git metadata found");
@@ -109,7 +115,8 @@ describe('Gitea workspace push regressions', () => {
         expect(source).toContain("'*.key'");
         expect(source).toContain('sync_sanitized_source "$project_dir"');
         expect(source).toContain('/workspace/projects');
-        expect(source).toContain('remote add origin "$(remote_url "$repo")"');
+        expect(source).toContain('remote add origin "$(remote_url "$owner" "$repo")"');
+        expect(source).toContain('sync_sanitized_source "$project_dir" "$GITEA_PROJECT_ORG"');
         expect(dockerfile).toContain('sync-workspace-to-gitea.sh');
     });
 
@@ -119,5 +126,15 @@ describe('Gitea workspace push regressions', () => {
         expect(migration).toContain('ops_step_templates');
         expect(migration.includes('allowed_step_kinds')).toBe(false);
         expect(migration.includes('self_evolution"]')).toBe(false);
+    });
+
+    test('workspace owner split migration preserves patch prompt safety guidance', () => {
+        const migration = readRepoFile('db/migrations/032_workspace_gitea_owner_split.sql');
+
+        expect(migration).toContain('/workspace/output is the artifact output root');
+        expect(migration).toContain('file_read accepts concrete files only, not directories');
+        expect(migration).toContain('Artifact grounding rule');
+        expect(migration).toContain('Include a "Grounding" section');
+        expect(migration).toContain('A summary without file_write evidence is incomplete');
     });
 });

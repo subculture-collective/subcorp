@@ -9,6 +9,10 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const cache = new Map<string, { text: string; expires: number }>();
 const GITEA_BASE_URL = process.env.GITEA_BASE_URL ?? 'https://git.subcult.tv';
 const GITEA_ORG = process.env.GITEA_ORG ?? 'subculture-collective';
+const GITEA_PROJECT_ORG =
+    process.env.GITEA_PROJECT_ORG ??
+    process.env.GITEA_WORKSPACE_ORG ??
+    GITEA_ORG;
 
 /**
  * Build a situational briefing for an agent.
@@ -35,7 +39,7 @@ Today is ${dateStr}. Current period: ${quarter} ${year}. Use this for all planni
 Gitea org: ${GITEA_BASE_URL}/${GITEA_ORG} (you have FULL ACCESS when GITEA_TOKEN is configured)
 Platform repo: ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp.git
 You can create repos, issues, PRs, labels, projects — anything. The org is yours to run like a business.
-Your product projects should be public repos in the ${GITEA_ORG} org on ${GITEA_BASE_URL}.
+Generated product/workspace repos belong in ${GITEA_BASE_URL}/${GITEA_PROJECT_ORG}, not the platform org.
 Use git and the Gitea web UI/API for all org operations.
 Use sync-workspace-to-gitea.sh to push the full /workspace snapshot and individual /workspace/projects/* repos when requested.
 If you need human help (accounts, API keys, infrastructure), use notify_human to send a request via ntfy.

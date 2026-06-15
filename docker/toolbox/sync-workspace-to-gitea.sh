@@ -14,8 +14,12 @@ GITEA_BASE_URL="${GITEA_BASE_URL%/}"
 GITEA_API_URL="${GITEA_API_URL:-${GITEA_BASE_URL}/api/v1}"
 GITEA_API_URL="${GITEA_API_URL%/}"
 GITEA_ORG="${GITEA_ORG:-subculture-collective}"
+GITEA_WORKSPACE_ORG="${GITEA_WORKSPACE_ORG:-$GITEA_ORG}"
+GITEA_PROJECT_ORG="${GITEA_PROJECT_ORG:-$GITEA_WORKSPACE_ORG}"
 GITEA_USERNAME="${GITEA_USERNAME:-x-access-token}"
+GITEA_WORKSPACE_USERNAME="${GITEA_WORKSPACE_USERNAME:-$GITEA_USERNAME}"
 AGENT_GIT_TOKEN="${GITEA_TOKEN:-${GITHUB_TOKEN:-}}"
+WORKSPACE_GIT_TOKEN="${GITEA_WORKSPACE_TOKEN:-$AGENT_GIT_TOKEN}"
 GITEA_WORKSPACE_REPO="${GITEA_WORKSPACE_REPO:-subcorp-workspace}"
 GITEA_WORKSPACE_PRIVATE="${GITEA_WORKSPACE_PRIVATE:-true}"
 GITEA_PROJECT_PRIVATE="${GITEA_PROJECT_PRIVATE:-false}"
@@ -57,12 +61,13 @@ EXCLUDE_PATHS=(
     '.cache/'
 )
 
-if [ -z "$AGENT_GIT_TOKEN" ]; then
-    echo "GITEA_TOKEN is required for workspace/project push" >&2
+if [ -z "$WORKSPACE_GIT_TOKEN" ]; then
+    echo "GITEA_WORKSPACE_TOKEN or GITEA_TOKEN is required for workspace/project push" >&2
     exit 1
 fi
 
-export GITEA_BASE_URL GITEA_API_URL GITEA_ORG GITEA_USERNAME GITEA_TOKEN="${GITEA_TOKEN:-$AGENT_GIT_TOKEN}"
+export GITEA_BASE_URL GITEA_API_URL GITEA_ORG GITEA_WORKSPACE_ORG GITEA_PROJECT_ORG
+export GITEA_USERNAME="$GITEA_WORKSPACE_USERNAME" GITEA_TOKEN="$WORKSPACE_GIT_TOKEN"
 export GIT_ASKPASS="${GIT_ASKPASS:-/usr/local/bin/gitea-askpass}"
 export GIT_TERMINAL_PROMPT=0
 
@@ -71,6 +76,17 @@ repo_slug() {
         | tr '[:upper:]' '[:lower:]' \
         | tr -cs 'a-z0-9._-' '-' \
         | sed -E 's/^-+//; s/-+$//'
+}
+
+should_skip_project_dir() {
+    case "$1" in
+        .deploy-backups|.git|agents|app|core|db|deploy|docker|docs|drift_report|node_modules|output|public|scripts|src|subcorp|subcorp.git|test|tests|types|workspace)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
 api_status() {
@@ -83,14 +99,14 @@ api_status() {
     if [ -n "$data" ]; then
         code="$(curl -sS -o "$response_file" -w '%{http_code}' \
             -X "$method" \
-            -H "Authorization: token ${AGENT_GIT_TOKEN}" \
+            -H "Authorization: token ${WORKSPACE_GIT_TOKEN}" \
             -H 'Content-Type: application/json' \
             --data "$data" \
             "${GITEA_API_URL}${path}")"
     else
         code="$(curl -sS -o "$response_file" -w '%{http_code}' \
             -X "$method" \
-            -H "Authorization: token ${AGENT_GIT_TOKEN}" \
+            -H "Authorization: token ${WORKSPACE_GIT_TOKEN}" \
             "${GITEA_API_URL}${path}")"
     fi
     rm -f "$response_file"
@@ -98,31 +114,33 @@ api_status() {
 }
 
 ensure_repo() {
-    local repo="$1"
-    local private="$2"
+    local owner="$1"
+    local repo="$2"
+    local private="$3"
     local code
-    code="$(api_status GET "/repos/${GITEA_ORG}/${repo}")"
+    code="$(api_status GET "/repos/${owner}/${repo}")"
     if [ "$code" = "200" ]; then
         return 0
     fi
     if [ "$code" != "404" ]; then
-        echo "Unable to inspect ${GITEA_ORG}/${repo}; Gitea returned HTTP ${code}" >&2
+        echo "Unable to inspect ${owner}/${repo}; Gitea returned HTTP ${code}" >&2
         exit 1
     fi
 
     local payload
     payload="$(jq -nc --arg name "$repo" --argjson private "$private" \
         '{name: $name, private: $private, auto_init: false}')"
-    code="$(api_status POST "/orgs/${GITEA_ORG}/repos" "$payload")"
+    code="$(api_status POST "/orgs/${owner}/repos" "$payload")"
     if [ "$code" != "201" ] && [ "$code" != "409" ]; then
-        echo "Unable to create ${GITEA_ORG}/${repo}; Gitea returned HTTP ${code}" >&2
+        echo "Unable to create ${owner}/${repo}; Gitea returned HTTP ${code}" >&2
         exit 1
     fi
 }
 
 remote_url() {
-    local repo="$1"
-    printf '%s/%s/%s.git' "$GITEA_BASE_URL" "$GITEA_ORG" "$repo"
+    local owner="$1"
+    local repo="$2"
+    printf '%s/%s/%s.git' "$GITEA_BASE_URL" "$owner" "$repo"
 }
 
 ensure_gitignore() {
@@ -281,14 +299,16 @@ git_add_safely() {
 
 sync_git_dir() {
     local dir="$1"
-    local repo="$2"
-    local private="$3"
-    local branch="${4:-main}"
+    local owner="$2"
+    local repo="$3"
+    local private="$4"
+    local branch="${5:-main}"
 
-    ensure_repo "$repo" "$private"
+    ensure_repo "$owner" "$repo" "$private"
     ensure_gitignore "$dir"
     assert_no_sensitive_files "$dir"
 
+    git config --global --add safe.directory "$dir" >/dev/null 2>&1 || true
     if [ ! -d "$dir/.git" ]; then
         git -C "$dir" init -q
     fi
@@ -296,76 +316,86 @@ sync_git_dir() {
     git -C "$dir" config user.name "Subcorp Agents"
     git -C "$dir" checkout -B "$branch" >/dev/null 2>&1
     git -C "$dir" remote remove origin >/dev/null 2>&1 || true
-    git -C "$dir" remote add origin "$(remote_url "$repo")"
+    git -C "$dir" remote add origin "$(remote_url "$owner" "$repo")"
 
     git_add_safely "$dir"
     if ! git -C "$dir" diff --cached --quiet; then
         git -C "$dir" commit -m "Sync workspace snapshot $(date -Iseconds)" >/dev/null
     fi
-    git -C "$dir" push -u origin "$branch"
+    git -C "$dir" -c http.version=HTTP/1.1 push -u origin "$branch"
 }
 
 rsync_sanitized() {
     local source_dir="$1"
     local target_dir="$2"
+    shift 2
     mkdir -p "$target_dir"
 
     local rsync_args=()
     for exclude in "${EXCLUDE_PATHS[@]}"; do
         rsync_args+=("--exclude=${exclude}")
     done
-    rsync -a --delete --delete-excluded --filter='P /.git/' \
+    for exclude in "$@"; do
+        rsync_args+=("--exclude=${exclude}")
+    done
+    rsync -a --no-owner --no-group --delete --delete-excluded --filter='P /.git/' \
         --include='.env.example' --include='**/.env.example' \
         --exclude='.git/' --exclude='.git' "${rsync_args[@]}" \
         "$source_dir/" "$target_dir/"
+    chown -R "$(id -u):$(id -g)" "$target_dir"
     assert_no_sensitive_files "$target_dir"
 }
 
 prepare_sync_repo_dir() {
-    local repo="$1"
-    local branch="$2"
-    local target_dir="$3"
+    local owner="$1"
+    local repo="$2"
+    local branch="$3"
+    local target_dir="$4"
 
     rm -rf "$target_dir"
-    if git clone --quiet --branch "$branch" "$(remote_url "$repo")" "$target_dir" >/dev/null 2>&1; then
+    if git clone --quiet --branch "$branch" "$(remote_url "$owner" "$repo")" "$target_dir" >/dev/null 2>&1; then
         return 0
     fi
 
     rm -rf "$target_dir"
     mkdir -p "$target_dir"
     git -C "$target_dir" init -q
+    git config --global --add safe.directory "$target_dir" >/dev/null 2>&1 || true
 }
 
 sync_sanitized_source() {
     local source_dir="$1"
-    local repo="$2"
-    local private="$3"
-    local branch="$4"
-    local target_dir="$5"
+    local owner="$2"
+    local repo="$3"
+    local private="$4"
+    local branch="$5"
+    local target_dir="$6"
 
-    ensure_repo "$repo" "$private"
-    prepare_sync_repo_dir "$repo" "$branch" "$target_dir"
+    ensure_repo "$owner" "$repo" "$private"
+    prepare_sync_repo_dir "$owner" "$repo" "$branch" "$target_dir"
     rsync_sanitized "$source_dir" "$target_dir"
-    sync_git_dir "$target_dir" "$repo" "$private" "$branch"
+    sync_git_dir "$target_dir" "$owner" "$repo" "$private" "$branch"
 }
 
 sync_workspace() {
-    ensure_repo "$GITEA_WORKSPACE_REPO" "$GITEA_WORKSPACE_PRIVATE"
-    prepare_sync_repo_dir "$GITEA_WORKSPACE_REPO" main "$SNAPSHOT_DIR"
-    rsync_sanitized "$WORKSPACE_DIR" "$SNAPSHOT_DIR"
+    ensure_repo "$GITEA_WORKSPACE_ORG" "$GITEA_WORKSPACE_REPO" "$GITEA_WORKSPACE_PRIVATE"
+    prepare_sync_repo_dir "$GITEA_WORKSPACE_ORG" "$GITEA_WORKSPACE_REPO" main "$SNAPSHOT_DIR"
+    rsync_sanitized "$WORKSPACE_DIR" "$SNAPSHOT_DIR" 'projects/'
 
     cat > "$SNAPSHOT_DIR/README.md" <<EOF
 # Subcorp Agent Workspace Snapshot
 
-This repository is an automated, sanitized snapshot of \\`/workspace\\`.
+This repository is an automated, sanitized snapshot of /workspace.
 
 - Secrets, nested Git metadata, dependencies, caches, and build artifacts are excluded.
-- Individual project repositories under \\`/workspace/projects/*\\` are also pushed separately.
-- Source workspace: \\`${WORKSPACE_DIR}\\`
-- Synced at: \\`$(date -Iseconds)\\`
+- Individual project repositories under /workspace/projects/* are also pushed separately.
+- Source workspace: ${WORKSPACE_DIR}
+- Workspace repository owner: ${GITEA_WORKSPACE_ORG}
+- Project repository owner: ${GITEA_PROJECT_ORG}
+- Synced at: $(date -Iseconds)
 EOF
 
-    sync_git_dir "$SNAPSHOT_DIR" "$GITEA_WORKSPACE_REPO" "$GITEA_WORKSPACE_PRIVATE" main
+    sync_git_dir "$SNAPSHOT_DIR" "$GITEA_WORKSPACE_ORG" "$GITEA_WORKSPACE_REPO" "$GITEA_WORKSPACE_PRIVATE" main
 }
 
 sync_projects() {
@@ -377,10 +407,13 @@ sync_projects() {
         [ -d "$project_dir" ] || continue
         local name repo branch
         name="$(basename "$project_dir")"
+        if should_skip_project_dir "$name"; then
+            continue
+        fi
         repo="$(repo_slug "$name")"
         [ -n "$repo" ] || continue
         branch="$(git -C "$project_dir" symbolic-ref --short HEAD 2>/dev/null || printf 'main')"
-        sync_sanitized_source "$project_dir" "$repo" "$GITEA_PROJECT_PRIVATE" "$branch" "${PROJECT_SNAPSHOT_ROOT}/${repo}"
+        sync_sanitized_source "$project_dir" "$GITEA_PROJECT_ORG" "$repo" "$GITEA_PROJECT_PRIVATE" "$branch" "${PROJECT_SNAPSHOT_ROOT}/${repo}"
     done
 }
 

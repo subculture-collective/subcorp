@@ -14,6 +14,9 @@ describe('workspace hygiene regressions', () => {
 
         expect(source).toContain('/workspace/projects is the product workspace root');
         expect(source).toContain('/workspace/projects/subcorp is the Subcorp source checkout');
+        expect(source).toContain('/workspace/output is the artifact output root');
+        expect(source).toContain('Accepts concrete file paths only');
+        expect(source).toContain('file_read only accepts concrete file paths, not directories');
         expect(source).toContain('Do not use /workspace/src');
         expect(source).toContain('pathHintForMissingWorkspacePath');
     });

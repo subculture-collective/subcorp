@@ -13,11 +13,35 @@ const WORKSPACE_ROOT =
     process.env.WORKSPACE_ROOT ?? '/workspace/projects/subcorp';
 const GITEA_BASE_URL = process.env.GITEA_BASE_URL ?? 'https://git.subcult.tv';
 const GITEA_ORG = process.env.GITEA_ORG ?? 'subculture-collective';
+const GITEA_PROJECT_ORG =
+    process.env.GITEA_PROJECT_ORG ??
+    process.env.GITEA_WORKSPACE_ORG ??
+    GITEA_ORG;
 
 const WORKSPACE_PATH_GUIDANCE =
     `Workspace paths: /workspace/projects is the product workspace root; ` +
+    `/workspace/output is the artifact output root; ` +
+    `/workspace/agents is the agent state root. ` +
     `/workspace/projects/subcorp is the Subcorp source checkout. ` +
+    `Do not use bare /output, /agents, or /projects paths. ` +
     `Do not assume /workspace/src exists. Verify paths with bash or file_read before making claims.\n`;
+
+const AUDIT_EVIDENCE_GUIDANCE =
+    `Audit evidence contract: include an evidence table with claim, command_or_source, observed_output, severity. ` +
+    `Commands must inspect real /workspace/... paths or explicitly cited hostAudit snapshots. ` +
+    `Do not use bare /output, /agents, or /projects paths in audit commands or evidence. ` +
+    `If a command targets a missing path, first verify the corresponding /workspace path before claiming missing artifacts. ` +
+    `Do not claim exposed ports, services, files, artifacts, or permissions without command output from bash or a cited hostAudit snapshot.\n`;
+
+const FILE_READ_GUIDANCE =
+    `File read rule: file_read accepts concrete files only, not directories. ` +
+    `Use bash to list a directory and choose specific file paths before calling file_read. ` +
+    `Never pass directories such as /workspace/output/, output/, /workspace/agents/<agent>/notes/, or agents/<agent>/notes/ to file_read.\n`;
+
+const ARTIFACT_GROUNDING_GUIDANCE =
+    `Artifact grounding rule: do not claim code changes, schema changes, metrics, coverage, compliance, operational outcomes, or completed work unless you verified them with bash, file_read, web_fetch, or an explicitly cited source artifact. ` +
+    `Include a "Grounding" section listing the exact files, commands, DB rows, URLs, or source artifacts used. ` +
+    `If a claim is not verified, label it as a proposal, assumption, or next step instead of stating it as fact.\n`;
 
 const SELF_EVOLUTION_REPO_SETUP = [
     `REPO_DIR=${WORKSPACE_ROOT}`,
@@ -80,18 +104,36 @@ function renderTemplate(
 }
 
 function decorateRenderedTemplate(kind: StepKind, rendered: string): string {
+    const fileReadGuidance = rendered.includes('file_read') ? FILE_READ_GUIDANCE : '';
+    const groundingGuidance = needsArtifactGrounding(kind) ? ARTIFACT_GROUNDING_GUIDANCE : '';
     if (kind === 'audit_system') {
         return (
             WORKSPACE_PATH_GUIDANCE +
-            `Audit evidence contract: include an evidence table with claim, command_or_source, observed_output, severity. ` +
-            `Do not claim exposed ports, services, or permissions without command output from bash or a cited hostAudit snapshot.\n` +
+            AUDIT_EVIDENCE_GUIDANCE +
+            fileReadGuidance +
+            groundingGuidance +
             rendered
         );
     }
     if (kind === 'patch_code' || kind === 'self_evolution') {
-        return WORKSPACE_PATH_GUIDANCE + rendered;
+        return WORKSPACE_PATH_GUIDANCE + fileReadGuidance + groundingGuidance + rendered;
     }
-    return rendered;
+    return fileReadGuidance + groundingGuidance + rendered;
+}
+
+function needsArtifactGrounding(kind: StepKind): boolean {
+    return [
+        'document_lesson',
+        'draft_product_spec',
+        'distill_insight',
+        'draft_essay',
+        'draft_thread',
+        'critique_content',
+        'patch_code',
+        'content_revision',
+        'self_evolution',
+        'log_event',
+    ].includes(kind);
 }
 
 /**
@@ -161,6 +203,9 @@ export async function buildStepPrompt(
     } else {
         body = `Execute this step thoroughly. Write your results to ${outputDir}/ using file_write.\n`;
         body += `Provide a detailed summary of what you accomplished.\n`;
+        if (needsArtifactGrounding(kind)) {
+            body = ARTIFACT_GROUNDING_GUIDANCE + body;
+        }
     }
 
     const prompt = header + body;
@@ -210,9 +255,8 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
 
     audit_system: (ctx, today) =>
         WORKSPACE_PATH_GUIDANCE +
+        AUDIT_EVIDENCE_GUIDANCE +
         `Use bash to run system checks relevant to the payload.\n` +
-        `You must include an evidence table with: claim, command_or_source, observed_output, severity.\n` +
-        `Do not claim exposed ports, services, or permissions without command output from bash or a cited hostAudit snapshot.\n` +
         `If evidence is unavailable, write status: "blocked" with the missing command/source instead of inventing findings.\n` +
         `Check file permissions, exposed ports, running services, or whatever the payload specifies.\n` +
         `Write findings to output/reviews/${today}__audit__security__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
@@ -223,6 +267,8 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         const projectDir = (ctx.payload.project_dir as string) || '/workspace/projects';
         return `You are a software engineer. Your job is to write code.\n` +
         WORKSPACE_PATH_GUIDANCE +
+        FILE_READ_GUIDANCE +
+        ARTIFACT_GROUNDING_GUIDANCE +
         `\nProject directory: ${projectDir}\n` +
         `Task: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
         `\nINSTRUCTIONS:\n` +
@@ -231,17 +277,19 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `3. Use file_write to create or modify source files. Write real, working code — not pseudocode or descriptions.\n` +
         `4. After writing source files, use bash to verify they exist (for example: find ${projectDir} -maxdepth 3 -type f).\n` +
         `5. Write a brief changelog to ${outputDir}/${today}__patch__code__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
-        `6. If GITEA_TOKEN is available and the code is ready, use bash to run sync-workspace-to-gitea.sh projects so individual project repos are pushed to Gitea.\n` +
+        `6. If GITEA_WORKSPACE_TOKEN or GITEA_TOKEN is available and the code is ready, use bash to run sync-workspace-to-gitea.sh projects so individual project repos are pushed to ${GITEA_BASE_URL}/${GITEA_PROJECT_ORG}.\n` +
         `\nYour primary output is SOURCE CODE files written via file_write. Do NOT just describe what you would build — actually build it.\n`;
     },
 
     distill_insight: (ctx, today) =>
+        ARTIFACT_GROUNDING_GUIDANCE +
         `Read recent outputs from output/ and agents/${ctx.agentId}/notes/ using file_read.\n` +
         `Synthesize into a concise digest of key insights.\n` +
         `Write to output/digests/${today}__distill__insight__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
         `Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "distill_insight", status: "complete".\n`,
 
     document_lesson: (ctx, today) =>
+        ARTIFACT_GROUNDING_GUIDANCE +
         `Document the lesson or knowledge described in the payload.\n` +
         `Write clear, reusable documentation to the appropriate projects/ docs/ directory.\n` +
         `If no specific project, write to output/reports/${today}__docs__lesson__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md.\n` +
@@ -271,6 +319,7 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "propose_workflow", status: "proposed".\n`,
 
     draft_product_spec: (ctx, today) =>
+        ARTIFACT_GROUNDING_GUIDANCE +
         `Read recent research notes and roundtable artifacts from agents/ and output/ using file_read.\n` +
         `Look for brainstorm sessions, strategy discussions, and signal reports.\n` +
         `Draft a structured product specification document with:\n` +
@@ -324,6 +373,7 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
 
     self_evolution: (ctx, today, outputDir) =>
         `You are improving your own system. You are an AI agent in the SUBCORP collective.\n` +
+        ARTIFACT_GROUNDING_GUIDANCE +
         `Your source code is at ${WORKSPACE_ROOT}/.\n` +
         `\n═══ CONTEXT ═══\n` +
         `You belong to the ${GITEA_ORG} Gitea organization (${GITEA_BASE_URL}/${GITEA_ORG}).\n` +
@@ -421,6 +471,7 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
 
     content_revision: (ctx, today, outputDir) =>
         `You are revising a previously reviewed piece of content based on reviewer feedback.\n` +
+        ARTIFACT_GROUNDING_GUIDANCE +
         `The payload contains the original draft and the reviewer notes explaining what needs to change.\n` +
         `Read the original artifact referenced in the payload using file_read.\n` +
         `Apply every piece of reviewer feedback. Do not ignore or soften critical notes — address each one directly.\n` +

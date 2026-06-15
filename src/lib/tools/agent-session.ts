@@ -176,6 +176,19 @@ const STEP_TOOL_REQUIREMENTS: Record<string, ToolRequirement> = {
     notify_human: { allOf: ['bash'] },
 };
 
+const STEP_KINDS_REQUIRING_GROUNDED_ARTIFACTS = new Set([
+    'document_lesson',
+    'draft_product_spec',
+    'distill_insight',
+    'draft_essay',
+    'draft_thread',
+    'critique_content',
+    'patch_code',
+    'content_revision',
+    'self_evolution',
+    'log_event',
+]);
+
 function toolErrorText(result: unknown): string {
     if (typeof result === 'string') return result;
     if (!result || typeof result !== 'object') return '';
@@ -293,8 +306,14 @@ export function detectMissingRequiredToolEvidence(
 
     const stepKind = stepKindFromPrompt(session.prompt);
     const auditEvidence = detectAuditEvidenceIssues(stepKind, toolCalls);
+    const groundingEvidence = detectArtifactGroundingIssues(stepKind, toolCalls);
 
-    if (missingAll.length === 0 && missingAny.length === 0 && !auditEvidence.blocked) {
+    if (
+        missingAll.length === 0 &&
+        missingAny.length === 0 &&
+        !auditEvidence.blocked &&
+        !groundingEvidence.blocked
+    ) {
         return { blocked: false, reason: '', evidence: [] };
     }
 
@@ -311,12 +330,58 @@ export function detectMissingRequiredToolEvidence(
         );
     }
     evidence.push(...auditEvidence.evidence);
+    evidence.push(...groundingEvidence.evidence);
 
     return {
         blocked: true,
-        reason: auditEvidence.blocked ? 'audit evidence missing' : 'Required tool evidence missing',
+        reason:
+            auditEvidence.blocked ? 'audit evidence missing'
+            : groundingEvidence.blocked ? 'artifact grounding missing'
+            : 'Required tool evidence missing',
         evidence,
     };
+}
+
+function detectArtifactGroundingIssues(
+    stepKind: string | null,
+    toolCalls: ToolCallRecord[],
+): { blocked: boolean; evidence: string[] } {
+    if (!stepKind || !STEP_KINDS_REQUIRING_GROUNDED_ARTIFACTS.has(stepKind)) {
+        return { blocked: false, evidence: [] };
+    }
+
+    const artifactWrites = toolCalls.filter(tc => {
+        if (tc.name !== 'file_write' || !isSuccessfulToolCall(tc)) return false;
+        const args = tc.arguments as Record<string, unknown>;
+        const path = typeof args.path === 'string' ? args.path : '';
+        const content = typeof args.content === 'string' ? args.content : '';
+        return isArtifactSummaryPath(path) && content.trim().length > 0;
+    });
+    const groundedWrites = artifactWrites.filter(tc => {
+        const args = tc.arguments as Record<string, unknown>;
+        const content = typeof args.content === 'string' ? args.content : '';
+        return containsGroundingSection(content);
+    });
+
+    if (artifactWrites.length === 0 || groundedWrites.length > 0) {
+        return { blocked: false, evidence: [] };
+    }
+
+    return {
+        blocked: true,
+        evidence: [
+            `artifact grounding missing: ${artifactWrites.length} artifact write(s) lacked a Grounding section`,
+            'grounded artifact steps must include a Grounding section with exact files, commands, DB rows, URLs, or source artifacts',
+        ],
+    };
+}
+
+function isArtifactSummaryPath(path: string): boolean {
+    return /(?:^|\/)(?:output\/(?:reports|reviews|digests)|agents\/[^/]+\/(?:notes|specs)|\.gitea\/pull-requests)\//.test(path);
+}
+
+function containsGroundingSection(text: string): boolean {
+    return /^#{1,4}\s+Grounding\b|^\*\*Grounding\*\*|^Grounding\s*:/im.test(text);
 }
 
 function detectAuditEvidenceIssues(
@@ -335,11 +400,34 @@ function detectAuditEvidenceIssues(
         const content = typeof args.content === 'string' ? args.content : '';
         return (
             path.includes('output/reviews') &&
-            /evidence table|command_or_source|observed_output|hostAudit|bash/i.test(content)
+            /evidence table|command_or_source|observed_output|hostAudit|bash/i.test(content) &&
+            !containsBareWorkspaceAlias(content) &&
+            !containsUnsupportedAuditEvidence(content)
         );
     });
 
-    if (successfulBash.length > 0 && successfulAuditWrites.length > 0) {
+    const barePathAuditWrites = toolCalls.filter(tc => {
+        if (tc.name !== 'file_write' || !isSuccessfulToolCall(tc)) return false;
+        const args = tc.arguments as Record<string, unknown>;
+        const path = typeof args.path === 'string' ? args.path : '';
+        const content = typeof args.content === 'string' ? args.content : '';
+        return path.includes('output/reviews') && containsBareWorkspaceAlias(content);
+    });
+
+    const unsupportedAuditWrites = toolCalls.filter(tc => {
+        if (tc.name !== 'file_write' || !isSuccessfulToolCall(tc)) return false;
+        const args = tc.arguments as Record<string, unknown>;
+        const path = typeof args.path === 'string' ? args.path : '';
+        const content = typeof args.content === 'string' ? args.content : '';
+        return path.includes('output/reviews') && containsUnsupportedAuditEvidence(content);
+    });
+
+    if (
+        successfulBash.length > 0 &&
+        successfulAuditWrites.length > 0 &&
+        barePathAuditWrites.length === 0 &&
+        unsupportedAuditWrites.length === 0
+    ) {
         return { blocked: false, evidence: [] };
     }
 
@@ -347,7 +435,27 @@ function detectAuditEvidenceIssues(
         `audit evidence missing: successful bash calls=${successfulBash.length}, evidence-bearing audit writes=${successfulAuditWrites.length}`,
         'audit_system outputs must include command/source evidence before they can succeed',
     ];
+    if (barePathAuditWrites.length > 0) {
+        evidence.push(
+            `audit path evidence invalid: ${barePathAuditWrites.length} audit write(s) used bare /output, /agents, or /projects paths`,
+            'audit_system outputs must use real /workspace/... paths for commands and evidence',
+        );
+    }
+    if (unsupportedAuditWrites.length > 0) {
+        evidence.push(
+            `audit unsupported evidence invalid: ${unsupportedAuditWrites.length} audit write(s) used N/A/none as command evidence`,
+            'audit_system outputs must support no-issue/no-risk claims with bash output or hostAudit evidence',
+        );
+    }
     return { blocked: true, evidence };
+}
+
+function containsBareWorkspaceAlias(text: string): boolean {
+    return /(^|[^A-Za-z0-9_/-])\/(?:output|agents|projects)\b/.test(text);
+}
+
+function containsUnsupportedAuditEvidence(text: string): boolean {
+    return /^\s*\|[^\n]*\|\s*(?:N\/A|none|not applicable)\s*\|/im.test(text);
 }
 
 export function detectBlockedOutcome(

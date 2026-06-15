@@ -77,6 +77,29 @@ export interface ReviewerNote {
     notes: string;
 }
 
+function buildReviewReadyDraftBody(args: {
+    body: string;
+    sourceSessionId: string;
+    contentType: ContentType;
+    title: string;
+}): string {
+    const header = [
+        '---',
+        `artifact_id: content-draft-${args.sourceSessionId}`,
+        `source_session: ${args.sourceSessionId}`,
+        'version: v01',
+        'audience: review board',
+        'publish_target: content pipeline',
+        `content_type: ${args.contentType}`,
+        `title: ${JSON.stringify(args.title)}`,
+        'reviewer_ask: Review for factual grounding, usefulness, publication readiness, and required revisions.',
+        '---',
+        '',
+    ].join('\n');
+
+    return `${header}${args.body}`.slice(0, MAX_BODY_LENGTH);
+}
+
 // ─── Content Extraction ───
 
 /**
@@ -252,6 +275,13 @@ If no extractable creative content exists, respond with:
         // Determine author — use the first participant (or coordinator)
         const authorAgent = session.participants[0] ?? 'mux';
 
+        const reviewReadyBody = buildReviewReadyDraftBody({
+            body: parsed.body,
+            sourceSessionId: sessionId,
+            contentType,
+            title: parsed.title,
+        });
+
         // Insert draft
         const [draft] = await sql<[{ id: string }]>`
             INSERT INTO ops_content_drafts (
@@ -261,7 +291,7 @@ If no extractable creative content exists, respond with:
                 ${authorAgent},
                 ${contentType},
                 ${parsed.title},
-                ${parsed.body},
+                ${reviewReadyBody},
                 'draft',
                 ${sessionId},
                 ${jsonb({ extractedFrom: 'writing_room', topic: session.topic })}

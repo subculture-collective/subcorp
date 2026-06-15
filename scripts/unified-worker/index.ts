@@ -52,6 +52,30 @@ const WORKER_HEARTBEAT_TIMEOUT_MS = Number.parseInt(
 );
 let lastWorkerHeartbeatAttemptAt = 0;
 
+function buildReviewReadyDraftBody(args: {
+    body: string;
+    draftId: string;
+    sourceSessionId: string;
+    contentType: string;
+    title: string;
+}): string {
+    const header = [
+        '---',
+        `artifact_id: content-draft-${args.draftId}`,
+        `source_session: ${args.sourceSessionId}`,
+        'version: v01',
+        'audience: review board',
+        'publish_target: content pipeline',
+        `content_type: ${args.contentType}`,
+        `title: ${JSON.stringify(args.title)}`,
+        'reviewer_ask: Review for factual grounding, usefulness, publication readiness, and required revisions.',
+        '---',
+        '',
+    ].join('\n');
+
+    return `${header}${args.body}`.slice(0, 50000);
+}
+
 if (!process.env.DATABASE_URL) {
     log.fatal('Missing DATABASE_URL');
     process.exit(1);
@@ -378,7 +402,7 @@ async function processAgentSession(session: AgentSession): Promise<void> {
                                     ${session.agent_id},
                                     ${contentType},
                                     ${title.slice(0, 500)},
-                                    ${artifactText.slice(0, 50000)},
+                                    '',
                                     'draft',
                                     ${session.source_id},
                                     ${sql.json({
@@ -389,6 +413,20 @@ async function processAgentSession(session: AgentSession): Promise<void> {
                                     })}
                                 )
                                 RETURNING id
+                            `;
+
+                            const reviewReadyBody = buildReviewReadyDraftBody({
+                                body: artifactText,
+                                draftId: draft.id,
+                                sourceSessionId: session.source_id,
+                                contentType,
+                                title: title.slice(0, 500),
+                            });
+
+                            await sql`
+                                UPDATE ops_content_drafts
+                                SET body = ${reviewReadyBody}
+                                WHERE id = ${draft.id}
                             `;
 
                             log.info('Content draft created from synthesis', {

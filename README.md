@@ -158,9 +158,13 @@ GITEA_BASE_URL=https://git.subcult.tv
 GITEA_ORG=subculture-collective
 GITEA_USERNAME=x-access-token
 GITEA_TOKEN=your-gitea-personal-access-token
+GITEA_WORKSPACE_ORG=SubCorp-LLC
+GITEA_PROJECT_ORG=SubCorp-LLC
+GITEA_WORKSPACE_USERNAME=SubCorp
+GITEA_WORKSPACE_TOKEN=your-subcorp-workspace-bot-token
 GITEA_WORKSPACE_REPO=subcorp-workspace
 GITEA_WORKSPACE_PRIVATE=true
-GITEA_PROJECT_PRIVATE=false
+GITEA_PROJECT_PRIVATE=true
 
 # PostgreSQL (used by Docker Compose)
 POSTGRES_PASSWORD=your-secure-password
@@ -222,7 +226,7 @@ make typecheck       # tsc --noEmit
 
 ### Gitea workspace sync
 
-Agents push through Gitea, not GitHub. Set `GITEA_TOKEN` in `.env`; `GITHUB_TOKEN` is only a legacy fallback. The toolbox keeps remotes tokenless and supplies credentials with `GIT_ASKPASS`, so tokens are not written into `.git/config`.
+Agents push through Gitea, not GitHub. Set `GITEA_TOKEN` in `.env`; `GITHUB_TOKEN` is only a legacy fallback. Generated workspace/project repos can use a separate `GITEA_WORKSPACE_TOKEN`, `GITEA_WORKSPACE_ORG`, and `GITEA_PROJECT_ORG` so sandbox repos do not pollute the platform org. The toolbox keeps remotes tokenless and supplies credentials with `GIT_ASKPASS`, so tokens are not written into `.git/config`.
 
 From the toolbox container:
 
@@ -232,7 +236,7 @@ sync-workspace-to-gitea.sh workspace  # only sanitized /workspace snapshot
 sync-workspace-to-gitea.sh projects   # only individual project repos
 ```
 
-The full workspace snapshot excludes secrets, nested `.git` metadata, dependency folders, caches, and build artifacts. Product projects under `/workspace/projects/*` are pushed separately to repos of the same slug in `GITEA_ORG`.
+The full workspace snapshot excludes secrets, nested `.git` metadata, dependency folders, caches, and build artifacts. Product projects under `/workspace/projects/*` are pushed separately to repos of the same slug in `GITEA_PROJECT_ORG`; the workspace snapshot goes to `GITEA_WORKSPACE_ORG/GITEA_WORKSPACE_REPO`. If those vars are unset, they fall back to `GITEA_ORG` for backward compatibility.
 
 ## Makefile Commands
 
