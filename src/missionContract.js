@@ -1,0 +1,30 @@
+function buildMissionContract(mission) {
+  // Validate promiseid and artifactobligation.path
+  if (!mission.promiseid || !mission.artifactobligation.path) {
+    throw new Error('Invalid mission contract: missing promiseid or artifact path');
+  }
+
+  // Add dependency input validation
+  if (mission.dependencies && mission.dependencies.length > 0) {
+    mission.dependencies.forEach(dep => {
+      if (!dep.input || !dep.reviewer) {
+        throw new Error(`Invalid dependency: missing input or reviewer for ${dep.name}`);
+      }
+    });
+  }
+
+  // Enforce concrete definition of done
+  if (!mission.definitionOfDone) {
+    throw new Error('Mission requires concrete definition of done');
+  }
+
+  return mission;
+}
+
+// Example artifact obligation record
+const artifactObligation = {
+  path: 'output/reports/2026-06-15__evolution__self-evolution-analyze-issues-__praxis__v01.md',
+  owner: 'praxis',
+  reviewGate: 'Subrosa',
+  acceptanceCriteria: ['Code change implemented', 'PR opened', 'Artifact published']
+};

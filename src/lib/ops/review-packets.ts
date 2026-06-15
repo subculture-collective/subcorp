@@ -59,6 +59,8 @@ export interface ReviewPacketInput {
     owner: string;
     artifactHash: string;
     timestamp: string;
+    // Forewarning template integration
+    forewarningTemplate: string;
 }
 
 interface ReviewPacketDiff {
@@ -98,10 +100,3 @@ function deriveReviewDiff(
         valueAsString(packet.previous_status) ??
         valueAsString(packet.previousStatus);
     const to =
-        requestedStatus ??
-        valueAsString(packet.requested_status) ??
-        valueAsString(packet.requestedStatus) ??
-        status;
-
-    return {
-        from,
