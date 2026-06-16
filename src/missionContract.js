@@ -1,14 +1,20 @@
 function buildMissionContract(mission) {
-  // Validate promiseid and artifactobligation.path
-  if (!mission.promiseid || !mission.artifactobligation.path) {
-    throw new Error('Invalid mission contract: missing promiseid or artifact path');
+  // Validate promiseid and artifactobligation requirements
+  if (!mission.promiseid || !mission.artifactobligation) {
+    throw new Error('Invalid mission contract: missing promiseid or artifactobligation');
   }
 
-  // Add dependency input validation
+  // Check required artifactobligation properties
+  const { path, owner, reviewGate, acceptanceCriteria } = mission.artifactobligation;
+  if (!path || !owner || !reviewGate || !acceptanceCriteria || !Array.isArray(acceptanceCriteria)) {
+    throw new Error('Invalid artifactobligation: missing required properties');
+  }
+
+  // Validate dependencies with reviewer gate
   if (mission.dependencies && mission.dependencies.length > 0) {
     mission.dependencies.forEach(dep => {
-      if (!dep.input || !dep.reviewer) {
-        throw new Error(`Invalid dependency: missing input or reviewer for ${dep.name}`);
+      if (!dep.input || !dep.reviewerGate) {
+        throw new Error(`Invalid dependency: missing input or reviewerGate for ${dep.name}`);
       }
     });
   }

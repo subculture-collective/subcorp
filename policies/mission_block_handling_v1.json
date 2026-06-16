@@ -1,0 +1,8 @@
+{
+  "policy_key": "mission_block_handling",
+  "action_on_double_block": ["kill", "reassign", "fallback"],
+  "auto_kill_conditions": ["no_publishable_fallback"],
+  "auto_reassign_conditions": ["agent_specific_blocker"],
+  "fallback_strategy": "smallest_publishable_artifact",
+  "rationale": "Automates resolution of twice-blocked missions to prevent stagnation while maintaining quality control through fallback strategies"
+}

@@ -6,6 +6,7 @@ import * as z from 'zod';
 // Add execution spec schema
 const executionSpecSchema = z.object({
     proposalId: z.string().nonempty(),
+    artifactId: z.string().nonempty(), // Added artifactId field
     steps: z.array(z.object({
         kind: z.string().nonempty(),
         payload: z.record(z.unknown()),
@@ -19,51 +20,52 @@ export async function createMissionFromProposal(proposal: Proposal): Promise<Mis
         // Generate execution spec from proposal
         const executionSpec = executionSpecSchema.parse({
             proposalId: proposal.id,
+            artifactId: proposal.artifactId, // Include artifactId from proposal
             steps: proposal.steps,
         });
 
         // Create hash of execution spec
         const specHash = sha256(JSON.stringify(executionSpec)).toString('hex');
 
-        // Insert execution spec with hash
+        // Insert execution spec with hash and artifactId
         await sql`INSERT INTO ops_execution_specs (
-            proposal_id, spec, hash
+            proposal_id, spec, hash, artifact_id // Added artifact_id column
         ) VALUES (
-            ${proposal.id}, ${JSON.stringify(executionSpec)}, ${specHash}
+            ${proposal.id}, ${JSON.stringify(executionSpec)}, ${specHash}, ${executionSpec.artifactId} // Include artifactId
         )`;
 
-        // Create mission using the hashed spec
+        // Create mission using the hashed spec and artifactId
         const [mission] = await sql<[{ id: string }]>`
             INSERT INTO ops_missions (
-                proposal_id, execution_spec_hash, status
+                proposal_id, execution_spec_hash, status, artifact_id // Added artifact_id column
             ) VALUES (
-                ${proposal.id}, ${specHash}, 'pending'
+                ${proposal.id}, ${specHash}, 'pending', ${executionSpec.artifactId} // Include artifactId
             )
             RETURNING id
         `;
 
-        // Verify mission creation
-        const [createdMission] = await sql<[{ id: string, status: string }]>`
-            SELECT id, status 
+        // Verify mission creation and artifact_id
+        const [createdMission] = await sql<[{ id: string, status: string, artifact_id: string }]>`
+            SELECT id, status, artifact_id // Select artifact_id
             FROM ops_missions 
             WHERE id = ${mission.id}
         `;
 
-        if (!createdMission || createdMission.status !== 'pending') {
+        if (!createdMission || createdMission.status !== 'pending' || createdMission.artifact_id !== executionSpec.artifactId) {
             return {
                 success: false,
                 reason: `Mission verification failed: ${JSON.stringify(createdMission)}`,
             };
         }
 
-        // Verify execution spec exists
-        const [specRecord] = await sql<[{ hash: string }]>`
-            SELECT hash 
+        // Verify execution spec exists and artifact_id matches
+        const [specRecord] = await sql<[{ hash: string, artifact_id: string }]>`
+            SELECT hash, artifact_id // Select artifact_id
             FROM ops_execution_specs 
             WHERE proposal_id = ${proposal.id}
         `;
 
-        if (!specRecord || specRecord.hash !== specHash) {
+        if (!specRecord || specRecord.hash !== specHash || specRecord.artifact_id !== executionSpec.artifactId) {
             return {
                 success: false,
                 reason: `Execution spec verification failed: ${JSON.stringify(specRecord)}`,
@@ -98,8 +100,3 @@ export async function createMissionFromProposal(proposal: Proposal): Promise<Mis
         };
     } catch (error) {
         return {
-            success: false,
-            reason: error instanceof Error ? error.message : 'Failed to create mission',
-        };
-    }
-}

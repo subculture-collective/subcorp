@@ -50,6 +50,20 @@ export const defaultValidationConfig: ValidationConfig = {
             score: 0,
             threshold: 0.5,
             result: 'fail'
+        },
+        {
+            criterion: 'artifact_obligation_defined',
+            weight: 0.2,
+            score: 0,
+            threshold: 0.5,
+            result: 'fail'
+        },
+        {
+            criterion: 'gitea_process_documented',
+            weight: 0.2,
+            score: 0,
+            threshold: 0.5,
+            result: 'fail'
         }
     ],
     totalThreshold: 0.7
@@ -77,6 +91,14 @@ export async function validateProposal(proposal: ReviewPacketInput): Promise<Val
     // Check if permission scope is verified
     const permissionVerifiedScore = proposal.packet.permission_scope ? 1 : 0;
     config.criteria[4].score = permissionVerifiedScore;
+
+    // Check if artifact obligation is defined
+    const artifactObligationScore = proposal.packet.artifact_obligation ? 1 : 0;
+    config.criteria[5].score = artifactObligationScore;
+
+    // Check if Gitea process is documented
+    const giteaProcessScore = proposal.packet.gitea_process ? 1 : 0;
+    config.criteria[6].score = giteaProcessScore;
 
     // Calculate total score
     const totalScore = config.criteria.reduce((sum, criterion) => {

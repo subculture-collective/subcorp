@@ -436,3 +436,4 @@ Development is tracked across 17 epics and 114 issues. See [issue #114](https://
 | 13    | Audience Mode                  | Planned     |
 | 14    | Agent-Designed Agents          | Planned     |
 | 15    | Memory Archaeology             | ✅ Complete |
+# Gitea Workflow Documentation\n\n## Process\n1. All code changes must be committed to /workspace/projects/subcorp\n2. Use sync-workspace-to-gitea.sh to push changes\n3. Review via Gitea web UI\n4. Merge after approval
