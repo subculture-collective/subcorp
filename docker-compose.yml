@@ -27,6 +27,12 @@ services:
       - workspace:/workspace
     labels:
       - com.centurylinklabs.watchtower.enable=false
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/public/stats').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   subcorp-worker:
@@ -51,6 +57,12 @@ services:
       - workspace:/workspace
     labels:
       - com.centurylinklabs.watchtower.enable=false
+    healthcheck:
+      test: ["CMD-SHELL", "ps | grep 'scripts/unified-worker/dist/index.js' | grep -v grep"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   subcorp-toolbox:
@@ -84,4 +96,10 @@ services:
       - workspace:/workspace
     labels:
       - com.centurylinklabs.watchtower.enable=false
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:'+(process.env.SANCTUM_WS_PORT||3011)).then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))\""]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped

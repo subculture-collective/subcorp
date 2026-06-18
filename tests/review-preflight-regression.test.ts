@@ -45,11 +45,16 @@ describe('review and audit preflight regressions', () => {
 
     test('grounded artifact steps cannot succeed without Grounding sections', () => {
         const agentSession = readRepoFile('src/lib/tools/agent-session.ts');
+        const stepPrompts = readRepoFile('src/lib/ops/step-prompts.ts');
 
         expect(agentSession).toContain('STEP_KINDS_REQUIRING_GROUNDED_ARTIFACTS');
         expect(agentSession).toContain('detectArtifactGroundingIssues');
         expect(agentSession).toContain('artifact grounding missing');
         expect(agentSession).toContain('grounded artifact steps must include a Grounding section');
         expect(agentSession).toContain('containsGroundingSection');
+        expect(stepPrompts).toContain('Completion contract:');
+        expect(stepPrompts).toContain('completionContract(kind)');
+        expect(stepPrompts).toContain('MUST include a Grounding section');
+        expect(stepPrompts).toContain('The artifact MUST include an evidence table');
     });
 });

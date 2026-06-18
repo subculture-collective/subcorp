@@ -68,6 +68,29 @@ describe('agent tool execution regressions', () => {
         expect(source).toContain('const LLM_TOOL_TOTAL_BUDGET_MS = 240_000;');
         expect(source).toContain('90s caused healthy multi-tool sessions to be cut off and blocked');
     });
+
+    test('llama-line broker calls are monitored and terminal SSE errors include details', () => {
+        const source = readRepoFile('src/lib/llm/client.ts');
+
+        expect(source).toContain('LLAMA_LINE_STATUS_WARN_QUEUE_DEPTH');
+        expect(source).toContain('/broker/status');
+        expect(source).toContain('llama-line broker status before request');
+        expect(source).toContain('llama-line request queued');
+        expect(source).toContain('request_id=');
+        expect(source).toContain("contentType.includes('application/json')");
+        expect(source).toContain('ollama_unavailable');
+        expect(source).toContain('dropped_by_admin');
+    });
+
+    test('malformed tool calls fail before executing tools with missing required args', () => {
+        const source = readRepoFile('src/lib/llm/client.ts');
+        const agentSession = readRepoFile('src/lib/tools/agent-session.ts');
+
+        expect(source).toContain('missingRequiredToolArgs');
+        expect(source).toContain('Invalid tool arguments: missing required parameter(s)');
+        expect(source).toContain('Ollama tool call missing required args');
+        expect(agentSession).toContain('/invalid tool arguments/i');
+    });
 });
 
 describe('Gitea workspace push regressions', () => {

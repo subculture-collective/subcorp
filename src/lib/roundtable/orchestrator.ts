@@ -770,14 +770,12 @@ export async function orchestrateConversation(
             session.format,
         );
 
+        const effectiveTemperature =
+            speakerRebelling ?
+                Math.min(1.0, format.temperature + 0.1)
+            :   format.temperature;
         let rawDialogue: string;
         try {
-            // Increase temperature for rebelling agents (+0.1, capped at 1.0)
-            const effectiveTemperature =
-                speakerRebelling ?
-                    Math.min(1.0, format.temperature + 0.1)
-                :   format.temperature;
-
             rawDialogue = await llmGenerate({
                 messages: [
                     { role: 'system', content: systemPrompt },
@@ -802,7 +800,43 @@ export async function orchestrateConversation(
             break;
         }
 
-        const dialogue = sanitizeDialogue(rawDialogue);
+        let dialogue = sanitizeDialogue(rawDialogue);
+
+        if (!dialogue && history.length === 0) {
+            log.warn('Empty opening dialogue from LLM, retrying with explicit plain-text instruction', {
+                sessionId: session.id,
+                turn,
+                speaker: speakerName,
+            });
+            try {
+                const retryDialogue = await llmGenerate({
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        {
+                            role: 'user',
+                            content:
+                                `${userPrompt}\n\nReturn 2-4 sentences of plain spoken dialogue only. ` +
+                                `Do not return tool calls, XML, JSON, empty thinking, or analysis-only output.`,
+                        },
+                    ],
+                    temperature: Math.max(0.4, effectiveTemperature - 0.2),
+                    maxTokens: format.maxTokensPerTurn,
+                    trackingContext: {
+                        agentId: speaker,
+                        context: `roundtable:${session.format}:empty_retry`,
+                        sessionId: session.id,
+                    },
+                });
+                dialogue = sanitizeDialogue(retryDialogue);
+            } catch (err) {
+                log.warn('Roundtable empty-dialogue retry failed', {
+                    error: (err as Error).message,
+                    sessionId: session.id,
+                    turn,
+                    speaker: speakerName,
+                });
+            }
+        }
 
         // Skip empty dialogue — LLM returned nothing usable
         if (!dialogue) {

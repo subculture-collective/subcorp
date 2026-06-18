@@ -43,6 +43,39 @@ const ARTIFACT_GROUNDING_GUIDANCE =
     `Include a "Grounding" section listing the exact files, commands, DB rows, URLs, or source artifacts used. ` +
     `If a claim is not verified, label it as a proposal, assumption, or next step instead of stating it as fact.\n`;
 
+const STEP_COMPLETION_CONTRACTS: Partial<Record<StepKind, string>> = {
+    research_topic:
+        `Completion contract: you MUST call web_search successfully and write notes with file_write. Include a Sources section listing query strings and URLs or state exactly which search failed.\n`,
+    scan_signals:
+        `Completion contract: you MUST call web_search successfully and write a signal report with file_write. Include a Sources section listing query strings and URLs or state exactly which search failed.\n`,
+    audit_system:
+        `Completion contract: you MUST call bash successfully and write an audit artifact with file_write. The artifact MUST include an evidence table with columns: claim | command_or_source | observed_output | severity.\n`,
+    patch_code:
+        `Completion contract: you MUST create or modify at least one source/config file with file_write and write a changelog artifact. The changelog MUST include a Grounding section with exact written files and verification commands.\n`,
+    draft_product_spec:
+        `Completion contract: you MUST write the spec with file_write. The spec MUST include a Grounding section naming source artifacts, notes, searches, or explicit assumptions.\n`,
+    document_lesson:
+        `Completion contract: you MUST write documentation with file_write. The document MUST include a Grounding section naming the source event/artifact/command/DB row used.\n`,
+    distill_insight:
+        `Completion contract: you MUST write the digest with file_write. The digest MUST include a Grounding section naming the exact source artifacts or memories used.\n`,
+    log_event:
+        `Completion contract: you MUST write an event note with file_write. The note MUST include a Grounding section naming the event, source session, artifact, command, or DB row being logged.\n`,
+    critique_content:
+        `Completion contract: you MUST read or cite the reviewed artifact and write the critique with file_write. Include a Grounding section naming the exact artifact reviewed.\n`,
+    content_revision:
+        `Completion contract: you MUST read or cite the original artifact/reviewer notes and write the revision with file_write. Include a Grounding section naming the original artifact and feedback addressed.\n`,
+    draft_essay:
+        `Completion contract: you MUST write the draft with file_write. Include a Grounding section naming source notes, URLs, or assumptions used.\n`,
+    draft_thread:
+        `Completion contract: you MUST write the thread with file_write. Include a Grounding section naming source notes, URLs, or assumptions used.\n`,
+    self_evolution:
+        `Completion contract: you MUST inspect the repo with bash, change files with file_write, and write a grounded summary artifact. If repo mutation is blocked, write a human-action-needed artifact instead of claiming success.\n`,
+};
+
+function completionContract(kind: StepKind): string {
+    return STEP_COMPLETION_CONTRACTS[kind] ?? '';
+}
+
 const SELF_EVOLUTION_REPO_SETUP = [
     `REPO_DIR=${WORKSPACE_ROOT}`,
     `if [ ! -d "$REPO_DIR/.git" ]; then for CANDIDATE in /workspace/projects/subcorp /home/onnwee/projects/subcorp /home/onnwee/workspace/projects/subcorp; do if [ -d "$CANDIDATE/.git" ]; then REPO_DIR="$CANDIDATE"; break; fi; done; fi`,
@@ -106,19 +139,21 @@ function renderTemplate(
 function decorateRenderedTemplate(kind: StepKind, rendered: string): string {
     const fileReadGuidance = rendered.includes('file_read') ? FILE_READ_GUIDANCE : '';
     const groundingGuidance = needsArtifactGrounding(kind) ? ARTIFACT_GROUNDING_GUIDANCE : '';
+    const contract = completionContract(kind);
     if (kind === 'audit_system') {
         return (
             WORKSPACE_PATH_GUIDANCE +
             AUDIT_EVIDENCE_GUIDANCE +
             fileReadGuidance +
             groundingGuidance +
+            contract +
             rendered
         );
     }
     if (kind === 'patch_code' || kind === 'self_evolution') {
-        return WORKSPACE_PATH_GUIDANCE + fileReadGuidance + groundingGuidance + rendered;
+        return WORKSPACE_PATH_GUIDANCE + fileReadGuidance + groundingGuidance + contract + rendered;
     }
-    return fileReadGuidance + groundingGuidance + rendered;
+    return fileReadGuidance + groundingGuidance + contract + rendered;
 }
 
 function needsArtifactGrounding(kind: StepKind): boolean {
@@ -208,7 +243,7 @@ export async function buildStepPrompt(
         }
     }
 
-    const prompt = header + body;
+    const prompt = header + completionContract(kind) + body;
     return opts?.withVersion ? { prompt, templateVersion: null } : prompt;
 }
 

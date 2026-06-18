@@ -23,3 +23,14 @@ describe('LLM empty round observability', () => {
         expect(session).toContain('consecutiveEmptyRounds');
     });
 });
+
+describe('roundtable empty-output recovery', () => {
+    test('opening empty dialogue is retried with a plain-text instruction before aborting', () => {
+        const source = read('src/lib/roundtable/orchestrator.ts');
+
+        expect(source).toContain('Empty opening dialogue from LLM, retrying with explicit plain-text instruction');
+        expect(source).toContain('roundtable:${session.format}:empty_retry');
+        expect(source).toContain('Return 2-4 sentences of plain spoken dialogue only');
+        expect(source).toContain('All LLM turns returned empty responses');
+    });
+});

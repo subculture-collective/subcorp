@@ -17,7 +17,7 @@ export function SimulationBadge() {
     const [since, setSince] = useState<string | null>(null);
 
     useEffect(() => {
-        fetch('/api/ops/stats')
+        fetch('/api/public/stats')
             .then(r => r.json())
             .then(d => {
                 if (d.simulationStartedAt) setSince(d.simulationStartedAt);

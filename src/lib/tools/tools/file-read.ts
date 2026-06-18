@@ -39,16 +39,23 @@ export const fileReadTool: NativeTool = {
             ? rawPath
             : `/workspace/${rawPath}`;
 
-        let command = `cat '${fullPath.replace(/'/g, "'\\''")}'`;
+        const quotedPath = `'${fullPath.replace(/'/g, "'\\''")}'`;
+        let command =
+            `[ -d ${quotedPath} ] && { printf 'path is a directory'; exit 21; }; ` +
+            `[ -f ${quotedPath} ] || { printf 'file does not exist'; exit 22; }; ` +
+            `cat ${quotedPath}`;
         if (maxLines) {
-            command = `head -n ${maxLines} '${fullPath.replace(/'/g, "'\\''")}'`;
+            command =
+                `[ -d ${quotedPath} ] && { printf 'path is a directory'; exit 21; }; ` +
+                `[ -f ${quotedPath} ] || { printf 'file does not exist'; exit 22; }; ` +
+                `head -n ${maxLines} ${quotedPath}`;
         }
 
         const result = await execInToolbox(command, 10_000);
 
         if (result.exitCode !== 0) {
             return {
-                error: `File read failed: ${result.stderr || 'file not found'}${pathHintForMissingWorkspacePath(rawPath)}`,
+                error: `File read failed: ${result.stderr || result.stdout || 'file not found'}${pathHintForMissingWorkspacePath(rawPath)}`,
             };
         }
 

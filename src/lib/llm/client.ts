@@ -214,6 +214,59 @@ function normalizeToolArgs(
     return { normalized, remapped };
 }
 
+function requiredToolArgs(tool: ToolDefinition): string[] {
+    const required = (tool.parameters as Record<string, unknown>).required;
+    return Array.isArray(required) ? required.filter((v): v is string => typeof v === 'string') : [];
+}
+
+function missingRequiredToolArgs(
+    tool: ToolDefinition,
+    args: Record<string, unknown>,
+): string[] {
+    return requiredToolArgs(tool).filter(key => {
+        const value = args[key];
+        return value === undefined || value === null || (typeof value === 'string' && value.trim().length === 0);
+    });
+}
+
+async function warnOnLlamaLineQueue(
+    baseUrl: string,
+    context: { model: string; round?: number; agentId?: string; sessionId?: string },
+): Promise<void> {
+    if (!baseUrl) return;
+    try {
+        const url = new URL(baseUrl);
+        const response = await fetch(`${url.origin}/broker/status`, {
+            signal: AbortSignal.timeout(2_000),
+        });
+        if (!response.ok) return;
+        const status = await response.json() as {
+            queue_depth?: number;
+            max_depth?: number;
+            in_flight_client?: string;
+            in_flight_id?: string;
+        };
+        const queueDepth = Number(status.queue_depth ?? 0);
+        const logPayload = {
+            queueDepth,
+            maxDepth: status.max_depth,
+            inFlightClient: status.in_flight_client,
+            inFlightId: status.in_flight_id,
+            ...context,
+        };
+        if (queueDepth >= LLAMA_LINE_STATUS_WARN_QUEUE_DEPTH && LLAMA_LINE_STATUS_WARN_QUEUE_DEPTH > 0) {
+            log.warn('llama-line broker status before request', logPayload);
+        } else {
+            log.debug('llama-line broker status before request', logPayload);
+        }
+    } catch (err) {
+        log.warn('Unable to read llama-line broker status before request', {
+            error: (err as Error).message?.slice(0, 160),
+            ...context,
+        });
+    }
+}
+
 /** LLM_MODEL env override — prepended to resolved model list when set. */
 const LLM_MODEL_ENV: string | null = (() => {
     const envModel = process.env.LLM_MODEL;
@@ -268,6 +321,10 @@ const OLLAMA_MODEL_CACHE_TTL_MS = 30_000;
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? '';
 /** Local Ollama model reserved for tool execution. Avoid openai/* routes here. */
 const OLLAMA_TOOL_MODEL = process.env.OLLAMA_TOOL_MODEL ?? '';
+const LLAMA_LINE_STATUS_WARN_QUEUE_DEPTH = Math.max(
+    0,
+    Number.parseInt(process.env.LLAMA_LINE_STATUS_WARN_QUEUE_DEPTH ?? '3', 10) || 0,
+);
 const OLLAMA_EMPTY_RETRY_COUNT = Math.max(
     0,
     Number.parseInt(process.env.OLLAMA_EMPTY_RETRY_COUNT ?? '1', 10) || 0,
@@ -950,6 +1007,20 @@ async function parseOllamaSseResponse(response: Response): Promise<{
     eval_count?: number;
 }> {
     const text = await response.text();
+    const contentType = response.headers.get('content-type') ?? '';
+
+    if (contentType.includes('application/json') || !text.includes('data: ')) {
+        try {
+            return JSON.parse(text) as ReturnType<typeof parseOllamaSseResponse> extends Promise<infer T> ? T : never;
+        } catch (err) {
+            log.warn('Ollama JSON response parse failed', {
+                contentType,
+                bodyPreview: text.slice(0, 300),
+                error: (err as Error).message,
+            });
+        }
+    }
+
     const lines = text.split('\n');
     for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
@@ -961,12 +1032,23 @@ async function parseOllamaSseResponse(response: Response): Promise<{
         } catch {
             continue;
         }
-        // Broker error events
+        // Broker terminal events
         if (parsed['status'] === 'ollama_unavailable' || parsed['status'] === 'dropped_by_admin') {
-            throw new Error(`llama-line broker error: ${parsed['status']}`);
+            const message = typeof parsed['message'] === 'string' ? `: ${parsed['message']}` : '';
+            const requestId = typeof parsed['request_id'] === 'string' ? ` request_id=${parsed['request_id']}` : '';
+            throw new Error(`llama-line broker error: ${parsed['status']}${requestId}${message}`);
         }
-        // Skip broker status events (queued, processing, etc.)
-        if (typeof parsed['status'] === 'string') continue;
+        // Skip and log broker status events (queued, processing, etc.)
+        if (typeof parsed['status'] === 'string') {
+            if (parsed['status'] === 'queued') {
+                log.debug('llama-line request queued', {
+                    requestId: parsed['request_id'],
+                    position: parsed['position'],
+                    waitSeconds: parsed['wait_seconds'],
+                });
+            }
+            continue;
+        }
         // This is the actual ollama response payload
         return parsed as ReturnType<typeof parseOllamaSseResponse> extends Promise<infer T> ? T : never;
     }
@@ -1063,6 +1145,13 @@ async function ollamaChatWithModel(
                 body.tools = openaiTools;
                 body.tool_choice = 'none';
             }
+
+            await warnOnLlamaLineQueue(baseUrl, {
+                model,
+                round,
+                agentId: trackingContext?.agentId,
+                sessionId: trackingContext?.sessionId,
+            });
 
             const response = await fetch(`${baseUrl}/api/chat`, {
                 method: 'POST',
@@ -1226,6 +1315,34 @@ async function ollamaChatWithModel(
                         round,
                     );
 
+                    const missingArgs = missingRequiredToolArgs(tool, args);
+                    if (missingArgs.length > 0) {
+                        const result = {
+                            error: `Invalid tool arguments: missing required parameter(s): ${missingArgs.join(', ')}`,
+                            expected: requiredToolArgs(tool),
+                            received: Object.keys(args),
+                        };
+                        log.warn('Ollama tool call missing required args', {
+                            tool: tc.function.name,
+                            missingArgs,
+                            argsKeys: Object.keys(args),
+                            model,
+                            round,
+                        });
+                        toolCallRecords.push({
+                            name: tool.name,
+                            arguments: args,
+                            result,
+                        });
+                        resultStr = JSON.stringify(result);
+                        workingMessages.push({
+                            role: 'tool',
+                            tool_call_id: tc.id,
+                            content: resultStr,
+                        });
+                        continue;
+                    }
+
                     log.debug('Ollama executing tool call', {
                         tool: tc.function.name,
                         argsKeys: Object.keys(args),
@@ -1260,6 +1377,11 @@ async function ollamaChatWithModel(
                     });
                     const availableNames = tools?.map(t => t.name).join(', ') ?? 'none';
                     resultStr = `ERROR: Tool "${tc.function.name}" does not exist. Available tools: ${availableNames}. Use ONLY these exact tool names.`;
+                    toolCallRecords.push({
+                        name: tc.function.name || 'unknown_tool',
+                        arguments: {},
+                        result: { error: resultStr },
+                    });
                 }
 
                 workingMessages.push({

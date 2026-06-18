@@ -129,6 +129,7 @@ const TOOL_ERROR_PATTERNS: RegExp[] = [
     /file write failed/i,
     /timed out/i,
     /tool\s+"?.+"?\s+does not exist/i,
+    /invalid tool arguments/i,
 ];
 
 type ToolRequirement = {
