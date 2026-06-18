@@ -26,6 +26,22 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
  * Default: false. This service should normally use llama-line/Ollama only.
  */
 const OPENROUTER_ENABLED = process.env.OPENROUTER_ENABLED === 'true';
+const OPENROUTER_DEFAULT_MODEL = process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-v4-flash';
+const OPENROUTER_ESCALATION_MODEL = process.env.OPENROUTER_ESCALATION_MODEL ?? 'deepseek/deepseek-v3.2';
+const OPENROUTER_CODER_MODEL = process.env.OPENROUTER_CODER_MODEL ?? 'qwen/qwen3-coder-flash';
+const OPENROUTER_REQUIRE_LOCAL_FAILURE = process.env.OPENROUTER_REQUIRE_LOCAL_FAILURE !== 'false';
+const OPENROUTER_ALLOW_AFTER_LOCAL_FAILURE = process.env.OPENROUTER_ALLOW_AFTER_LOCAL_FAILURE !== 'false';
+const OPENROUTER_DAILY_BUDGET_USD = Number.parseFloat(process.env.OPENROUTER_DAILY_BUDGET_USD ?? '1');
+const OPENROUTER_MONTHLY_BUDGET_USD = Number.parseFloat(process.env.OPENROUTER_MONTHLY_BUDGET_USD ?? '20');
+const OPENROUTER_MAX_TOKENS = Math.max(1, Number.parseInt(process.env.OPENROUTER_MAX_TOKENS ?? '2000', 10) || 2000);
+const OPENROUTER_MAX_TOOL_ROUNDS = Math.max(0, Number.parseInt(process.env.OPENROUTER_MAX_TOOL_ROUNDS ?? '2', 10) || 0);
+
+const OPENROUTER_PRICE_PER_MILLION: Record<string, { input: number; output: number }> = {
+    'deepseek/deepseek-v4-flash': { input: 0.09, output: 0.18 },
+    'deepseek/deepseek-v3.2': { input: 0.2288, output: 0.3432 },
+    'deepseek/deepseek-v4-pro': { input: 0.435, output: 0.87 },
+    'qwen/qwen3-coder-flash': { input: 0.195, output: 0.975 },
+};
 
 /** Normalize model ID — strip erroneous openrouter/ prefix (only openrouter/auto is valid with that prefix) */
 function normalizeModel(id: string): string {
@@ -80,7 +96,7 @@ const LLM_TOOL_TOTAL_BUDGET_MS = 240_000;
  * Local Ollama fallback chain used only when OLLAMA_MODEL is not set.
  * Keep the default single-model to avoid surprise traffic to stale models.
  */
-const DEFAULT_OLLAMA_FALLBACK_MODELS = ['qwen3:14b'];
+const DEFAULT_OLLAMA_FALLBACK_MODELS = ['ollama/gemma4:latest'];
 
 const OLLAMA_FALLBACK_MODELS = (
     process.env.OLLAMA_FALLBACK_MODELS ??
@@ -267,21 +283,17 @@ async function warnOnLlamaLineQueue(
     }
 }
 
-/** LLM_MODEL env override — prepended to resolved model list when set. */
-const LLM_MODEL_ENV: string | null = (() => {
-    const envModel = process.env.LLM_MODEL;
-    if (!envModel || envModel === 'openrouter/auto') return null;
-    return normalizeModel(envModel);
-})();
+function resolveOpenRouterModels(context?: string): string[] {
+    const explicit = (process.env.OPENROUTER_MODELS ?? '')
+        .split(',')
+        .map(model => normalizeOpenRouterModel(model.trim()))
+        .filter(Boolean);
+    if (explicit.length > 0) return explicit;
 
-/** Resolve models from DB routing table, prepending LLM_MODEL env if set. */
-async function resolveModelsWithEnv(context?: string): Promise<string[]> {
-    const models = await resolveModels(context);
-    if (!LLM_MODEL_ENV) return models;
-    return [
-        LLM_MODEL_ENV,
-        ...models.filter((m: string) => m !== LLM_MODEL_ENV),
-    ];
+    const models = [OPENROUTER_DEFAULT_MODEL];
+    if (/code|patch|agent_session/i.test(context ?? '')) models.push(OPENROUTER_CODER_MODEL);
+    models.push(OPENROUTER_ESCALATION_MODEL);
+    return [...new Set(models.map(normalizeOpenRouterModel).filter(Boolean))];
 }
 
 let _client: OpenRouter | null = null;
@@ -363,6 +375,7 @@ let ollamaModelCatalogCache:
 function isLocalModelId(model?: string): boolean {
     if (!model) return false;
     const normalized = normalizeModel(model);
+    if (normalized.startsWith('ollama/') && normalized.includes(':')) return true;
     return normalized.includes(':') && !normalized.includes('/');
 }
 
@@ -420,6 +433,74 @@ function resolvePreferredOllamaModel(model: string | undefined, hasTools: boolea
 
 function canUseOpenRouter(): boolean {
     return OPENROUTER_ENABLED && !!OPENROUTER_API_KEY;
+}
+
+function normalizeOpenRouterModel(model: string): string {
+    return normalizeModel(model).replace(/^openrouter\//, '');
+}
+
+function openRouterSessionId(trackingContext?: LLMGenerateOptions['trackingContext']): string | undefined {
+    return trackingContext?.sessionId ?? trackingContext?.context;
+}
+
+function openRouterHeaders(trackingContext?: LLMGenerateOptions['trackingContext']): Record<string, string> {
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        'HTTP-Referer': 'https://subcorp.subcult.tv',
+        'X-Title': 'Subcorp',
+    };
+    const sessionId = openRouterSessionId(trackingContext);
+    if (sessionId) headers['X-Session-Id'] = sessionId;
+    return headers;
+}
+
+function withOpenRouterCacheFields(
+    body: Record<string, unknown>,
+    trackingContext?: LLMGenerateOptions['trackingContext'],
+): Record<string, unknown> {
+    const sessionId = openRouterSessionId(trackingContext);
+    return sessionId ? { ...body, session_id: sessionId } : body;
+}
+
+function estimateOpenRouterCostUsd(model: string, promptTokens = 0, completionTokens = 0): number | null {
+    const pricing = OPENROUTER_PRICE_PER_MILLION[normalizeOpenRouterModel(model)];
+    if (!pricing) return null;
+    return ((promptTokens * pricing.input) + (completionTokens * pricing.output)) / 1_000_000;
+}
+
+async function getOpenRouterSpendUsd(period: 'day' | 'month'): Promise<number> {
+    const interval = period === 'day' ? '1 day' : '30 days';
+    const rows = await sql<[{ spend: string }]>`
+        SELECT COALESCE(SUM(cost_usd), 0)::text AS spend
+        FROM ops_llm_usage
+        WHERE created_at >= NOW() - ${interval}::interval
+          AND model NOT LIKE 'ollama/%'
+    `;
+    return Number.parseFloat(rows[0]?.spend ?? '0') || 0;
+}
+
+export async function checkOpenRouterBudget(extraEstimatedUsd = 0): Promise<{ allowed: boolean; reason: string; dailySpend: number; monthlySpend: number }> {
+    if (!canUseOpenRouter()) {
+        return { allowed: false, reason: 'openrouter_disabled', dailySpend: 0, monthlySpend: 0 };
+    }
+    const [dailySpend, monthlySpend] = await Promise.all([
+        getOpenRouterSpendUsd('day'),
+        getOpenRouterSpendUsd('month'),
+    ]);
+    if (OPENROUTER_DAILY_BUDGET_USD >= 0 && dailySpend + extraEstimatedUsd >= OPENROUTER_DAILY_BUDGET_USD) {
+        return { allowed: false, reason: 'openrouter_daily_budget_exceeded', dailySpend, monthlySpend };
+    }
+    if (OPENROUTER_MONTHLY_BUDGET_USD >= 0 && monthlySpend + extraEstimatedUsd >= OPENROUTER_MONTHLY_BUDGET_USD) {
+        return { allowed: false, reason: 'openrouter_monthly_budget_exceeded', dailySpend, monthlySpend };
+    }
+    return { allowed: true, reason: 'openrouter_allowed', dailySpend, monthlySpend };
+}
+
+function shouldAllowOpenRouterAfterLocalFailure(localWasTried: boolean): boolean {
+    if (!canUseOpenRouter()) return false;
+    if (!OPENROUTER_REQUIRE_LOCAL_FAILURE) return true;
+    return localWasTried && OPENROUTER_ALLOW_AFTER_LOCAL_FAILURE;
 }
 
 function shouldTryOllamaFirst(model?: string): boolean {
@@ -1483,6 +1564,7 @@ async function openRouterChatCompletions(
     messages: { role: string; content: string }[],
     temperature: number,
     maxTokens: number,
+    trackingContext?: LLMGenerateOptions['trackingContext'],
     deadlineAt?: number,
 ): Promise<string | null> {
     const remainingBudgetMs = deadlineAt ? getRemainingBudget(deadlineAt) : OPENROUTER_CHAT_TIMEOUT_MS;
@@ -1504,19 +1586,16 @@ async function openRouterChatCompletions(
             'https://openrouter.ai/api/v1/chat/completions',
             {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-                },
-                body: JSON.stringify({
+                headers: openRouterHeaders(trackingContext),
+                body: JSON.stringify(withOpenRouterCacheFields({
                     model,
                     messages: messages.map(m => ({
                         role: m.role,
                         content: m.content,
                     })),
                     temperature,
-                    max_tokens: maxTokens,
-                }),
+                    max_tokens: Math.min(maxTokens, OPENROUTER_MAX_TOKENS),
+                }, trackingContext)),
                 signal: controller.signal,
             },
         );
@@ -1658,6 +1737,7 @@ export async function llmGenerate(
     const conversationMessages = messages.filter(m => m.role !== 'system');
 
     let resolvedOllamaModel = model;
+    let localWasTried = false;
     if (!resolvedOllamaModel && trackingContext?.context) {
         try {
             const routed = await resolveModels(trackingContext.context);
@@ -1669,6 +1749,7 @@ export async function llmGenerate(
     const preferOllamaFirst = shouldTryOllamaFirst(resolvedOllamaModel);
     const hasToolsDefined = tools && tools.length > 0;
     if (preferOllamaFirst) {
+        localWasTried = true;
         const ollamaText = await tryOllamaFirst(
             messages,
             temperature,
@@ -1679,8 +1760,8 @@ export async function llmGenerate(
             totalDeadlineAt,
         );
         if (ollamaText) return ollamaText;
-        if (isOllamaRoutedModel(resolvedOllamaModel)) {
-            log.warn('Explicit Ollama/llama-line model request failed; skipping cloud fallback', {
+        if (isOllamaRoutedModel(resolvedOllamaModel) && !shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
+            log.warn('Explicit Ollama/llama-line model request failed; cloud fallback disallowed by policy', {
                 model: resolvedOllamaModel,
                 context: trackingContext?.context,
             });
@@ -1689,13 +1770,13 @@ export async function llmGenerate(
     }
 
     // ── OpenRouter fallback (only when enabled) ──
-    if (!canUseOpenRouter()) {
+    if (!shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
         incLlmEmptyText({
             provider: 'ollama',
             context: trackingContext?.context,
             agentId: trackingContext?.agentId,
         });
-        log.warn('Ollama returned empty and OpenRouter is disabled', {
+        log.warn('Ollama returned empty and OpenRouter fallback is disabled by policy', {
             context: trackingContext?.context,
             agentId: trackingContext?.agentId,
             ollamaAvailable: !!(OLLAMA_API_KEY || OLLAMA_LOCAL_URL),
@@ -1704,11 +1785,23 @@ export async function llmGenerate(
         return '';
     }
 
+    const budget = await checkOpenRouterBudget();
+    if (!budget.allowed) {
+        log.warn('Skipping OpenRouter fallback due to budget guardrail', {
+            reason: budget.reason,
+            dailySpend: budget.dailySpend,
+            monthlySpend: budget.monthlySpend,
+            context: trackingContext?.context,
+            agentId: trackingContext?.agentId,
+        });
+        return '';
+    }
+
     const client = getClient();
     const resolved =
-        model ?
+        model && !isOllamaRoutedModel(model) ?
             [normalizeModel(model)]
-        :   await resolveModelsWithEnv(trackingContext?.context);
+        :   resolveOpenRouterModels(trackingContext?.context);
     const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
     if (modelList.length === 0) {
         throw new Error('No LLM models available after resolution');
@@ -1731,7 +1824,8 @@ export async function llmGenerate(
                 content: m.content,
             })),
             temperature,
-            maxOutputTokens: maxTokens,
+            maxOutputTokens: Math.min(maxTokens, OPENROUTER_MAX_TOKENS),
+            ...withOpenRouterCacheFields({}, trackingContext),
         };
         if (tools && tools.length > 0) {
             opts.tools = toOpenRouterTools(tools);
@@ -1773,7 +1867,7 @@ export async function llmGenerate(
         const usedModel = response.model || 'unknown';
         const usage = response.usage;
 
-        void trackUsage(usedModel, usage, durationMs, trackingContext);
+        void trackUsage(`openrouter/${normalizeOpenRouterModel(usedModel)}`, usage, durationMs, trackingContext);
 
         if (text.length === 0) {
             incLlmEmptyText({
@@ -1941,6 +2035,7 @@ async function tryDirectChatCompletions(
             messages,
             temperature,
             maxTokens,
+            trackingContext,
             deadlineAt,
         );
         if (chatResult) {
@@ -1949,7 +2044,7 @@ async function tryDirectChatCompletions(
                 context: trackingContext?.context,
                 textLength: chatResult.length,
             });
-            void trackUsage(chatModel, null, Date.now() - startTime, trackingContext);
+            void trackUsage(`openrouter/${normalizeOpenRouterModel(chatModel)}`, null, Date.now() - startTime, trackingContext);
             return chatResult;
         }
     } catch (chatErr) {
@@ -2050,7 +2145,22 @@ interface ChatCompletionsResponse {
         prompt_tokens?: number;
         completion_tokens?: number;
         total_tokens?: number;
+        cost?: number;
     };
+}
+
+function toOpenRouterChatUsage(model: string, usage: ChatCompletionsResponse['usage']): OpenResponsesUsage | null {
+    if (!usage) return null;
+    const inputTokens = usage.prompt_tokens ?? 0;
+    const outputTokens = usage.completion_tokens ?? 0;
+    const totalTokens = usage.total_tokens ?? inputTokens + outputTokens;
+    const estimatedCost = usage.cost ?? estimateOpenRouterCostUsd(model, inputTokens, outputTokens) ?? undefined;
+    return {
+        inputTokens,
+        outputTokens,
+        totalTokens,
+        cost: estimatedCost,
+    } as unknown as OpenResponsesUsage;
 }
 
 /** Working message type for the tool-calling conversation loop */
@@ -2133,8 +2243,9 @@ async function openRouterToolLoop(opts: {
         const body: Record<string, unknown> = {
             messages: workingMessages,
             temperature,
-            max_tokens: maxTokens,
+            max_tokens: Math.min(maxTokens, OPENROUTER_MAX_TOKENS),
         };
+        Object.assign(body, withOpenRouterCacheFields({}, trackingContext));
 
         if (modelList.length > 1) {
             body.models = modelList;
@@ -2160,11 +2271,7 @@ async function openRouterToolLoop(opts: {
             'https://openrouter.ai/api/v1/chat/completions',
             {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-                    'HTTP-Referer': 'https://subcorp.subcult.tv',
-                },
+                headers: openRouterHeaders(trackingContext),
                 body: JSON.stringify(body),
                 signal: controller.signal,
             },
@@ -2187,13 +2294,7 @@ async function openRouterToolLoop(opts: {
 
         lastModel = data.model ?? 'unknown';
         if (data.usage) {
-            lastUsage = {
-                inputTokens: data.usage.prompt_tokens ?? 0,
-                outputTokens: data.usage.completion_tokens ?? 0,
-                totalTokens:
-                    (data.usage.prompt_tokens ?? 0) +
-                    (data.usage.completion_tokens ?? 0),
-            } as unknown as OpenResponsesUsage;
+            lastUsage = toOpenRouterChatUsage(lastModel, data.usage);
         }
 
         const msg = data.choices?.[0]?.message;
@@ -2248,7 +2349,7 @@ async function openRouterToolLoop(opts: {
             const finalText = text || bestText;
 
             void trackUsage(
-                lastModel,
+                `openrouter/${normalizeOpenRouterModel(lastModel)}`,
                 lastUsage,
                 Date.now() - startTime,
                 trackingContext,
@@ -2300,7 +2401,7 @@ async function openRouterToolLoop(opts: {
 
     // Exhausted all rounds — return what we have
     void trackUsage(
-        lastModel,
+        `openrouter/${normalizeOpenRouterModel(lastModel)}`,
         lastUsage,
         Date.now() - startTime,
         trackingContext,
@@ -2345,6 +2446,7 @@ export async function llmGenerateWithTools(
     // ── Try Ollama first — WITH tool support ──
     // Resolve context-specific Ollama model if no explicit model given
     let resolvedModel = model;
+    let localWasTried = false;
     if (!resolvedModel && trackingContext?.context) {
         try {
             const routed = await resolveModels(trackingContext.context);
@@ -2354,6 +2456,7 @@ export async function llmGenerateWithTools(
     }
     const preferOllamaFirst = hasTools || shouldTryOllamaFirst(resolvedModel);
     if (preferOllamaFirst) {
+        localWasTried = true;
         const ollamaResult = await ollamaChat(messages, temperature, {
             maxTokens,
             tools: hasTools ? tools : undefined,
@@ -2385,8 +2488,8 @@ export async function llmGenerateWithTools(
             return { text: ollamaResult.text, toolCalls: ollamaResult.toolCalls };
         }
 
-        if (isOllamaRoutedModel(resolvedModel)) {
-            log.warn('Explicit Ollama/llama-line tool-call model failed; skipping cloud fallback', {
+        if (isOllamaRoutedModel(resolvedModel) && !shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
+            log.warn('Explicit Ollama/llama-line tool-call model failed; cloud fallback disallowed by policy', {
                 model: resolvedModel,
                 context: trackingContext?.context,
             });
@@ -2395,13 +2498,13 @@ export async function llmGenerateWithTools(
     }
 
     // ── OpenRouter fallback (only when enabled) ──
-    if (!canUseOpenRouter()) {
+    if (!shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
         incLlmEmptyText({
             provider: 'ollama-tools',
             context: trackingContext?.context,
             agentId: trackingContext?.agentId,
         });
-        log.warn('Ollama returned empty and OpenRouter is disabled (tool call)', {
+        log.warn('Ollama returned empty and OpenRouter tool fallback is disabled by policy', {
             context: trackingContext?.context,
             agentId: trackingContext?.agentId,
             hasTools,
@@ -2410,11 +2513,24 @@ export async function llmGenerateWithTools(
         return { text: '', toolCalls: [] };
     }
 
+    const budget = await checkOpenRouterBudget();
+    if (!budget.allowed) {
+        log.warn('Skipping OpenRouter tool fallback due to budget guardrail', {
+            reason: budget.reason,
+            dailySpend: budget.dailySpend,
+            monthlySpend: budget.monthlySpend,
+            context: trackingContext?.context,
+            agentId: trackingContext?.agentId,
+            toolNames: tools.map(t => t.name),
+        });
+        return { text: '', toolCalls: [] };
+    }
+
     // ── OpenRouter (cloud) — raw fetch with JSON repair ──
     const resolved =
-        model ?
+        model && !isOllamaRoutedModel(model) ?
             [normalizeModel(model)]
-        :   await resolveModelsWithEnv(trackingContext?.context);
+        :   resolveOpenRouterModels(trackingContext?.context);
     const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
 
     const openaiTools = tools.map(t => ({
@@ -2439,7 +2555,7 @@ export async function llmGenerateWithTools(
             modelList,
             temperature,
             maxTokens,
-            maxToolRounds,
+            maxToolRounds: Math.min(maxToolRounds, OPENROUTER_MAX_TOOL_ROUNDS),
             trackingContext,
             startTime,
             deadlineAt: totalDeadlineAt,

@@ -2,14 +2,14 @@
 // Keep one default route, then add only contexts that need a different model.
 //
 // Env var naming:
-//   MODEL_ROUTING_DEFAULT=qwen3:14b
-//   MODEL_ROUTING_AGENT_SESSION=gemma4:latest
+//   MODEL_ROUTING_DEFAULT=ollama/gemma4:latest
+//   MODEL_ROUTING_AGENT_SESSION=ollama/gemma4:latest
 //   MODEL_ROUTING_ROUNDTABLE__DEEP_DIVE=qwen3:32b
 // Double underscores become colons: ROUNDTABLE__DEEP_DIVE → roundtable:deep_dive.
 
 /** Single default model for Ollama/llama-line operation. */
 export const DEFAULT_MODELS = [
-    process.env.MODEL_ROUTING_DEFAULT || process.env.OLLAMA_MODEL || 'qwen3:14b',
+    process.env.MODEL_ROUTING_DEFAULT || process.env.OLLAMA_MODEL || 'ollama/gemma4:latest',
 ];
 
 const ENV_PREFIX = 'MODEL_ROUTING_';
