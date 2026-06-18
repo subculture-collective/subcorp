@@ -20,6 +20,17 @@ services:
     env_file: .env
     environment:
       - LOG_FORMAT=pretty
+      - MODEL_ROUTING_DEFAULT=ollama/gemma4:latest
+      - OLLAMA_TOOL_MODEL=ollama/gemma4:latest
+      - OPENROUTER_ENABLED=true
+      - OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v4-flash
+      - OPENROUTER_ESCALATION_MODEL=deepseek/deepseek-v3.2
+      - OPENROUTER_CODER_MODEL=qwen/qwen3-coder-flash
+      - OPENROUTER_REQUIRE_LOCAL_FAILURE=true
+      - OPENROUTER_MAX_TOOL_ROUNDS=2
+      - OPENROUTER_MAX_TOKENS=2000
+      - OPENROUTER_DAILY_BUDGET_USD=1
+      - OPENROUTER_MONTHLY_BUDGET_USD=20
     group_add:
       - "${DOCKER_SOCK_GID:-967}"
     volumes:
@@ -50,6 +61,17 @@ services:
       - WORKER_AGENT_SESSION_CONCURRENCY=3
       - WORKER_MISSION_STEP_CONCURRENCY=5
       - OLLAMA_EMPTY_RETRY_COUNT=1
+      - MODEL_ROUTING_DEFAULT=ollama/gemma4:latest
+      - OLLAMA_TOOL_MODEL=ollama/gemma4:latest
+      - OPENROUTER_ENABLED=true
+      - OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v4-flash
+      - OPENROUTER_ESCALATION_MODEL=deepseek/deepseek-v3.2
+      - OPENROUTER_CODER_MODEL=qwen/qwen3-coder-flash
+      - OPENROUTER_REQUIRE_LOCAL_FAILURE=true
+      - OPENROUTER_MAX_TOOL_ROUNDS=2
+      - OPENROUTER_MAX_TOKENS=2000
+      - OPENROUTER_DAILY_BUDGET_USD=1
+      - OPENROUTER_MONTHLY_BUDGET_USD=20
     group_add:
       - "${DOCKER_SOCK_GID:-967}"
     volumes:
