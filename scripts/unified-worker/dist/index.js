@@ -8656,22 +8656,69 @@ var init_proposal_runner = __esm({
 });
 
 // src/lib/ops/cap-gates.ts
+function positiveNumberOrDefault(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+async function getMissionCapPolicy() {
+  try {
+    const policy = await getPolicy("mission_caps");
+    return {
+      maxConcurrentMissions: positiveNumberOrDefault(
+        policy?.max_concurrent_missions ?? process.env.MISSION_CAP_MAX_CONCURRENT,
+        MAX_CONCURRENT_MISSIONS
+      ),
+      maxDailyStepsPerAgent: positiveNumberOrDefault(
+        policy?.max_daily_steps_per_agent ?? process.env.MISSION_CAP_MAX_DAILY_STEPS_PER_AGENT,
+        MAX_DAILY_STEPS_PER_AGENT
+      ),
+      activeMissionStaleHours: positiveNumberOrDefault(
+        policy?.active_mission_stale_hours ?? process.env.MISSION_CAP_ACTIVE_STALE_HOURS,
+        ACTIVE_MISSION_STALE_HOURS
+      )
+    };
+  } catch {
+    return {
+      maxConcurrentMissions: positiveNumberOrDefault(
+        process.env.MISSION_CAP_MAX_CONCURRENT,
+        MAX_CONCURRENT_MISSIONS
+      ),
+      maxDailyStepsPerAgent: positiveNumberOrDefault(
+        process.env.MISSION_CAP_MAX_DAILY_STEPS_PER_AGENT,
+        MAX_DAILY_STEPS_PER_AGENT
+      ),
+      activeMissionStaleHours: positiveNumberOrDefault(
+        process.env.MISSION_CAP_ACTIVE_STALE_HOURS,
+        ACTIVE_MISSION_STALE_HOURS
+      )
+    };
+  }
+}
 async function checkCapGates(input) {
+  const missionCapPolicy = await getMissionCapPolicy();
   const [{ count: activeMissions }] = await sql`
         SELECT COUNT(*)::int as count FROM ops_missions
-        WHERE status IN ('approved', 'running')
+        WHERE status = ANY(${ACTIVE_MISSION_STATUSES})
+          AND (
+            EXISTS (
+                SELECT 1 FROM ops_mission_steps s
+                WHERE s.mission_id = ops_missions.id
+                  AND s.status = ANY(${ACTIVE_STEP_STATUSES})
+            )
+            OR updated_at >= NOW() - (${missionCapPolicy.activeMissionStaleHours} * INTERVAL '1 hour')
+          )
     `;
-  if (activeMissions >= MAX_CONCURRENT_MISSIONS) {
+  if (activeMissions >= missionCapPolicy.maxConcurrentMissions) {
     return {
       ok: false,
-      reason: `Too many active missions (${activeMissions}/${MAX_CONCURRENT_MISSIONS})`
+      reason: `Too many active missions (${activeMissions}/${missionCapPolicy.maxConcurrentMissions}; statuses=${ACTIVE_MISSION_STATUSES.join(",")}; active_steps=${ACTIVE_STEP_STATUSES.join(",")}; stale_window_hours=${missionCapPolicy.activeMissionStaleHours})`
     };
   }
   const dailySteps = await countTodaySteps(input.agent_id);
-  if (dailySteps >= MAX_DAILY_STEPS_PER_AGENT) {
+  if (dailySteps >= missionCapPolicy.maxDailyStepsPerAgent) {
     return {
       ok: false,
-      reason: `Daily step limit reached for ${input.agent_id} (${dailySteps}/${MAX_DAILY_STEPS_PER_AGENT})`
+      reason: `Daily step limit reached for ${input.agent_id} (${dailySteps}/${missionCapPolicy.maxDailyStepsPerAgent}; counts all attempted steps created today)`
     };
   }
   try {
@@ -8713,7 +8760,7 @@ async function countTodaySteps(agentId) {
     `;
   return count;
 }
-var MAX_CONCURRENT_MISSIONS, MAX_DAILY_STEPS_PER_AGENT;
+var MAX_CONCURRENT_MISSIONS, MAX_DAILY_STEPS_PER_AGENT, ACTIVE_MISSION_STALE_HOURS, ACTIVE_MISSION_STATUSES, ACTIVE_STEP_STATUSES;
 var init_cap_gates = __esm({
   "src/lib/ops/cap-gates.ts"() {
     "use strict";
@@ -8721,6 +8768,9 @@ var init_cap_gates = __esm({
     init_policy();
     MAX_CONCURRENT_MISSIONS = 50;
     MAX_DAILY_STEPS_PER_AGENT = 200;
+    ACTIVE_MISSION_STALE_HOURS = 24;
+    ACTIVE_MISSION_STATUSES = ["approved", "running"];
+    ACTIVE_STEP_STATUSES = ["queued", "running"];
   }
 });
 
