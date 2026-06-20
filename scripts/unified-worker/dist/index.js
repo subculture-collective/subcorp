@@ -16340,6 +16340,9 @@ async function isPathAllowedWithGrants(agentId, relativePath) {
   }
 }
 function forbiddenWorkspaceProjectRootWritePath(relativePath) {
+  if (/^shared\/manifests(?:\/|$)/i.test(relativePath)) {
+    return "trusted artifact manifests are orchestrator-managed and cannot be written through file_write";
+  }
   const outputProjectsTarget = /^output\/projects\//i;
   if (outputProjectsTarget.test(relativePath)) {
     return "product code writes must not be placed under /workspace/output/projects; use a mission-specific /workspace/projects/<slug>/ directory for code and output/reports or output/reviews for artifacts";
@@ -17766,6 +17769,8 @@ async function appendSucceededFileWriteManifests(sessionId, agentId, toolCalls) 
     const relativePath = rawPath.startsWith("/workspace/") ? rawPath.slice("/workspace/".length) : rawPath;
     const artifactId = typeof result?.artifact_id === "string" ? result.artifact_id : (0, import_node_crypto3.randomUUID)();
     const bytes = typeof result?.bytes === "number" ? result.bytes : typeof args.content === "string" ? args.content.length : 0;
+    const content = typeof args.content === "string" ? args.content : "";
+    const sha2562 = (0, import_node_crypto3.createHash)("sha256").update(content).digest("hex");
     const entry = JSON.stringify({
       artifact_id: artifactId,
       path: relativePath,
@@ -17773,6 +17778,7 @@ async function appendSucceededFileWriteManifests(sessionId, agentId, toolCalls) 
       type: manifestPathType(relativePath),
       created_at: (/* @__PURE__ */ new Date()).toISOString(),
       bytes,
+      sha256: sha2562,
       session_id: sessionId,
       session_status: "succeeded",
       trusted: true,

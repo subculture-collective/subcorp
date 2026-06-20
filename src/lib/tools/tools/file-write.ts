@@ -84,6 +84,10 @@ async function isPathAllowedWithGrants(agentId: string, relativePath: string): P
 }
 
 function forbiddenWorkspaceProjectRootWritePath(relativePath: string): string | null {
+    if (/^shared\/manifests(?:\/|$)/i.test(relativePath)) {
+        return 'trusted artifact manifests are orchestrator-managed and cannot be written through file_write';
+    }
+
     const outputProjectsTarget = /^output\/projects\//i;
     if (outputProjectsTarget.test(relativePath)) {
         return 'product code writes must not be placed under /workspace/output/projects; use a mission-specific /workspace/projects/<slug>/ directory for code and output/reports or output/reviews for artifacts';

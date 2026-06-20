@@ -13,7 +13,7 @@ import { getScratchpad } from '@/lib/ops/scratchpad';
 import { buildBriefing } from '@/lib/ops/situational-briefing';
 import { loadPrimeDirective } from '@/lib/ops/prime-directive';
 import { unsupportedHighRiskClaimLines } from '@/lib/ops/claim-evidence';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { logger } from '@/lib/logger';
 import type { AgentId, LLMMessage, ToolCallRecord, ToolDefinition } from '../types';
 import type { AgentSession } from './types';
@@ -689,6 +689,8 @@ async function appendSucceededFileWriteManifests(
         const relativePath = rawPath.startsWith('/workspace/') ? rawPath.slice('/workspace/'.length) : rawPath;
         const artifactId = typeof result?.artifact_id === 'string' ? result.artifact_id : randomUUID();
         const bytes = typeof result?.bytes === 'number' ? result.bytes : typeof args.content === 'string' ? args.content.length : 0;
+        const content = typeof args.content === 'string' ? args.content : '';
+        const sha256 = createHash('sha256').update(content).digest('hex');
 
         const entry = JSON.stringify({
             artifact_id: artifactId,
@@ -697,6 +699,7 @@ async function appendSucceededFileWriteManifests(
             type: manifestPathType(relativePath),
             created_at: new Date().toISOString(),
             bytes,
+            sha256,
             session_id: sessionId,
             session_status: 'succeeded',
             trusted: true,
