@@ -14,6 +14,13 @@ export const llmEmptyToolRoundTotal = new Counter({
     registers: [register],
 });
 
+export const llmProviderFallbackTotal = new Counter({
+    name: 'subcorp_llm_provider_fallback_total',
+    help: 'LLM provider fallback decisions labelled by provider path, reason, context, and whether fallback was attempted.',
+    labelNames: ['from_provider', 'to_provider', 'reason', 'context', 'attempted'] as const,
+    registers: [register],
+});
+
 export const workspaceWorldWritableFilesTotal = new Counter({
     name: 'subcorp_workspace_world_writable_files_total',
     help: 'World-writable files found during heartbeat workspace permission checks.',
@@ -49,6 +56,22 @@ export function incLlmEmptyToolRound(labels: {
         provider: labels.provider,
         context: labels.context ?? 'unknown',
         agent_id: labels.agentId ?? 'unknown',
+    });
+}
+
+export function incLlmProviderFallback(labels: {
+    fromProvider: string;
+    toProvider: string;
+    reason: string;
+    context?: string | null;
+    attempted: boolean;
+}): void {
+    llmProviderFallbackTotal.inc({
+        from_provider: labels.fromProvider,
+        to_provider: labels.toProvider,
+        reason: labels.reason,
+        context: labels.context ?? 'unknown',
+        attempted: String(labels.attempted),
     });
 }
 

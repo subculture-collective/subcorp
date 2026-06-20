@@ -13,7 +13,7 @@ import type {
 } from '../types';
 import { sql } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { incLlmEmptyText, incLlmEmptyToolRound } from '@/lib/metrics';
+import { incLlmEmptyText, incLlmEmptyToolRound, incLlmProviderFallback } from '@/lib/metrics';
 import { resolveModels } from './model-routing';
 
 const log = logger.child({ module: 'llm' });
@@ -501,6 +501,47 @@ function shouldAllowOpenRouterAfterLocalFailure(localWasTried: boolean): boolean
     if (!canUseOpenRouter()) return false;
     if (!OPENROUTER_REQUIRE_LOCAL_FAILURE) return true;
     return localWasTried && OPENROUTER_ALLOW_AFTER_LOCAL_FAILURE;
+}
+
+function openRouterFallbackPolicy(localWasTried: boolean): Record<string, unknown> {
+    return {
+        openRouterEnabled: OPENROUTER_ENABLED,
+        openRouterApiKeyPresent: Boolean(OPENROUTER_API_KEY),
+        openRouterUsable: canUseOpenRouter(),
+        requireLocalFailure: OPENROUTER_REQUIRE_LOCAL_FAILURE,
+        allowAfterLocalFailure: OPENROUTER_ALLOW_AFTER_LOCAL_FAILURE,
+        localWasTried,
+        allowedAfterLocalFailure: shouldAllowOpenRouterAfterLocalFailure(localWasTried),
+        dailyBudgetUsd: OPENROUTER_DAILY_BUDGET_USD,
+        monthlyBudgetUsd: OPENROUTER_MONTHLY_BUDGET_USD,
+    };
+}
+
+function recordProviderFallbackDecision(labels: {
+    fromProvider: string;
+    toProvider: string;
+    reason: string;
+    attempted: boolean;
+    trackingContext?: LLMGenerateOptions['trackingContext'];
+    extra?: Record<string, unknown>;
+}): void {
+    incLlmProviderFallback({
+        fromProvider: labels.fromProvider,
+        toProvider: labels.toProvider,
+        reason: labels.reason,
+        context: labels.trackingContext?.context,
+        attempted: labels.attempted,
+    });
+    log.info('LLM provider fallback decision', {
+        fromProvider: labels.fromProvider,
+        toProvider: labels.toProvider,
+        reason: labels.reason,
+        attempted: labels.attempted,
+        context: labels.trackingContext?.context,
+        agentId: labels.trackingContext?.agentId,
+        sessionId: labels.trackingContext?.sessionId,
+        ...labels.extra,
+    });
 }
 
 function shouldTryOllamaFirst(model?: string): boolean {
@@ -1761,6 +1802,17 @@ export async function llmGenerate(
         );
         if (ollamaText) return ollamaText;
         if (isOllamaRoutedModel(resolvedOllamaModel) && !shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
+            recordProviderFallbackDecision({
+                fromProvider: localWasTried ? 'ollama' : 'none',
+                toProvider: 'openrouter',
+                reason: 'explicit_local_model_cloud_fallback_disallowed',
+                attempted: false,
+                trackingContext,
+                extra: {
+                    model: resolvedOllamaModel,
+                    policy: openRouterFallbackPolicy(localWasTried),
+                },
+            });
             log.warn('Explicit Ollama/llama-line model request failed; cloud fallback disallowed by policy', {
                 model: resolvedOllamaModel,
                 context: trackingContext?.context,
@@ -1771,6 +1823,17 @@ export async function llmGenerate(
 
     // ── OpenRouter fallback (only when enabled) ──
     if (!shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
+        recordProviderFallbackDecision({
+            fromProvider: localWasTried ? 'ollama' : 'none',
+            toProvider: 'openrouter',
+            reason: 'openrouter_policy_disabled',
+            attempted: false,
+            trackingContext,
+            extra: {
+                policy: openRouterFallbackPolicy(localWasTried),
+                ollamaAvailable: !!(OLLAMA_API_KEY || OLLAMA_LOCAL_URL),
+            },
+        });
         incLlmEmptyText({
             provider: 'ollama',
             context: trackingContext?.context,
@@ -1787,6 +1850,18 @@ export async function llmGenerate(
 
     const budget = await checkOpenRouterBudget();
     if (!budget.allowed) {
+        recordProviderFallbackDecision({
+            fromProvider: localWasTried ? 'ollama' : 'none',
+            toProvider: 'openrouter',
+            reason: budget.reason,
+            attempted: false,
+            trackingContext,
+            extra: {
+                policy: openRouterFallbackPolicy(localWasTried),
+                dailySpend: budget.dailySpend,
+                monthlySpend: budget.monthlySpend,
+            },
+        });
         log.warn('Skipping OpenRouter fallback due to budget guardrail', {
             reason: budget.reason,
             dailySpend: budget.dailySpend,
@@ -1806,6 +1881,19 @@ export async function llmGenerate(
     if (modelList.length === 0) {
         throw new Error('No LLM models available after resolution');
     }
+    recordProviderFallbackDecision({
+        fromProvider: localWasTried ? 'ollama' : 'none',
+        toProvider: 'openrouter',
+        reason: localWasTried ? 'local_failed_openrouter_allowed' : 'openrouter_primary_allowed',
+        attempted: true,
+        trackingContext,
+        extra: {
+            policy: openRouterFallbackPolicy(localWasTried),
+            modelList,
+            resolvedModels: resolved,
+            maxModelsArray: MAX_MODELS_ARRAY,
+        },
+    });
     const openRouterDeadlineAt = Math.min(
         totalDeadlineAt,
         Date.now() + OPENROUTER_TEXT_BUDGET_MS,
@@ -1911,6 +1999,17 @@ export async function llmGenerate(
             error: openRouterResult.error.message,
             statusCode: openRouterResult.error.statusCode,
         });
+        recordProviderFallbackDecision({
+            fromProvider: 'openrouter',
+            toProvider: 'ollama-text',
+            reason: 'openrouter_text_failed_ollama_text_last_resort',
+            attempted: true,
+            trackingContext,
+            extra: {
+                statusCode: openRouterResult.error.statusCode,
+                error: openRouterResult.error.message?.slice(0, 200),
+            },
+        });
         const ollamaText = await tryOllamaLastResort(
             messages,
             temperature,
@@ -1927,6 +2026,17 @@ export async function llmGenerate(
 
     // 4) Last resort: direct /chat/completions (bypasses SDK Responses API)
     if (canUseOpenRouter() && !hasToolsDefined) {
+        recordProviderFallbackDecision({
+            fromProvider: 'openrouter_responses',
+            toProvider: 'openrouter_chat_completions',
+            reason: 'responses_empty_or_failed_direct_chat_fallback',
+            attempted: true,
+            trackingContext,
+            extra: {
+                resolvedModels: resolved,
+                hadOpenRouterError: !!openRouterResult.error,
+            },
+        });
         const chatText = await tryDirectChatCompletions(
             resolved,
             messages,
@@ -2489,6 +2599,18 @@ export async function llmGenerateWithTools(
         }
 
         if (isOllamaRoutedModel(resolvedModel) && !shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
+            recordProviderFallbackDecision({
+                fromProvider: localWasTried ? 'ollama-tools' : 'none',
+                toProvider: 'openrouter-tools',
+                reason: 'explicit_local_tool_model_cloud_fallback_disallowed',
+                attempted: false,
+                trackingContext,
+                extra: {
+                    model: resolvedModel,
+                    policy: openRouterFallbackPolicy(localWasTried),
+                    toolNames: tools.map(t => t.name),
+                },
+            });
             log.warn('Explicit Ollama/llama-line tool-call model failed; cloud fallback disallowed by policy', {
                 model: resolvedModel,
                 context: trackingContext?.context,
@@ -2499,6 +2621,17 @@ export async function llmGenerateWithTools(
 
     // ── OpenRouter fallback (only when enabled) ──
     if (!shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
+        recordProviderFallbackDecision({
+            fromProvider: localWasTried ? 'ollama-tools' : 'none',
+            toProvider: 'openrouter-tools',
+            reason: 'openrouter_tool_policy_disabled',
+            attempted: false,
+            trackingContext,
+            extra: {
+                policy: openRouterFallbackPolicy(localWasTried),
+                toolNames: tools.map(t => t.name),
+            },
+        });
         incLlmEmptyText({
             provider: 'ollama-tools',
             context: trackingContext?.context,
@@ -2515,6 +2648,19 @@ export async function llmGenerateWithTools(
 
     const budget = await checkOpenRouterBudget();
     if (!budget.allowed) {
+        recordProviderFallbackDecision({
+            fromProvider: localWasTried ? 'ollama-tools' : 'none',
+            toProvider: 'openrouter-tools',
+            reason: budget.reason,
+            attempted: false,
+            trackingContext,
+            extra: {
+                policy: openRouterFallbackPolicy(localWasTried),
+                dailySpend: budget.dailySpend,
+                monthlySpend: budget.monthlySpend,
+                toolNames: tools.map(t => t.name),
+            },
+        });
         log.warn('Skipping OpenRouter tool fallback due to budget guardrail', {
             reason: budget.reason,
             dailySpend: budget.dailySpend,
@@ -2532,6 +2678,22 @@ export async function llmGenerateWithTools(
             [normalizeModel(model)]
         :   resolveOpenRouterModels(trackingContext?.context);
     const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
+
+    recordProviderFallbackDecision({
+        fromProvider: localWasTried ? 'ollama-tools' : 'none',
+        toProvider: 'openrouter-tools',
+        reason: localWasTried ? 'local_tool_failed_openrouter_allowed' : 'openrouter_tool_primary_allowed',
+        attempted: true,
+        trackingContext,
+        extra: {
+            policy: openRouterFallbackPolicy(localWasTried),
+            modelList,
+            resolvedModels: resolved,
+            maxModelsArray: MAX_MODELS_ARRAY,
+            toolNames: tools.map(t => t.name),
+            maxToolRounds: Math.min(maxToolRounds, OPENROUTER_MAX_TOOL_ROUNDS),
+        },
+    });
 
     const openaiTools = tools.map(t => ({
         type: 'function' as const,
@@ -2568,6 +2730,17 @@ export async function llmGenerateWithTools(
         log.debug('OpenRouter failed, trying Ollama text-only fallback', {
             error: err.message,
             statusCode: err.statusCode,
+        });
+        recordProviderFallbackDecision({
+            fromProvider: 'openrouter-tools',
+            toProvider: 'ollama-text',
+            reason: 'openrouter_tool_failed_ollama_text_last_resort',
+            attempted: true,
+            trackingContext,
+            extra: {
+                statusCode: err.statusCode,
+                error: err.message?.slice(0, 200),
+            },
         });
         const ollamaText = await tryOllamaLastResort(
             messages,
