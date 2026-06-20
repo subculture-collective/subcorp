@@ -47,4 +47,5 @@ next-env.d.ts
 # agents
 /.swarm
 /.claude
+.blacktower/deepwork/
 docker-compose.dev.yml

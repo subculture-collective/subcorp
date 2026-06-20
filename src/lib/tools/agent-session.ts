@@ -5,12 +5,14 @@
 import { sql, jsonb } from '@/lib/db';
 import { llmGenerateWithTools, extractFromXml, normalizeDsml } from '@/lib/llm/client';
 import { getVoice } from '@/lib/roundtable/voices';
-import { getAgentTools, getDroidTools, getAgentWritePaths } from './registry';
+import { getAgentTools, getDroidTools, getAgentToolNames, getAgentWritePaths } from './registry';
+import { execInToolbox } from './executor';
 import { emitEvent } from '@/lib/ops/events';
 import { queryRelevantMemories } from '@/lib/ops/memory';
 import { getScratchpad } from '@/lib/ops/scratchpad';
 import { buildBriefing } from '@/lib/ops/situational-briefing';
 import { loadPrimeDirective } from '@/lib/ops/prime-directive';
+import { randomUUID } from 'node:crypto';
 import { logger } from '@/lib/logger';
 import type { AgentId, LLMMessage, ToolCallRecord, ToolDefinition } from '../types';
 import type { AgentSession } from './types';
@@ -251,11 +253,17 @@ function inferPromptToolRequirements(prompt: string): ToolRequirement {
     if (/\bweb_search\b|search the web|web search/.test(text)) {
         requirement = mergeToolRequirements(requirement, { allOf: ['web_search'] });
     }
-    if (/\bweb_fetch\b/.test(text)) {
+    if (requiresExplicitTool(prompt, 'web_fetch')) {
         requirement = mergeToolRequirements(requirement, { allOf: ['web_fetch'] });
     }
     if (/\bmemory_search\b/.test(text)) {
         requirement = mergeToolRequirements(requirement, { allOf: ['memory_search'] });
+    }
+    if (/\bsend_to_agent\b/.test(text)) {
+        requirement = mergeToolRequirements(requirement, { allOf: ['send_to_agent'] });
+    }
+    if (requiresExplicitTool(prompt, 'memory_write') && !mentionsOptionalTool(prompt, 'memory_write')) {
+        requirement = mergeToolRequirements(requirement, { allOf: ['memory_write'] });
     }
     if (
         /\bbash\b|run system checks|git\s+(?:status|diff|log|push|clone|commit)/.test(
@@ -268,19 +276,51 @@ function inferPromptToolRequirements(prompt: string): ToolRequirement {
     return requirement;
 }
 
+function requiresExplicitTool(prompt: string, toolName: string): boolean {
+    const escapedTool = toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const explicitToolPattern = new RegExp(
+        `(?:must|need to|required to|completion contract:[^\\n]*must|you must|call|use)\\s+[^\\n.]{0,80}\\b${escapedTool}\\b`,
+        'i',
+    );
+    return explicitToolPattern.test(prompt);
+}
+
+function mentionsOptionalTool(prompt: string, toolName: string): boolean {
+    const escapedTool = toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?:optionally|optional|if useful|if helpful)\\s+[^\\n.]{0,80}\\b${escapedTool}\\b`, 'i').test(prompt);
+}
+
 function requirementsForSession(session: AgentSession): ToolRequirement {
     if (!['mission', 'cron', 'droid'].includes(session.source)) return {};
 
     const inferred = inferPromptToolRequirements(session.prompt);
-    if (session.source !== 'mission') return inferred;
+    if (session.source !== 'mission') return filterUnavailableToolRequirements(session, inferred);
 
     const stepKind = stepKindFromPrompt(session.prompt);
-    if (!stepKind) return inferred;
+    if (!stepKind) return filterUnavailableToolRequirements(session, inferred);
 
-    return mergeToolRequirements(
+    return filterUnavailableToolRequirements(session, mergeToolRequirements(
         inferred,
         STEP_TOOL_REQUIREMENTS[stepKind] ?? {},
-    );
+    ));
+}
+
+function availableToolNamesForSession(session: AgentSession): Set<string> {
+    if (session.agent_id.startsWith('droid-')) {
+        return new Set(getDroidTools(session.agent_id).map(t => t.name));
+    }
+    return new Set(getAgentToolNames(session.agent_id as AgentId));
+}
+
+function filterUnavailableToolRequirements(
+    session: AgentSession,
+    requirement: ToolRequirement,
+): ToolRequirement {
+    const available = availableToolNamesForSession(session);
+    return {
+        allOf: (requirement.allOf ?? []).filter(name => available.has(name)),
+        anyOf: (requirement.anyOf ?? []).filter(name => available.has(name)),
+    };
 }
 
 export function detectMissingRequiredToolEvidence(
@@ -306,7 +346,11 @@ export function detectMissingRequiredToolEvidence(
         :   [];
 
     const stepKind = stepKindFromPrompt(session.prompt);
-    const auditEvidence = detectAuditEvidenceIssues(stepKind, toolCalls);
+    const availableTools = availableToolNamesForSession(session);
+    const canSatisfyAuditEvidence = availableTools.has('bash') && availableTools.has('file_write');
+    const auditEvidence = canSatisfyAuditEvidence ?
+        detectAuditEvidenceIssues(stepKind, toolCalls)
+    :   { blocked: false, evidence: [] };
     const groundingEvidence = detectArtifactGroundingIssues(stepKind, toolCalls);
 
     if (
@@ -337,10 +381,130 @@ export function detectMissingRequiredToolEvidence(
         blocked: true,
         reason:
             auditEvidence.blocked ? 'audit evidence missing'
+            : groundingEvidence.blocked && groundingEvidence.evidence.some(item => item.includes('artifact grounding invalid')) ? 'artifact grounding invalid'
             : groundingEvidence.blocked ? 'artifact grounding missing'
             : 'Required tool evidence missing',
         evidence,
     };
+}
+
+function detectEmptySessionOutcome(
+    session: AgentSession,
+    text: string,
+    toolCalls: ToolCallRecord[],
+): { blocked: boolean; reason: string; evidence: string[] } {
+    if (!['mission', 'cron', 'droid'].includes(session.source)) {
+        return { blocked: false, reason: '', evidence: [] };
+    }
+
+    const hasText = text.trim().length > 0;
+    const successfulToolNames = toolCalls.filter(isSuccessfulToolCall).map(tc => tc.name);
+    if (hasText || successfulToolNames.length > 0) {
+        return { blocked: false, reason: '', evidence: [] };
+    }
+
+    return {
+        blocked: true,
+        reason: 'empty session output',
+        evidence: [
+            `session source=${session.source}${stepKindFromPrompt(session.prompt) ? ` step=${stepKindFromPrompt(session.prompt)}` : ''}`,
+            'empty session output: no final text and no successful tool calls',
+        ],
+    };
+}
+
+function normalizeWorkspaceRelativePath(path: string): string {
+    return path.startsWith('/workspace/') ? path.slice('/workspace/'.length) : path.replace(/^\/+/, '');
+}
+
+function droidWritePath(session: AgentSession, path: string): boolean {
+    const relativePath = normalizeWorkspaceRelativePath(path);
+    return relativePath === `droids/${session.agent_id}` || relativePath.startsWith(`droids/${session.agent_id}/`);
+}
+
+function isDroidFinalArtifactPath(session: AgentSession, path: string): boolean {
+    const relativePath = normalizeWorkspaceRelativePath(path);
+    const expectedOutput =
+        typeof session.result?.output_path === 'string' ? normalizeWorkspaceRelativePath(session.result.output_path) : '';
+    if (expectedOutput && relativePath === expectedOutput) return true;
+    if (!droidWritePath(session, relativePath)) return false;
+
+    const basename = relativePath.split('/').pop() ?? '';
+    return /(?:^|[-_])(output|report|result|results|proof|review|summary|artifact)(?:[-_.]|$)/i.test(basename) || /\.md$/i.test(basename);
+}
+
+function isPointerOnlyDroidArtifact(content: string): boolean {
+    const normalized = content.trim();
+    if (normalized.length === 0) return true;
+    if (normalized.length < 120) return true;
+    if (/\b(?:todo|placeholder|stub|draft pending|will write|to be completed)\b/i.test(normalized)) return true;
+    if (/^(?:see|check|refer to|look at)\s+(?:the\s+)?(?:file|path|output|report)\b/i.test(normalized)) return true;
+    if (/^#?\s*(?:output|report|summary|proof)\s*\n+\s*(?:see|todo|placeholder|pending)\b/i.test(normalized)) return true;
+    return false;
+}
+
+function detectDroidPlaceholderArtifact(
+    session: AgentSession,
+    toolCalls: ToolCallRecord[],
+): { blocked: boolean; reason: string; evidence: string[] } {
+    if (session.source !== 'droid' && !session.agent_id.startsWith('droid-')) {
+        return { blocked: false, reason: '', evidence: [] };
+    }
+
+    const finalArtifactWrites = toolCalls.filter(tc => {
+        if (tc.name !== 'file_write' || !isSuccessfulToolCall(tc)) return false;
+        const args = tc.arguments as Record<string, unknown>;
+        const path = typeof args.path === 'string' ? args.path : '';
+        const content = typeof args.content === 'string' ? args.content : '';
+        return isDroidFinalArtifactPath(session, path) && content.trim().length > 0;
+    });
+
+    if (finalArtifactWrites.length === 0) {
+        return { blocked: false, reason: '', evidence: [] };
+    }
+
+    const substantiveWrites = finalArtifactWrites.filter(tc => {
+        const args = tc.arguments as Record<string, unknown>;
+        const content = typeof args.content === 'string' ? args.content : '';
+        return content.trim().length >= 120 && !isPointerOnlyDroidArtifact(content);
+    });
+
+    if (substantiveWrites.length > 0) {
+        return { blocked: false, reason: '', evidence: [] };
+    }
+
+    const paths = finalArtifactWrites
+        .map(tc => String((tc.arguments as Record<string, unknown>).path ?? 'unknown'))
+        .join(', ');
+    return {
+        blocked: true,
+        reason: 'droid placeholder artifact',
+        evidence: [
+            `droid placeholder artifact: ${finalArtifactWrites.length} final/report-like droid write(s) were tiny, TODO/stub, or pointer-only`,
+            `droid final artifact path(s): ${paths}`,
+        ],
+    };
+}
+
+function missingRequiredToolNamesForSession(
+    session: AgentSession,
+    toolCalls: ToolCallRecord[],
+): string[] {
+    const requirement = requirementsForSession(session);
+    const requiredAll = requirement.allOf ?? [];
+    const requiredAny = requirement.anyOf ?? [];
+
+    const successfulToolNames = new Set(
+        toolCalls.filter(isSuccessfulToolCall).map(tc => tc.name),
+    );
+    const missing = requiredAll.filter(name => !successfulToolNames.has(name));
+    if (
+        requiredAny.length > 0 &&
+        !requiredAny.some(name => successfulToolNames.has(name))
+    ) {
+        missing.push(`one of: ${requiredAny.join(', ')}`);
+    }
+    return missing;
 }
 
 function detectArtifactGroundingIssues(
@@ -351,21 +515,57 @@ function detectArtifactGroundingIssues(
         return { blocked: false, evidence: [] };
     }
 
-    const artifactWrites = toolCalls.filter(tc => {
-        if (tc.name !== 'file_write' || !isSuccessfulToolCall(tc)) return false;
+    const artifactWritesByPath = new Map<string, ToolCallRecord>();
+    for (const tc of toolCalls) {
+        if (tc.name !== 'file_write' || !isSuccessfulToolCall(tc)) continue;
         const args = tc.arguments as Record<string, unknown>;
         const path = typeof args.path === 'string' ? args.path : '';
         const content = typeof args.content === 'string' ? args.content : '';
-        return isArtifactSummaryPath(path) && content.trim().length > 0;
-    });
+        const normalizedPath = normalizeWorkspaceRelativePath(path);
+        if (isArtifactSummaryPath(normalizedPath) && content.trim().length > 0) {
+            artifactWritesByPath.set(normalizedPath, tc);
+        }
+    }
+    const artifactWrites = [...artifactWritesByPath.values()];
     const groundedWrites = artifactWrites.filter(tc => {
         const args = tc.arguments as Record<string, unknown>;
         const content = typeof args.content === 'string' ? args.content : '';
-        return containsGroundingSection(content);
+        return containsGroundingSection(content) && !containsWeakGroundingSection(content) && invalidGroundingIssues(stepKind, content).length === 0;
+    });
+    const weakGroundingWrites = artifactWrites.filter(tc => {
+        const args = tc.arguments as Record<string, unknown>;
+        const content = typeof args.content === 'string' ? args.content : '';
+        return containsGroundingSection(content) && containsWeakGroundingSection(content);
+    });
+    const invalidGrounding = artifactWrites.flatMap(tc => {
+        const args = tc.arguments as Record<string, unknown>;
+        const content = typeof args.content === 'string' ? args.content : '';
+        const path = typeof args.path === 'string' ? args.path : 'unknown';
+        return invalidGroundingIssues(stepKind, content).map(issue => `${path}: ${issue}`);
     });
 
-    if (artifactWrites.length === 0 || groundedWrites.length > 0) {
+    if (artifactWrites.length === 0 || (groundedWrites.length > 0 && weakGroundingWrites.length === 0 && invalidGrounding.length === 0)) {
         return { blocked: false, evidence: [] };
+    }
+
+    if (invalidGrounding.length > 0) {
+        return {
+            blocked: true,
+            evidence: [
+                `artifact grounding invalid: ${invalidGrounding.length} invalid grounding issue(s) found`,
+                ...invalidGrounding.slice(0, 5),
+            ],
+        };
+    }
+
+    if (weakGroundingWrites.length > 0) {
+        return {
+            blocked: true,
+            evidence: [
+                `artifact grounding weak: ${weakGroundingWrites.length} artifact write(s) used a Grounding section with no concrete evidence`,
+                'Grounding sections must cite concrete files, commands, DB rows, URLs, source artifacts, or explicit assumptions; Source Artifact: None / Commands Used: None is not sufficient',
+            ],
+        };
     }
 
     return {
@@ -382,7 +582,129 @@ function isArtifactSummaryPath(path: string): boolean {
 }
 
 function containsGroundingSection(text: string): boolean {
-    return /^#{1,4}\s+Grounding\b|^\*\*Grounding\*\*|^Grounding\s*:/im.test(text);
+    return /^#{1,4}\s+Grounding\b|^\*\*Grounding:?\*\*|^Grounding\s*:/im.test(text);
+}
+
+function groundingSectionText(text: string): string {
+    const marker = text.match(/^#{1,4}\s+Grounding\b|^\*\*Grounding:?\*\*|^Grounding\s*:/im);
+    if (!marker || marker.index === undefined) return '';
+
+    const tail = text.slice(marker.index);
+    const afterMarker = tail.slice(marker[0].length);
+    const nextHeading = afterMarker.search(/^#{1,4}\s+\S/im);
+    return nextHeading >= 0 ? tail.slice(0, marker[0].length + nextHeading) : tail;
+}
+
+function containsWeakGroundingSection(text: string): boolean {
+    const section = groundingSectionText(text);
+    if (!section) return false;
+
+    const weakMarkers = section.match(/(?:source artifacts?|commands? used|files?|urls?|db rows?)\s*:\s*(?:none|n\/a|not applicable|unknown)\b/gi) ?? [];
+    if (weakMarkers.length === 0) return false;
+
+    const concreteEvidence = /(?:\/workspace\/|\boutput\/|\bagents\/|https?:\/\/|\bfile_read\b|\bweb_fetch\b|\bweb_search\b|\bbash\b|\bSELECT\b|\bDB row\b|\bassumption\b)/i.test(section);
+    return weakMarkers.length >= 2 && !concreteEvidence;
+}
+
+function invalidGroundingIssues(stepKind: string | null, text: string): string[] {
+    const issues: string[] = [];
+    const section = groundingSectionText(text);
+    if (!section) return issues;
+
+    if (containsPlaceholderEvidenceUrl(section)) {
+        issues.push('placeholder URL cited as grounding evidence');
+    }
+    if (containsMissingSourceMarker(section)) {
+        issues.push('cited source artifact is marked missing, unavailable, or assumed');
+    }
+    if (stepKind === 'draft_product_spec' && containsUnverifiedProductSpecMetric(text)) {
+        issues.push('product spec success metric is framed as verified/completed outcome instead of target/proposed metric');
+    }
+
+    return issues;
+}
+
+function containsPlaceholderEvidenceUrl(section: string): boolean {
+    return /https?:\/\/(?:www\.)?(?:example\.com|example\.org|example\.net)(?:[/:?#]|\b)/i.test(section);
+}
+
+function containsMissingSourceMarker(section: string): boolean {
+    const lines = section.split('\n');
+    return lines.some(line => {
+        const citesSourcePath = /(?:\/workspace\/|\bagents\/|\boutput\/|\bprojects\/)[^\s,)]+/i.test(line);
+        const markedMissing = /\b(?:file not found|not found|unavailable|inaccessible|could not read|assumption made|assumed missing)\b/i.test(line);
+        return citesSourcePath && markedMissing;
+    });
+}
+
+function markdownSectionText(text: string, headingPattern: RegExp): string {
+    const heading = text.match(headingPattern);
+    if (!heading || heading.index === undefined) return '';
+    const tail = text.slice(heading.index);
+    const afterHeading = tail.slice(heading[0].length);
+    const nextHeading = afterHeading.search(/^#{1,4}\s+\S/im);
+    return nextHeading >= 0 ? tail.slice(0, heading[0].length + nextHeading) : tail;
+}
+
+function containsUnverifiedProductSpecMetric(text: string): boolean {
+    const section = markdownSectionText(text, /^#{1,4}\s+Success Metrics\b/im);
+    if (!section) return false;
+
+    return section.split('\n').some(line => {
+        const trimmed = line.trim();
+        if (!/^[-*]\s+|^\d+\.\s+/.test(trimmed)) return false;
+        if (/\b(?:target|proposed|goal|aim|planned|candidate|success metric|should|will|by \d{4}-\d{2}-\d{2})\b/i.test(trimmed)) return false;
+        return /\b(?:verified|observed|achieved|completed|implemented|approved|documented|resolved|delivered)\b/i.test(trimmed);
+    });
+}
+
+function manifestPathType(relativePath: string): string {
+    if (relativePath.startsWith('output/briefings/')) return 'briefing';
+    if (relativePath.startsWith('output/reports/')) return 'report';
+    if (relativePath.startsWith('output/reviews/')) return 'review';
+    if (relativePath.startsWith('output/digests/')) return 'digest';
+    return 'artifact';
+}
+
+async function appendSucceededFileWriteManifests(
+    sessionId: string,
+    agentId: string,
+    toolCalls: ToolCallRecord[],
+): Promise<void> {
+    const outputWrites = toolCalls.filter(tc => {
+        if (tc.name !== 'file_write' || !isSuccessfulToolCall(tc)) return false;
+        const args = tc.arguments as Record<string, unknown>;
+        const path = typeof args.path === 'string' ? args.path : '';
+        return path.startsWith('output/') || path.startsWith('/workspace/output/');
+    });
+
+    for (const tc of outputWrites) {
+        const args = tc.arguments as Record<string, unknown>;
+        const result = tc.result as Record<string, unknown> | undefined;
+        const rawPath = typeof args.path === 'string' ? args.path : '';
+        const relativePath = rawPath.startsWith('/workspace/') ? rawPath.slice('/workspace/'.length) : rawPath;
+        const artifactId = typeof result?.artifact_id === 'string' ? result.artifact_id : randomUUID();
+        const bytes = typeof result?.bytes === 'number' ? result.bytes : typeof args.content === 'string' ? args.content.length : 0;
+
+        const entry = JSON.stringify({
+            artifact_id: artifactId,
+            path: relativePath,
+            agent_id: agentId,
+            type: manifestPathType(relativePath),
+            created_at: new Date().toISOString(),
+            bytes,
+            session_id: sessionId,
+            session_status: 'succeeded',
+            trusted: true,
+            published_at: new Date().toISOString(),
+        });
+
+        const b64 = Buffer.from(entry + '\n').toString('base64');
+        await execInToolbox(
+            `echo '${b64}' | base64 -d >> /workspace/shared/manifests/index.jsonl`,
+            5_000,
+        );
+    }
 }
 
 function detectAuditEvidenceIssues(
@@ -403,7 +725,8 @@ function detectAuditEvidenceIssues(
             path.includes('output/reviews') &&
             /evidence table|command_or_source|observed_output|hostAudit|bash/i.test(content) &&
             !containsBareWorkspaceAlias(content) &&
-            !containsUnsupportedAuditEvidence(content)
+            !containsUnsupportedAuditEvidence(content) &&
+            !containsPlaceholderAuditEvidence(content)
         );
     });
 
@@ -423,11 +746,20 @@ function detectAuditEvidenceIssues(
         return path.includes('output/reviews') && containsUnsupportedAuditEvidence(content);
     });
 
+    const placeholderAuditWrites = toolCalls.filter(tc => {
+        if (tc.name !== 'file_write' || !isSuccessfulToolCall(tc)) return false;
+        const args = tc.arguments as Record<string, unknown>;
+        const path = typeof args.path === 'string' ? args.path : '';
+        const content = typeof args.content === 'string' ? args.content : '';
+        return path.includes('output/reviews') && containsPlaceholderAuditEvidence(content);
+    });
+
     if (
         successfulBash.length > 0 &&
         successfulAuditWrites.length > 0 &&
         barePathAuditWrites.length === 0 &&
-        unsupportedAuditWrites.length === 0
+        unsupportedAuditWrites.length === 0 &&
+        placeholderAuditWrites.length === 0
     ) {
         return { blocked: false, evidence: [] };
     }
@@ -448,6 +780,12 @@ function detectAuditEvidenceIssues(
             'audit_system outputs must support no-issue/no-risk claims with bash output or hostAudit evidence',
         );
     }
+    if (placeholderAuditWrites.length > 0) {
+        evidence.push(
+            `audit placeholder evidence invalid: ${placeholderAuditWrites.length} audit write(s) used generic parenthesized observed-output text`,
+            'audit_system outputs must use real observed output, not placeholder excerpts like (Listing of files/dirs in /workspace/output) or (Process list excerpt, showing defunct git processes)',
+        );
+    }
     return { blocked: true, evidence };
 }
 
@@ -457,6 +795,12 @@ function containsBareWorkspaceAlias(text: string): boolean {
 
 function containsUnsupportedAuditEvidence(text: string): boolean {
     return /^\s*\|[^\n]*\|\s*(?:N\/A|none|not applicable)\s*\|/im.test(text);
+}
+
+function containsPlaceholderAuditEvidence(text: string): boolean {
+    return /\(\s*(?:listing of|file listing|directory listing|process list(?: excerpt)?|excerpt|observed output|observed-output)\b[^)]*\)/i.test(
+        text,
+    );
 }
 
 export function detectBlockedOutcome(
@@ -507,20 +851,25 @@ export function detectBlockedOutcome(
         evidence.push(`tool ${err.name} error: ${err.text.slice(0, 160)}`);
     }
 
-    const hasSuccessfulWrite = toolCalls.some(tc => {
-        if (tc.name !== 'file_write') return false;
+    const hasSuccessfulArtifactDelivery = toolCalls.some(tc => {
+        if (
+            tc.name !== 'file_write' &&
+            tc.name !== 'send_to_agent' &&
+            tc.name !== 'scratchpad_update' &&
+            tc.name !== 'memory_write'
+        ) return false;
         if (!tc.result || typeof tc.result !== 'object') return false;
         return !('error' in (tc.result as Record<string, unknown>));
     });
 
     const blockedBySummary = !!hardBlockerMatch || (!!softBlockerMatch && !hasProgressSignals);
     const blockedByFatalToolError =
-        fatalToolErrors.length > 0 && !hasSuccessfulWrite;
+        fatalToolErrors.length > 0 && !hasSuccessfulArtifactDelivery;
 
     if (blockedBySummary || blockedByFatalToolError) {
         const reason = blockedBySummary ?
                 'Session summary reported unresolved blocker'
-            :   'Fatal tool error without successful artifact write';
+            :   'Fatal tool error without successful artifact delivery';
         return { blocked: true, reason, evidence };
     }
 
@@ -695,6 +1044,8 @@ async function runAgentToolLoop(opts: {
     let consecutiveEmptyRounds = 0;
     let emptyRounds = 0;
     let llmRounds = 0;
+    let retriedEmptyNoToolRound = false;
+    let retriedMissingToolContract = false;
 
     for (let round = 0; round < maxRounds; round++) {
         const elapsed = Date.now() - startTime;
@@ -751,7 +1102,36 @@ async function runAgentToolLoop(opts: {
             emptyRounds,
         });
 
-        if (result.toolCalls.length === 0) break;
+        if (
+            !result.text &&
+            result.toolCalls.length === 0 &&
+            allToolCalls.length === 0 &&
+            !retriedEmptyNoToolRound
+        ) {
+            retriedEmptyNoToolRound = true;
+            messages.push({
+                role: 'user',
+                content:
+                    'The previous response was empty. You must either call the required tools or provide final text if no tools are needed.',
+            });
+            continue;
+        }
+
+        if (result.toolCalls.length === 0) {
+            const missingTools = missingRequiredToolNamesForSession(session, allToolCalls);
+            if (missingTools.length > 0 && !retriedMissingToolContract) {
+                retriedMissingToolContract = true;
+                messages.push({
+                    role: 'user',
+                    content:
+                        `Your previous response did not satisfy the required tool contract. Missing successful tool evidence: ${missingTools.join(', ')}. ` +
+                        `Call the required tools now through the function calling interface. Do not describe commands or file contents as prose instead of using the tools. ` +
+                        `If a required external source is unavailable, still write a file_write artifact that clearly marks status: blocked and cites the failed tool evidence.`,
+                });
+                continue;
+            }
+            break;
+        }
 
         if (!result.text && result.toolCalls.every(
             tc => typeof tc.result === 'string' && tc.result.includes('not available'),
@@ -857,9 +1237,18 @@ export async function executeAgentSession(
             session,
             loopResult.toolCalls,
         );
+        const emptySessionOutcome = detectEmptySessionOutcome(
+            session,
+            cleanedText,
+            loopResult.toolCalls,
+        );
+        const droidPlaceholderArtifact = detectDroidPlaceholderArtifact(
+            session,
+            loopResult.toolCalls,
+        );
 
         const finalStatus =
-            blockedOutcome.blocked || missingToolEvidence.blocked ?
+            blockedOutcome.blocked || missingToolEvidence.blocked || emptySessionOutcome.blocked || droidPlaceholderArtifact.blocked ?
                 'blocked'
             :   'succeeded';
         const blockedReason =
@@ -867,10 +1256,16 @@ export async function executeAgentSession(
                 blockedOutcome.reason
             : missingToolEvidence.blocked ?
                 missingToolEvidence.reason
+            : emptySessionOutcome.blocked ?
+                emptySessionOutcome.reason
+            : droidPlaceholderArtifact.blocked ?
+                droidPlaceholderArtifact.reason
             :   undefined;
         const blockedEvidence = [
             ...blockedOutcome.evidence,
             ...missingToolEvidence.evidence,
+            ...emptySessionOutcome.evidence,
+            ...droidPlaceholderArtifact.evidence,
         ];
         const completed = await completeSession(
             session.id,
@@ -892,6 +1287,18 @@ export async function executeAgentSession(
             blockedReason,
         );
         if (!completed) return;
+
+        if (finalStatus === 'succeeded') {
+            try {
+                await appendSucceededFileWriteManifests(session.id, agentId, loopResult.toolCalls);
+            } catch (manifestErr) {
+                log.warn('Deferred manifest append failed (non-fatal)', {
+                    error: manifestErr,
+                    sessionId: session.id,
+                    agentId,
+                });
+            }
+        }
 
         const summaryPreview = truncateToFirstSentences(cleanedText, 2000);
         if (blockedReason) {

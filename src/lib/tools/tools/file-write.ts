@@ -1,5 +1,5 @@
 // file_write tool — write files to /workspace in the toolbox
-// Enforces per-agent path ACLs and auto-appends to manifest for output/ writes.
+// Enforces per-agent path ACLs and writes raw files to /workspace.
 // ACLs: static WRITE_ACLS map + dynamic ops_acl_grants from DB.
 import type { NativeTool } from '../types';
 import type { AgentId } from '../../types';
@@ -83,37 +83,22 @@ async function isPathAllowedWithGrants(agentId: string, relativePath: string): P
     }
 }
 
-/** Append a manifest entry for artifacts written to output/ */
-async function appendManifest(
-    artifactId: string,
-    fullPath: string,
-    agentId: string,
-    contentLength: number,
-): Promise<void> {
-    const relativePath = fullPath.replace('/workspace/', '');
+function forbiddenWorkspaceProjectRootWritePath(relativePath: string): string | null {
+    const outputProjectsTarget = /^output\/projects\//i;
+    if (outputProjectsTarget.test(relativePath)) {
+        return 'product code writes must not be placed under /workspace/output/projects; use a mission-specific /workspace/projects/<slug>/ directory for code and output/reports or output/reviews for artifacts';
+    }
 
-    // Determine artifact type from path
-    let artifactType = 'unknown';
-    if (relativePath.startsWith('output/briefings/')) artifactType = 'briefing';
-    else if (relativePath.startsWith('output/reports/')) artifactType = 'report';
-    else if (relativePath.startsWith('output/reviews/')) artifactType = 'review';
-    else if (relativePath.startsWith('output/digests/')) artifactType = 'digest';
-    else if (relativePath.startsWith('output/')) artifactType = 'artifact';
+    if (/^projects\/agents\//i.test(relativePath)) {
+        return 'agent notes and inbox handoffs must be written under agents/<agent>/, not /workspace/projects/agents';
+    }
 
-    const entry = JSON.stringify({
-        artifact_id: artifactId,
-        path: relativePath,
-        agent_id: agentId,
-        type: artifactType,
-        created_at: new Date().toISOString(),
-        bytes: contentLength,
-    });
+    const directProjectsRootTarget = /^projects\/(?:package\.json|README\.md|app\.py|server\.js|index\.[a-z]+|src(?:\/|$)|tests?(?:\/|$)|config(?:\/|$))/i;
+    if (directProjectsRootTarget.test(relativePath)) {
+        return 'product code writes must target a mission-specific /workspace/projects/<slug>/ directory, not /workspace/projects root';
+    }
 
-    const b64 = Buffer.from(entry + '\n').toString('base64');
-    await execInToolbox(
-        `echo '${b64}' | base64 -d >> /workspace/shared/manifests/index.jsonl`,
-        5_000,
-    );
+    return null;
 }
 
 /**
@@ -158,6 +143,11 @@ export function createFileWriteExecute(agentId: string) {
             };
         }
 
+        const workspaceProjectRootWrite = forbiddenWorkspaceProjectRootWritePath(relativePath);
+        if (workspaceProjectRootWrite) {
+            return { error: workspaceProjectRootWrite, denied: true, policy: 'workspace_project_root_boundary' };
+        }
+
         // Base64-encode content to avoid shell escaping issues
         const b64 = Buffer.from(content).toString('base64');
         const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
@@ -173,24 +163,9 @@ export function createFileWriteExecute(agentId: string) {
             return { error: `File write failed: ${result.stderr || 'unknown error'}` };
         }
 
-        // Auto-append manifest for output/ writes
-        if (relativePath.startsWith('output/')) {
-            const artifactId = randomUUID();
-            try {
-                await appendManifest(artifactId, fullPath, agentId, content.length);
-            } catch (manifestErr) {
-                // Non-fatal — don't fail the write because manifest append failed
-                log.warn('Manifest append failed (non-fatal)', {
-                    error: manifestErr,
-                    agentId,
-                    path: fullPath,
-                    artifactId,
-                });
-            }
-            return { path: fullPath, bytes: content.length, appended: append, artifact_id: artifactId };
-        }
-
-        return { path: fullPath, bytes: content.length, appended: append };
+        return relativePath.startsWith('output/')
+            ? { path: fullPath, bytes: content.length, appended: append, artifact_id: randomUUID() }
+            : { path: fullPath, bytes: content.length, appended: append };
     };
 }
 

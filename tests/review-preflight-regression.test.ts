@@ -39,6 +39,9 @@ describe('review and audit preflight regressions', () => {
         expect(agentSession).toContain('audit_system outputs must use real /workspace/... paths');
         expect(agentSession).toContain('containsUnsupportedAuditEvidence');
         expect(agentSession).toContain('audit unsupported evidence invalid');
+        expect(agentSession).toContain('containsPlaceholderAuditEvidence');
+        expect(agentSession).toContain('audit placeholder evidence invalid');
+        expect(agentSession).toContain('generic parenthesized observed-output text');
         expect(agentSession).toContain('no-issue/no-risk claims with bash output or hostAudit evidence');
         expect(agentSession).toContain('STEP_TOOL_REQUIREMENTS[stepKind]');
     });
@@ -50,11 +53,49 @@ describe('review and audit preflight regressions', () => {
         expect(agentSession).toContain('STEP_KINDS_REQUIRING_GROUNDED_ARTIFACTS');
         expect(agentSession).toContain('detectArtifactGroundingIssues');
         expect(agentSession).toContain('artifact grounding missing');
+        expect(agentSession).toContain('artifact grounding weak');
+        expect(agentSession).toContain('containsWeakGroundingSection');
         expect(agentSession).toContain('grounded artifact steps must include a Grounding section');
+        expect(agentSession).toContain('Source Artifact: None / Commands Used: None is not sufficient');
         expect(agentSession).toContain('containsGroundingSection');
+        expect(agentSession).toContain('^\\*\\*Grounding:?\\*\\*');
         expect(stepPrompts).toContain('Completion contract:');
-        expect(stepPrompts).toContain('completionContract(kind)');
+        expect(stepPrompts).toContain('completionContract(kind, ctx.agentId)');
         expect(stepPrompts).toContain('MUST include a Grounding section');
         expect(stepPrompts).toContain('The artifact MUST include an evidence table');
+    });
+
+    test('grounded artifacts reject placeholder evidence and missing cited sources', () => {
+        const agentSession = readRepoFile('src/lib/tools/agent-session.ts');
+        const stepPrompts = readRepoFile('src/lib/ops/step-prompts.ts');
+
+        expect(agentSession).toContain('invalidGroundingIssues');
+        expect(agentSession).toContain('artifact grounding invalid');
+        expect(agentSession).toContain('containsPlaceholderEvidenceUrl');
+        expect(agentSession).toContain('example\\.com|example\\.org|example\\.net');
+        expect(agentSession).not.toContain('example\\.com|example\\.org|example\\.net|localhost|127');
+        expect(agentSession).toContain('containsMissingSourceMarker');
+        expect(agentSession).toContain('file not found|not found|unavailable|inaccessible|could not read|assumption made|assumed missing');
+        expect(stepPrompts).toContain('Do not cite example.com/placeholder URLs or files marked missing/not found as evidence');
+    });
+
+    test('grounding validation uses latest successful artifact write per path', () => {
+        const agentSession = readRepoFile('src/lib/tools/agent-session.ts');
+
+        expect(agentSession).toContain('artifactWritesByPath');
+        expect(agentSession).toContain('artifactWritesByPath.set(normalizedPath, tc)');
+        expect(agentSession).toContain('const artifactWrites = [...artifactWritesByPath.values()]');
+        expect(agentSession).toContain('normalizeWorkspaceRelativePath(path)');
+    });
+
+    test('product spec metrics must distinguish proposed targets from verified outcomes', () => {
+        const agentSession = readRepoFile('src/lib/tools/agent-session.ts');
+        const stepPrompts = readRepoFile('src/lib/ops/step-prompts.ts');
+
+        expect(agentSession).toContain('containsUnverifiedProductSpecMetric');
+        expect(agentSession).toContain('product spec success metric is framed as verified/completed outcome instead of target/proposed metric');
+        expect(agentSession).toContain('target|proposed|goal|aim|planned|candidate|success metric|should|will');
+        expect(agentSession).toContain('verified|observed|achieved|completed|implemented|approved|documented|resolved|delivered');
+        expect(stepPrompts).toContain('Success metrics must be labelled as targets/proposed metrics unless backed by verified evidence');
     });
 });

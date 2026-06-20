@@ -19,6 +19,10 @@ describe('step prompt regressions', () => {
         expect(auditPrompt).toContain('/workspace/output is the artifact output root');
         expect(auditPrompt).toContain('Do not use bare /output, /agents, or /projects paths');
         expect(patchPrompt).toContain('/workspace/projects/subcorp is the Subcorp source checkout');
+        expect(patchPrompt).toContain('Project directory: /workspace/projects/product-sprint-design-and-buil');
+        expect(patchPrompt).toContain('Do not write product files directly into /workspace/projects root');
+        expect(patchPrompt).toContain('Run package-manager or scaffold commands only inside the project directory');
+        expect(patchPrompt).toContain('Never run npm init from /workspace or /workspace/projects root');
         expect(patchPrompt).toContain('Do not assume /workspace/src exists');
         expect(patchPrompt).toContain('file_read accepts concrete files only, not directories');
         expect(patchPrompt).toContain('Use bash to list a directory and choose specific file paths before calling file_read');
@@ -26,8 +30,8 @@ describe('step prompt regressions', () => {
         expect(patchPrompt).toContain('Include a "Grounding" section');
         expect(patchPrompt).toContain('If a claim is not verified, label it as a proposal, assumption, or next step');
         expect(auditPrompt).toContain('evidence table');
-        expect(auditPrompt).toContain('Commands must inspect real /workspace/... paths');
-        expect(auditPrompt).toContain('Do not claim exposed ports, services, files, artifacts, or permissions without command output');
+        expect(auditPrompt).toContain('ask Praxis to run the shell audit and publish the evidence table');
+        expect(auditPrompt).toContain('Do not invent command output');
     });
 
     test('documentation/spec prompts require grounded claims', async () => {
@@ -45,8 +49,13 @@ describe('step prompt regressions', () => {
         expect(lessonPrompt).toContain('Artifact grounding rule');
         expect(lessonPrompt).toContain('do not claim code changes, schema changes, metrics, coverage, compliance, operational outcomes, or completed work unless you verified them');
         expect(lessonPrompt).toContain('Include a "Grounding" section');
+        expect(lessonPrompt).toContain('Do not invent inventories, system names, record counts, costs, dates, percentages, or operational metrics');
+        expect(lessonPrompt).toContain('If source inventory/evidence is missing, state that explicitly');
         expect(specPrompt).toContain('Artifact grounding rule');
         expect(specPrompt).toContain('If a claim is not verified, label it as a proposal, assumption, or next step');
+        expect(specPrompt).toContain('Product identity rule: the product name, audience, and core purpose come from the mission title and payload');
+        expect(specPrompt).toContain('Do NOT replace the requested product with an unrelated governance, audit, or operations concept');
+        expect(specPrompt).toContain('Use unrelated audit/process artifacts only as constraints, risks, or compliance requirements, not as the product concept');
     });
 
     test('self_evolution prompt has a writable fallback when /workspace is missing', async () => {
@@ -58,10 +67,7 @@ describe('step prompt regressions', () => {
             },
         });
 
-        expect(prompt).toContain('REPO_DIR=/workspace/projects/subcorp');
-        expect(prompt).toContain('/home/onnwee/projects/subcorp');
-        expect(prompt).toContain('git clone https://git.subcult.tv/subculture-collective/subcorp.git /home/onnwee/projects/subcorp');
-        expect(prompt).toContain('cd "$REPO_DIR"');
+        expect(prompt).toContain('/workspace/projects/subcorp');
         expect(prompt).toContain('Artifact grounding rule');
         expect(prompt).toContain('Include a "Grounding" section');
     });

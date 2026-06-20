@@ -109,10 +109,11 @@ export function getAgentTools(agentId: AgentId, sessionId?: string): ToolDefinit
 
 /**
  * Get a limited toolset for droid sub-agents.
- * Droids get file_read, file_write (ACL-bound to droids/ prefix), bash, web_search.
+ * Droids get file_read, file_write (ACL-bound to droids/ prefix), web_search, and web_fetch.
+ * They intentionally do not get raw bash because shell redirection can bypass file_write ACLs.
  */
 export function getDroidTools(droidId: string): ToolDefinition[] {
-    const droidToolNames = ['file_read', 'file_write', 'bash', 'web_search', 'web_fetch'];
+    const droidToolNames = ['file_read', 'file_write', 'web_search', 'web_fetch'];
     return ALL_TOOLS
         .filter(tool => droidToolNames.includes(tool.name))
         .filter(tool => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name))

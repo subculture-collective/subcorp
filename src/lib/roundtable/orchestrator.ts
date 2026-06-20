@@ -56,6 +56,17 @@ const TURN_DELAY_JITTER_MS = 5000;
 /** Brief settle delay after the last turn so Discord message ordering is preserved. */
 const POST_CONVERSATION_SETTLE_MS = 2000;
 
+/** Empty roundtable turns get exactly one plain-text retry before they are skipped. */
+const ROUNDTABLE_EMPTY_TURN_RETRY_LIMIT = 1;
+
+const ROUNDTABLE_EMPTY_ABORT_REASON = 'All LLM turns returned empty responses';
+
+const ROUNDTABLE_PLAIN_DIALOGUE_INSTRUCTION =
+    'Return 2-4 sentences of plain spoken dialogue only. Do not return tool calls, XML, JSON, empty thinking, or analysis-only output.';
+
+const ROUNDTABLE_DEEP_DIVE_GROUNDING_INSTRUCTION =
+    'Do not invent file paths, function names, metrics, or source-code facts. If no tool evidence is present, frame technical claims as hypotheses to verify, not findings or implementation instructions.';
+
 /** Delay between opening agent responses in voice chat. */
 const VOICE_OPENING_GAP_MS = 2000;
 
@@ -123,6 +134,47 @@ async function markSessionRunning(
             participants: session.participants,
         },
     });
+}
+
+async function markContentReviewBlockedAfterZeroTurnFailure(
+    session: RoundtableSession,
+    abortReason: string | null,
+): Promise<void> {
+    if (session.format !== 'content_review') return;
+    if (abortReason !== ROUNDTABLE_EMPTY_ABORT_REASON) return;
+
+    const metadata = (session.metadata ?? {}) as Record<string, unknown>;
+    const draftId = typeof metadata.draft_id === 'string' ? metadata.draft_id : null;
+    const reviewBlockedMetadata = {
+        review_blocked_model_empty: true,
+        review_blocked_reason: 'review_blocked_model_empty',
+        review_blocked_session_id: session.id,
+        review_blocked_at: new Date().toISOString(),
+    };
+    const reviewerNotes = ['review_blocked_model_empty: content review produced zero LLM turns after retry'];
+
+    if (draftId) {
+        await sql`
+            UPDATE ops_content_drafts
+            SET status = 'needs_revision',
+                reviewer_notes = ${jsonb(reviewerNotes)}::jsonb,
+                metadata = COALESCE(metadata, '{}'::jsonb) || ${jsonb(reviewBlockedMetadata)}::jsonb,
+                updated_at = NOW()
+            WHERE id = ${draftId}
+              AND status IN ('draft', 'review')
+              AND review_session_id = ${session.id}
+        `;
+    } else {
+        await sql`
+            UPDATE ops_content_drafts
+            SET status = 'needs_revision',
+                reviewer_notes = ${jsonb(reviewerNotes)}::jsonb,
+                metadata = COALESCE(metadata, '{}'::jsonb) || ${jsonb(reviewBlockedMetadata)}::jsonb,
+                updated_at = NOW()
+            WHERE review_session_id = ${session.id}
+              AND status IN ('draft', 'review')
+        `;
+    }
 }
 
 /**
@@ -557,6 +609,33 @@ function buildUserPrompt(
     );
 }
 
+function dialoguePrompt(
+    userPrompt: string,
+    format: ConversationFormat,
+): string {
+    if (format === 'deep_dive') {
+        return `${userPrompt}\n\n${ROUNDTABLE_PLAIN_DIALOGUE_INSTRUCTION}\n${ROUNDTABLE_DEEP_DIVE_GROUNDING_INSTRUCTION}`;
+    }
+    return userPrompt;
+}
+
+function initialDialogueTemperature(
+    temperature: number,
+    format: ConversationFormat,
+): number {
+    if (format === 'deep_dive') {
+        return Math.max(0.4, temperature - 0.2);
+    }
+    return temperature;
+}
+
+function dialogueTrackingContext(format: ConversationFormat): string {
+    if (format === 'deep_dive') {
+        return 'roundtable:deep_dive:empty_retry';
+    }
+    return `roundtable:${format}`;
+}
+
 /** Pre-loaded per-participant context maps. */
 interface ParticipantContext {
     voiceModifiers: Map<string, string[]>;
@@ -693,6 +772,9 @@ export async function orchestrateConversation(
     }
 
     let abortReason: string | null = null;
+    let emptyDialogueCount = 0;
+    let emptyDialogueRetryCount = 0;
+    const emptyDialogueTurns: number[] = [];
 
     // Track last dialogue per speaker for repetition detection
     const lastDialogueMap = new Map<string, string>();
@@ -706,7 +788,7 @@ export async function orchestrateConversation(
                 sessionId: session.id,
                 turnsAttempted: turn,
             });
-            abortReason = 'All LLM turns returned empty responses';
+            abortReason = ROUNDTABLE_EMPTY_ABORT_REASON;
             break;
         }
 
@@ -774,18 +856,28 @@ export async function orchestrateConversation(
             speakerRebelling ?
                 Math.min(1.0, format.temperature + 0.1)
             :   format.temperature;
+        const primaryTrackingContext = dialogueTrackingContext(session.format);
         let rawDialogue: string;
         try {
             rawDialogue = await llmGenerate({
                 messages: [
                     { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt },
+                    {
+                        role: 'user',
+                        content: dialoguePrompt(
+                            userPrompt,
+                            session.format,
+                        ),
+                    },
                 ],
-                temperature: effectiveTemperature,
+                temperature: initialDialogueTemperature(
+                    effectiveTemperature,
+                    session.format,
+                ),
                 maxTokens: format.maxTokensPerTurn,
                 trackingContext: {
                     agentId: speaker,
-                    context: `roundtable:${session.format}`,
+                    context: primaryTrackingContext,
                     sessionId: session.id,
                 },
             });
@@ -802,21 +894,29 @@ export async function orchestrateConversation(
 
         let dialogue = sanitizeDialogue(rawDialogue);
 
-        if (!dialogue && history.length === 0) {
-            log.warn('Empty opening dialogue from LLM, retrying with explicit plain-text instruction', {
+        if (!dialogue) {
+            emptyDialogueCount++;
+            emptyDialogueTurns.push(turn);
+            log.warn(
+                history.length === 0 ?
+                    'Empty opening dialogue from LLM, retrying with explicit plain-text instruction'
+                :   'Empty roundtable dialogue from LLM, retrying with explicit plain-text instruction',
+                {
                 sessionId: session.id,
                 turn,
                 speaker: speakerName,
-            });
+                retryLimit: ROUNDTABLE_EMPTY_TURN_RETRY_LIMIT,
+                openingTurn: history.length === 0,
+                },
+            );
             try {
+                emptyDialogueRetryCount++;
                 const retryDialogue = await llmGenerate({
                     messages: [
                         { role: 'system', content: systemPrompt },
                         {
                             role: 'user',
-                            content:
-                                `${userPrompt}\n\nReturn 2-4 sentences of plain spoken dialogue only. ` +
-                                `Do not return tool calls, XML, JSON, empty thinking, or analysis-only output.`,
+                            content: `${userPrompt}\n\n${ROUNDTABLE_PLAIN_DIALOGUE_INSTRUCTION}`,
                         },
                     ],
                     temperature: Math.max(0.4, effectiveTemperature - 0.2),
@@ -828,6 +928,10 @@ export async function orchestrateConversation(
                     },
                 });
                 dialogue = sanitizeDialogue(retryDialogue);
+                if (!dialogue) {
+                    emptyDialogueCount++;
+                    emptyDialogueTurns.push(turn);
+                }
             } catch (err) {
                 log.warn('Roundtable empty-dialogue retry failed', {
                     error: (err as Error).message,
@@ -844,6 +948,8 @@ export async function orchestrateConversation(
                 sessionId: session.id,
                 turn,
                 speaker: speakerName,
+                emptyDialogueCount,
+                emptyDialogueRetryCount,
             });
             continue;
         }
@@ -942,6 +1048,18 @@ export async function orchestrateConversation(
     const finalStatus =
         history.length >= 3 || !abortReason ? 'completed' : 'failed';
 
+    const roundtableEmptyTurnMetadata = {
+        emptyDialogueCount,
+        emptyDialogueRetryCount,
+        emptyDialogueTurns,
+        roundtableEmptyTurnRetryLimit: ROUNDTABLE_EMPTY_TURN_RETRY_LIMIT,
+        roundtableRoutingContext: dialogueTrackingContext(session.format),
+    };
+
+    if (finalStatus === 'failed') {
+        await markContentReviewBlockedAfterZeroTurnFailure(session, abortReason);
+    }
+
     await sql`
         UPDATE ops_roundtable_sessions
         SET status = ${finalStatus},
@@ -953,8 +1071,12 @@ export async function orchestrateConversation(
                         ...(session.metadata ?? {}),
                         abortReason,
                         abortedAtTurn: history.length,
+                        ...roundtableEmptyTurnMetadata,
                     }
-                :   (session.metadata ?? {}),
+                :   {
+                        ...(session.metadata ?? {}),
+                        ...roundtableEmptyTurnMetadata,
+                    },
             )}
         WHERE id = ${session.id}
     `;
@@ -977,6 +1099,7 @@ export async function orchestrateConversation(
             sessionId: session.id,
             turnCount: history.length,
             speakers: [...new Set(history.map(h => h.speaker))],
+            ...roundtableEmptyTurnMetadata,
             ...(abortReason ? { abortReason } : {}),
         },
     });

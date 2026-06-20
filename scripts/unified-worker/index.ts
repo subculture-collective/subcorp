@@ -156,6 +156,8 @@ const AGENT_SESSION_CONCURRENCY = Math.max(
 
 /** Poll and process pending agent sessions (highest priority) */
 async function pollAgentSessions(): Promise<boolean> {
+    await reapExpiredRunningAgentSessions();
+
     const sessions = await sql<AgentSession[]>`
         UPDATE ops_agent_sessions
         SET status = 'running', started_at = NOW()
@@ -175,6 +177,27 @@ async function pollAgentSessions(): Promise<boolean> {
 
     await Promise.allSettled(sessions.map(session => processAgentSession(session)));
     return true;
+}
+
+async function reapExpiredRunningAgentSessions(): Promise<void> {
+    const expired = await sql<Array<{ id: string; agent_id: string; source: string }>>`
+        UPDATE ops_agent_sessions
+        SET status = 'timed_out',
+            completed_at = NOW(),
+            error = concat_ws(E'\n', nullif(error, ''), 'worker cleanup: running session exceeded timeout_seconds')
+        WHERE status = 'running'
+          AND started_at IS NOT NULL
+          AND timeout_seconds IS NOT NULL
+          AND NOW() - started_at > make_interval(secs => timeout_seconds)
+        RETURNING id, agent_id, source
+    `;
+
+    if (expired.length > 0) {
+        log.warn('Reaped expired running agent sessions', {
+            count: expired.length,
+            sessionIds: expired.map(row => row.id),
+        });
+    }
 }
 
 async function processAgentSession(session: AgentSession): Promise<void> {

@@ -5,6 +5,21 @@ import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'cast-veto' });
 
+const VETO_TARGET_TYPES = new Set(['proposal', 'mission', 'governance', 'step']);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function invalidVetoTargetReason(targetType: string, targetId: string): string | null {
+    if (!VETO_TARGET_TYPES.has(targetType)) {
+        return 'cast_veto target_type must be one of proposal, mission, governance, or step; use send_to_agent for file review requests';
+    }
+
+    if (!UUID_PATTERN.test(targetId)) {
+        return 'cast_veto target_id must be the UUID of an existing proposal, mission, governance item, or step; do not pass file paths or filenames';
+    }
+
+    return null;
+}
+
 /**
  * Create a cast_veto execute function bound to a specific agentId.
  * The agentId is captured via closure to identify who is casting.
@@ -14,6 +29,24 @@ export function createCastVetoExecute(agentId: string) {
         const targetType = params.target_type as string;
         const targetId = params.target_id as string;
         const reason = params.reason as string;
+
+        const invalidTargetReason = invalidVetoTargetReason(targetType, targetId);
+        if (invalidTargetReason) {
+            log.warn('Rejected invalid veto target before database write', {
+                agentId,
+                targetType,
+                targetId,
+                reason: invalidTargetReason,
+            });
+
+            return {
+                success: false,
+                error: invalidTargetReason,
+                denied: true,
+                policy: 'veto_target_uuid_required',
+                message: invalidTargetReason,
+            };
+        }
 
         try {
             const { vetoId, severity } = await castVeto(

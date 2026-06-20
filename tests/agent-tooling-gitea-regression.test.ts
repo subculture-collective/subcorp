@@ -25,6 +25,142 @@ describe('agent tool execution regressions', () => {
         const source = readRepoFile('src/lib/tools/tools/file-write.ts');
 
         expect(source).toContain("chmod 0644");
+        expect(source).not.toContain('appendManifest(');
+        expect(source).not.toContain('index.jsonl');
+    });
+
+    test('file_write blocks project root product and misplaced agent paths', () => {
+        const source = readRepoFile('src/lib/tools/tools/file-write.ts');
+
+        expect(source).toContain('forbiddenWorkspaceProjectRootWritePath');
+        expect(source).toContain('workspace_project_root_boundary');
+        expect(source).toContain('not be placed under /workspace/output/projects');
+        expect(source).toContain('not /workspace/projects root');
+        expect(source).toContain('not /workspace/projects/agents');
+        expect(source).toContain('output\\/projects\\/');
+        expect(source).toContain('package\\.json|README\\.md|app\\.py');
+    });
+
+    test('bash blocks project root scaffold writes', () => {
+        const source = readRepoFile('src/lib/tools/tools/bash.ts');
+
+        expect(source).toContain('forbiddenWorkspaceRootWriteCommand');
+        expect(source).toContain('workspace_project_root_boundary');
+        expect(source).toContain('npm init must run inside a mission-specific /workspace/projects/<slug> directory');
+        expect(source).toContain('not /workspace/projects root');
+        expect(source).toContain('package\\.json|README\\.md|app\\.py');
+    });
+
+    test('cast_veto rejects file-path targets before database writes', () => {
+        const source = readRepoFile('src/lib/tools/tools/cast-veto.ts');
+
+        expect(source).toContain('invalidVetoTargetReason');
+        expect(source).toContain('VETO_TARGET_TYPES');
+        expect(source).toContain('UUID_PATTERN');
+        expect(source).toContain('use send_to_agent for file review requests');
+        expect(source).toContain('do not pass file paths or filenames');
+        expect(source).toContain('veto_target_uuid_required');
+        expect(source).toContain('Rejected invalid veto target before database write');
+    });
+
+    test('agent sessions publish output manifests only after succeeded completion', () => {
+        const source = readRepoFile('src/lib/tools/agent-session.ts');
+
+        expect(source).toContain('finalStatus === \'succeeded\'');
+        expect(source).toContain('appendSucceededFileWriteManifests');
+        expect(source).toContain('session_status: \'succeeded\'');
+        expect(source).toContain('trusted: true');
+        expect(source).toContain('published_at');
+        expect(source).toContain('/workspace/shared/manifests/index.jsonl');
+    });
+
+    test('agent sessions retry text-only answers that miss required tool contracts', () => {
+        const source = readRepoFile('src/lib/tools/agent-session.ts');
+
+        expect(source).toContain('retriedMissingToolContract');
+        expect(source).toContain('missingRequiredToolNamesForSession');
+        expect(source).toContain('Your previous response did not satisfy the required tool contract');
+        expect(source).toContain('Do not describe commands or file contents as prose instead of using the tools');
+    });
+
+    test('agent sessions do not require unavailable tools from non-writer agents', () => {
+        const source = readRepoFile('src/lib/tools/agent-session.ts');
+        const prompts = readRepoFile('src/lib/ops/step-prompts.ts');
+
+        expect(source).toContain('filterUnavailableToolRequirements');
+        expect(source).toContain('availableToolNamesForSession');
+        expect(source).toContain("availableTools.has('bash') && availableTools.has('file_write')");
+        expect(source).toContain("'send_to_agent'");
+        expect(prompts).toContain('this agent cannot publish workspace artifacts directly');
+        expect(prompts).toContain('this agent cannot run shell checks directly');
+        expect(prompts).toContain('adaptBodyForAgentTools');
+    });
+
+    test('generic grounding guidance does not make web_fetch mandatory', () => {
+        const source = readRepoFile('src/lib/tools/agent-session.ts');
+
+        expect(source).toContain("requiresExplicitTool(prompt, 'web_fetch')");
+        expect(source).toContain('requiresExplicitTool');
+        expect(source).not.toContain("if (/\\bweb_fetch\\b/.test(text))");
+    });
+
+    test('optional memory_write guidance does not make memory writes mandatory', () => {
+        const source = readRepoFile('src/lib/tools/agent-session.ts');
+        const prompts = readRepoFile('src/lib/ops/step-prompts.ts');
+
+        expect(source).toContain("requiresExplicitTool(prompt, 'memory_write')");
+        expect(source).toContain("!mentionsOptionalTool(prompt, 'memory_write')");
+        expect(source).toContain('mentionsOptionalTool');
+        expect(source).not.toContain("if (/\\bmemory_write\\b/.test(text))");
+        expect(prompts).toContain('optionally use memory_write');
+    });
+
+    test('worker reaps expired running agent sessions before polling new work', () => {
+        const worker = readRepoFile('scripts/unified-worker/index.ts');
+
+        expect(worker).toContain('reapExpiredRunningAgentSessions');
+        expect(worker).toContain('running session exceeded timeout_seconds');
+        expect(worker).toContain('NOW() - started_at > make_interval(secs => timeout_seconds)');
+        expect(worker.indexOf('await reapExpiredRunningAgentSessions();')).toBeLessThan(
+            worker.indexOf('SELECT id FROM ops_agent_sessions')
+        );
+    });
+
+    test('empty no-tool mission sessions cannot be marked succeeded', () => {
+        const source = readRepoFile('src/lib/tools/agent-session.ts');
+
+        expect(source).toContain('detectEmptySessionOutcome');
+        expect(source).toContain('empty session output');
+        expect(source).toContain('no final text and no successful tool calls');
+        expect(source).toContain('emptySessionOutcome.blocked');
+    });
+
+    test('successful durable handoffs count as artifact delivery after recoverable tool errors', () => {
+        const source = readRepoFile('src/lib/tools/agent-session.ts');
+
+        expect(source).toContain('hasSuccessfulArtifactDelivery');
+        expect(source).toContain("tc.name !== 'send_to_agent'");
+        expect(source).toContain("tc.name !== 'scratchpad_update'");
+        expect(source).toContain("tc.name !== 'memory_write'");
+        expect(source).toContain('fatalToolErrors.length > 0 && !hasSuccessfulArtifactDelivery');
+        expect(source).toContain('Fatal tool error without successful artifact delivery');
+    });
+
+    test('autonomous agent bash sessions cannot publish git changes', () => {
+        const bashTool = readRepoFile('src/lib/tools/tools/bash.ts');
+        const prompts = readRepoFile('src/lib/ops/step-prompts.ts');
+
+        expect(bashTool).toContain('forbiddenAutonomousPublishCommand');
+        expect(bashTool).toContain('git commit is disabled for autonomous agent bash sessions');
+        expect(bashTool).toContain('git push is disabled for autonomous agent bash sessions');
+        expect(bashTool).toContain('pull request creation is disabled for autonomous agent bash sessions');
+        expect(bashTool).toContain('denied: true');
+
+        expect(prompts).toContain('MUST NOT commit, push, or create live PRs');
+        expect(prompts).toContain('PR-ready summary artifact');
+        expect(prompts).toContain('Do not run git commit, git push, gh/tea PR creation');
+        expect(prompts).not.toContain('git commit -m');
+        expect(prompts).not.toContain('git push -u origin');
     });
 
     test('direct workspace writers normalize artifact permissions', () => {
@@ -34,6 +170,51 @@ describe('agent tool execution regressions', () => {
         expect(readRepoFile('src/lib/ops/newspaper.ts')).toContain('mode: 0o644');
         expect(readRepoFile('src/lib/ops/newsletter.ts')).toContain('mode: 0o644');
         expect(readRepoFile('src/lib/ops/content-publication.ts')).toContain('mode: 0o644');
+    });
+
+    test('droids do not receive raw bash access that bypasses file_write ACLs', () => {
+        const registry = readRepoFile('src/lib/tools/registry.ts');
+        const spawnDroid = readRepoFile('src/lib/tools/tools/spawn-droid.ts');
+        const prompts = readRepoFile('src/lib/ops/step-prompts.ts');
+
+        expect(registry).toContain("const droidToolNames = ['file_read', 'file_write', 'web_search', 'web_fetch']");
+        expect(registry).toContain('They intentionally do not get raw bash because shell redirection can bypass file_write ACLs');
+        expect(spawnDroid).not.toContain('You can use bash and web_search as needed');
+        expect(spawnDroid).toContain('You cannot use bash or shell redirection');
+        expect(spawnDroid).toContain('invalidDroidTaskReason');
+        expect(spawnDroid).toContain('captcha solver');
+        expect(spawnDroid).toContain('droid tasks cannot solve or bypass CAPTCHA-gated sources');
+        expect(spawnDroid).toContain('explore|survey|list|enumerate|walk|map|scan');
+        expect(spawnDroid).toContain('recursively|recursive|entire|tree|directory|directories|every file|all files');
+        expect(spawnDroid).toContain('droid tasks cannot recursively list /workspace/projects because droids have no directory listing tool');
+        expect(spawnDroid).toContain('shell audit');
+        expect(spawnDroid).toContain('run shell');
+        expect(spawnDroid).toContain('droid tasks cannot require bash, shell audit, shell commands, or shell redirection');
+        expect(spawnDroid).toContain('add|update|rewrite|patch|fix|implement');
+        expect(spawnDroid).toContain('droid tasks cannot modify /workspace/output, /workspace/projects, or /workspace/agents paths');
+        expect(spawnDroid).toContain('droid tasks cannot write outside their droids/<id>/ workspace');
+        expect(spawnDroid).toContain('droid_workspace_boundary');
+        expect(spawnDroid).toContain('Do not cite, summarize, or use the droid output as evidence until check_droid returns status=succeeded with output_preview');
+        expect(spawnDroid).toContain('evidence_ready: false');
+        expect(spawnDroid).toContain('do not cite or depend on ${outputPath} until check_droid returns status=succeeded with output_preview');
+        expect(prompts).toContain('function agentCanUseShell');
+        expect(prompts).not.toContain("return SHELL_AGENTS.has(agentId) || agentId.startsWith('droid-')");
+    });
+
+    test('droid final artifacts cannot be tiny pointer-only placeholders', () => {
+        const source = readRepoFile('src/lib/tools/agent-session.ts');
+        const fileWrite = readRepoFile('src/lib/tools/tools/file-write.ts');
+
+        expect(source).toContain('detectDroidPlaceholderArtifact');
+        expect(source).toContain('droid placeholder artifact');
+        expect(source).toContain('normalizeWorkspaceRelativePath');
+        expect(source).toContain("path.startsWith('/workspace/')");
+        expect(source).toContain('isPointerOnlyDroidArtifact');
+        expect(source).toContain('isDroidFinalArtifactPath');
+        expect(source).toContain("typeof session.result?.output_path === 'string'");
+        expect(source).toContain('content.trim().length >= 120');
+        expect(fileWrite).toContain("agentId.startsWith('droid-')");
+        expect(fileWrite).toContain('relativePath.startsWith(`${DROID_PREFIX}${agentId}/`)');
     });
 
     test('ollama text tool calls are recovered before accepting text-only success', () => {
