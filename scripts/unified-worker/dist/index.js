@@ -13931,6 +13931,120 @@ var init_orchestrator = __esm({
   }
 });
 
+// src/lib/tools/capabilities.ts
+function isDroidAgent(agentId) {
+  return agentId.startsWith("droid-");
+}
+function isKnownAgentId(agentId) {
+  return Object.prototype.hasOwnProperty.call(AGENT_CAPABILITIES, agentId);
+}
+function getAgentCapability(agentId) {
+  return isKnownAgentId(agentId) ? AGENT_CAPABILITIES[agentId] : UNKNOWN_AGENT_CAPABILITY;
+}
+function getCapabilityToolNames(agentId) {
+  return [...getAgentCapability(agentId).tools];
+}
+function getDroidToolNames() {
+  return [...DROID_TOOL_NAMES];
+}
+function getCapabilityWritePaths(agentId) {
+  return [...getAgentCapability(agentId).writePaths];
+}
+function canUseShell(agentId) {
+  return !isDroidAgent(agentId) && getAgentCapability(agentId).canUseShell;
+}
+function canWriteWorkspace(agentId) {
+  return isDroidAgent(agentId) || getAgentCapability(agentId).canWriteWorkspace;
+}
+var COMMON_AGENT_TOOLS, WRITER_TOOLS, SHELL_WRITER_TOOLS, AGENT_CAPABILITIES, DROID_TOOL_NAMES, UNKNOWN_AGENT_CAPABILITY, WRITE_ACLS;
+var init_capabilities = __esm({
+  "src/lib/tools/capabilities.ts"() {
+    "use strict";
+    COMMON_AGENT_TOOLS = [
+      "web_search",
+      "web_fetch",
+      "file_read",
+      "send_to_agent",
+      "spawn_droid",
+      "check_droid",
+      "memory_search",
+      "memory_write",
+      "scratchpad_read",
+      "scratchpad_update",
+      "propose_policy_change",
+      "propose_mission",
+      "cast_veto"
+    ];
+    WRITER_TOOLS = [...COMMON_AGENT_TOOLS, "file_write"];
+    SHELL_WRITER_TOOLS = [...WRITER_TOOLS, "bash"];
+    AGENT_CAPABILITIES = {
+      chora: {
+        tools: COMMON_AGENT_TOOLS,
+        writePaths: [],
+        canUseShell: false,
+        canWriteWorkspace: false,
+        canSpawnDroids: true,
+        canPublishTrustedArtifacts: false
+      },
+      subrosa: {
+        tools: COMMON_AGENT_TOOLS,
+        writePaths: [],
+        canUseShell: false,
+        canWriteWorkspace: false,
+        canSpawnDroids: true,
+        canPublishTrustedArtifacts: false
+      },
+      thaum: {
+        tools: COMMON_AGENT_TOOLS,
+        writePaths: [],
+        canUseShell: false,
+        canWriteWorkspace: false,
+        canSpawnDroids: true,
+        canPublishTrustedArtifacts: false
+      },
+      praxis: {
+        tools: SHELL_WRITER_TOOLS,
+        writePaths: ["agents/praxis/", "output/", "shared/", "projects/"],
+        canUseShell: true,
+        canWriteWorkspace: true,
+        canSpawnDroids: true,
+        canPublishTrustedArtifacts: true
+      },
+      mux: {
+        tools: SHELL_WRITER_TOOLS,
+        writePaths: ["agents/mux/", "output/", "shared/", "projects/"],
+        canUseShell: true,
+        canWriteWorkspace: true,
+        canSpawnDroids: true,
+        canPublishTrustedArtifacts: true
+      },
+      primus: {
+        tools: WRITER_TOOLS,
+        writePaths: ["agents/primus/", "output/", "shared/", "projects/"],
+        canUseShell: false,
+        canWriteWorkspace: true,
+        canSpawnDroids: true,
+        canPublishTrustedArtifacts: true
+      }
+    };
+    DROID_TOOL_NAMES = ["file_read", "file_write", "web_search", "web_fetch"];
+    UNKNOWN_AGENT_CAPABILITY = {
+      tools: [],
+      writePaths: [],
+      canUseShell: false,
+      canWriteWorkspace: false,
+      canSpawnDroids: false,
+      canPublishTrustedArtifacts: false
+    };
+    WRITE_ACLS = Object.fromEntries(
+      Object.entries(AGENT_CAPABILITIES).map(([agentId, capability]) => [
+        agentId,
+        [...capability.writePaths]
+      ])
+    );
+  }
+});
+
 // src/lib/roundtable/action-extractor.ts
 var action_extractor_exports = {};
 __export(action_extractor_exports, {
@@ -15074,10 +15188,10 @@ __export(step_prompts_exports, {
   loadStepTemplate: () => loadStepTemplate
 });
 function agentCanWrite(agentId) {
-  return WORKSPACE_WRITER_AGENTS.has(agentId) || agentId.startsWith("droid-");
+  return canWriteWorkspace(agentId);
 }
 function agentCanUseShell(agentId) {
-  return SHELL_AGENTS.has(agentId);
+  return canUseShell(agentId);
 }
 function completionContract(kind, agentId) {
   if (!agentCanWrite(agentId) && needsArtifactGrounding(kind)) {
@@ -15226,13 +15340,14 @@ Payload: ${payloadStr}
 function slugify(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30);
 }
-var WORKSPACE_ROOT2, GITEA_BASE_URL2, GITEA_ORG2, GITEA_PROJECT_ORG2, WORKSPACE_PATH_GUIDANCE, AUDIT_EVIDENCE_GUIDANCE, FILE_READ_GUIDANCE, ARTIFACT_GROUNDING_GUIDANCE, STEP_COMPLETION_CONTRACTS, WORKSPACE_WRITER_AGENTS, SHELL_AGENTS, SELF_EVOLUTION_REPO_SETUP, TEMPLATE_CACHE_TTL_MS, templateCache, STEP_INSTRUCTIONS;
+var WORKSPACE_ROOT2, GITEA_BASE_URL2, GITEA_ORG2, GITEA_PROJECT_ORG2, WORKSPACE_PATH_GUIDANCE, AUDIT_EVIDENCE_GUIDANCE, FILE_READ_GUIDANCE, ARTIFACT_GROUNDING_GUIDANCE, STEP_COMPLETION_CONTRACTS, SELF_EVOLUTION_REPO_SETUP, TEMPLATE_CACHE_TTL_MS, templateCache, STEP_INSTRUCTIONS;
 var init_step_prompts = __esm({
   "src/lib/ops/step-prompts.ts"() {
     "use strict";
     init_db();
     init_cache_key();
     init_voices();
+    init_capabilities();
     WORKSPACE_ROOT2 = process.env.WORKSPACE_ROOT ?? "/workspace/projects/subcorp";
     GITEA_BASE_URL2 = process.env.GITEA_BASE_URL ?? "https://git.subcult.tv";
     GITEA_ORG2 = process.env.GITEA_ORG ?? "subculture-collective";
@@ -15273,8 +15388,6 @@ var init_step_prompts = __esm({
       self_evolution: `Completion contract: you MUST inspect the repo with bash, change files with file_write, and write a grounded summary artifact. If repo mutation is blocked, write a human-action-needed artifact instead of claiming success.
 `
     };
-    WORKSPACE_WRITER_AGENTS = /* @__PURE__ */ new Set(["praxis", "mux", "primus"]);
-    SHELL_AGENTS = /* @__PURE__ */ new Set(["praxis", "mux"]);
     SELF_EVOLUTION_REPO_SETUP = [
       `REPO_DIR=${WORKSPACE_ROOT2}`,
       `if [ ! -d "$REPO_DIR/.git" ]; then for CANDIDATE in /workspace/projects/subcorp /home/onnwee/projects/subcorp /home/onnwee/workspace/projects/subcorp; do if [ -d "$CANDIDATE/.git" ]; then REPO_DIR="$CANDIDATE"; break; fi; done; fi`,
@@ -16286,19 +16399,13 @@ function pathHintForMissingWorkspacePath(rawPath) {
 
 // src/lib/tools/tools/file-write.ts
 init_executor();
+init_capabilities();
 var import_node_crypto = require("node:crypto");
 init_db();
 var import_node_path = __toESM(require("node:path"));
 init_logger();
 init_cache_key();
-var WRITE_ACLS = {
-  chora: [],
-  subrosa: [],
-  thaum: [],
-  praxis: ["agents/praxis/", "output/", "shared/", "projects/"],
-  mux: ["agents/mux/", "output/", "shared/", "projects/"],
-  primus: ["agents/primus/", "output/", "shared/", "projects/"]
-};
+init_capabilities();
 var log25 = createLogger({ service: "file_write" });
 var DROID_PREFIX = "droids/";
 function isPathAllowed(agentId, relativePath) {
@@ -16425,6 +16532,9 @@ var fileWriteTool = {
     };
   }
 };
+
+// src/lib/tools/registry.ts
+init_capabilities();
 
 // src/lib/tools/tools/send-to-agent.ts
 init_executor();
@@ -17174,7 +17284,8 @@ var ALL_TOOLS = [
   castVetoTool
 ];
 function getAgentTools(agentId, sessionId) {
-  return ALL_TOOLS.filter((tool) => tool.agents.includes(agentId)).filter((tool) => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name)).map(({ agents: _agents, ...tool }) => {
+  const toolNames = new Set(getCapabilityToolNames(agentId));
+  return ALL_TOOLS.filter((tool) => toolNames.has(tool.name)).filter((tool) => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name)).map(({ agents: _agents, ...tool }) => {
     if (tool.name === "file_write") {
       return { ...tool, execute: createFileWriteExecute(agentId) };
     }
@@ -17209,7 +17320,7 @@ function getAgentTools(agentId, sessionId) {
   });
 }
 function getDroidTools(droidId) {
-  const droidToolNames = ["file_read", "file_write", "web_search", "web_fetch"];
+  const droidToolNames = getDroidToolNames();
   return ALL_TOOLS.filter((tool) => droidToolNames.includes(tool.name)).filter((tool) => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name)).map(({ agents: _agents, ...tool }) => {
     if (tool.name === "file_write") {
       return { ...tool, execute: createFileWriteExecute(droidId) };
@@ -17218,12 +17329,12 @@ function getDroidTools(droidId) {
   });
 }
 function getAgentToolNames(agentId) {
-  return ALL_TOOLS.filter((tool) => tool.agents.includes(agentId)).filter((tool) => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name)).map((tool) => tool.name);
+  const toolNames = new Set(getCapabilityToolNames(agentId));
+  return ALL_TOOLS.filter((tool) => toolNames.has(tool.name)).filter((tool) => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name)).map((tool) => tool.name);
 }
 function getAgentWritePaths(agentId) {
   if (!dockerBackedToolsEnabled()) return [];
-  if (!fileWriteTool.agents.includes(agentId)) return [];
-  return WRITE_ACLS[agentId] ?? [];
+  return getCapabilityWritePaths(agentId);
 }
 
 // src/lib/tools/agent-session.ts

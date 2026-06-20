@@ -8,6 +8,7 @@ import { sql } from '@/lib/db';
 import { tenantCacheKey } from '@/lib/tenant/cache-key';
 import { getVoice } from '../roundtable/voices';
 import type { StepKind } from '../types';
+import { canUseShell, canWriteWorkspace } from '../tools/capabilities';
 
 const WORKSPACE_ROOT =
     process.env.WORKSPACE_ROOT ?? '/workspace/projects/subcorp';
@@ -73,15 +74,12 @@ const STEP_COMPLETION_CONTRACTS: Partial<Record<StepKind, string>> = {
         `Completion contract: you MUST inspect the repo with bash, change files with file_write, and write a grounded summary artifact. If repo mutation is blocked, write a human-action-needed artifact instead of claiming success.\n`,
 };
 
-const WORKSPACE_WRITER_AGENTS = new Set(['praxis', 'mux', 'primus']);
-const SHELL_AGENTS = new Set(['praxis', 'mux']);
-
 function agentCanWrite(agentId: string): boolean {
-    return WORKSPACE_WRITER_AGENTS.has(agentId) || agentId.startsWith('droid-');
+    return canWriteWorkspace(agentId);
 }
 
 function agentCanUseShell(agentId: string): boolean {
-    return SHELL_AGENTS.has(agentId);
+    return canUseShell(agentId);
 }
 
 function completionContract(kind: StepKind, agentId: string): string {

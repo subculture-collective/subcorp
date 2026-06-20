@@ -4,25 +4,14 @@
 import type { NativeTool } from '../types';
 import type { AgentId } from '../../types';
 import { execInToolbox } from '../executor';
+import { WRITE_ACLS } from '../capabilities';
 import { randomUUID } from 'node:crypto';
 import { sql } from '@/lib/db';
 import path from 'node:path';
 import { createLogger } from '@/lib/logger';
 import { tenantCacheKey } from '@/lib/tenant/cache-key';
 
-/**
- * Per-agent write ACLs.
- * Each entry is a prefix relative to /workspace/ that the agent may write to.
- * All agents can read all of /workspace.
- */
-export const WRITE_ACLS: Record<AgentId, string[]> = {
-    chora: [],
-    subrosa: [],
-    thaum: [],
-    praxis: ['agents/praxis/', 'output/', 'shared/', 'projects/'],
-    mux: ['agents/mux/', 'output/', 'shared/', 'projects/'],
-    primus: ['agents/primus/', 'output/', 'shared/', 'projects/'],
-};
+export { WRITE_ACLS } from '../capabilities';
 
 const log = createLogger({ service: 'file_write' });
 

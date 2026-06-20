@@ -200,7 +200,8 @@ describe('agent tool execution regressions', () => {
         const spawnDroid = readRepoFile('src/lib/tools/tools/spawn-droid.ts');
         const prompts = readRepoFile('src/lib/ops/step-prompts.ts');
 
-        expect(registry).toContain("const droidToolNames = ['file_read', 'file_write', 'web_search', 'web_fetch']");
+        expect(registry).toContain('getDroidToolNames');
+        expect(readRepoFile('src/lib/tools/capabilities.ts')).toContain("DROID_TOOL_NAMES = ['file_read', 'file_write', 'web_search', 'web_fetch']");
         expect(registry).toContain('They intentionally do not get raw bash because shell redirection can bypass file_write ACLs');
         expect(spawnDroid).not.toContain('You can use bash and web_search as needed');
         expect(spawnDroid).toContain('You cannot use bash or shell redirection');
