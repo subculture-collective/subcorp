@@ -126,6 +126,29 @@ describe('agent tool execution regressions', () => {
         );
     });
 
+    test('worker finalizes running steps from terminal sessions without direct links', () => {
+        const worker = readRepoFile('scripts/unified-worker/index.ts');
+        const agentSession = readRepoFile('src/lib/tools/agent-session.ts');
+
+        expect(worker).toContain('finalizeMissionSteps');
+        expect(worker).toContain('LEFT JOIN LATERAL');
+        expect(worker).toContain("candidate.source = 'mission'");
+        expect(worker).toContain("candidate.source_id = s.mission_id::text");
+        expect(worker).toContain("candidate.result->>'mission_step_id' = s.id::text");
+        expect(worker).toContain("candidate.status IN ('succeeded', 'blocked', 'failed', 'timed_out')");
+        expect(worker).toContain('SELECT COUNT(*) FROM ops_agent_sessions terminal');
+        expect(worker).toContain('SELECT COUNT(*) FROM ops_mission_steps unmatched');
+        expect(worker).toContain("live.status IN ('pending', 'running')");
+        expect(worker).toContain("live.source = 'mission'");
+        expect(worker).toContain("'reconciledBy', 'worker-finalizer'");
+        expect(worker).toContain('agentSessionId: step.session_id');
+        expect(worker).toContain("recoverSweptFailure: step.step_status === 'failed'");
+        expect(worker).toContain("mission_step_id: step.id");
+        expect(worker).toContain("session.id::text = step.result->>'agent_session_id'");
+        expect(agentSession).toContain("result = COALESCE(result, '{}'::jsonb) ||");
+        expect(worker).not.toContain('agentSessionId: undefined');
+    });
+
     test('empty no-tool mission sessions cannot be marked succeeded', () => {
         const source = readRepoFile('src/lib/tools/agent-session.ts');
 

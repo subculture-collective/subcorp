@@ -1380,7 +1380,7 @@ async function completeSession(
     const updated = await sql<{ id: string }[]>`
         UPDATE ops_agent_sessions
         SET status = ${status},
-            result = ${jsonb(sanitizeForJsonb(result) as Record<string, unknown>)},
+            result = COALESCE(result, '{}'::jsonb) || ${jsonb(sanitizeForJsonb(result) as Record<string, unknown>)}::jsonb,
             tool_calls = ${jsonb(
                 sanitizeForJsonb(toolCalls.map(tc => ({
                     name: tc.name,

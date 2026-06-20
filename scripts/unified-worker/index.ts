@@ -1043,7 +1043,7 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
         const [session] = await sql`
             INSERT INTO ops_agent_sessions (
                 agent_id, prompt, source, source_id,
-                timeout_seconds, max_tool_rounds, status
+                timeout_seconds, max_tool_rounds, status, result
             ) VALUES (
                 ${agentId},
                 ${prompt},
@@ -1051,7 +1051,8 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
                 ${step.mission_id},
                 1800,
                 30,
-                'pending'
+                'pending',
+                ${sql.json({ mission_step_id: step.id })}::jsonb
             )
             RETURNING id
         `;
@@ -1169,6 +1170,7 @@ async function finalizeMissionSteps(): Promise<boolean> {
             assigned_agent: string | null;
             session_agent_id: string | null;
             session_status: string | null;
+            session_id: string | null;
             session_error: string | null;
             session_blocked_reason: string | null;
             session_summary: string | null;
@@ -1182,6 +1184,7 @@ async function finalizeMissionSteps(): Promise<boolean> {
             s.output_path,
             s.status as step_status,
             s.assigned_agent,
+            sess.id as session_id,
             sess.agent_id as session_agent_id,
             sess.status as session_status,
             sess.error as session_error,
@@ -1194,7 +1197,69 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 ELSE NULL
             END as session_summary
         FROM ops_mission_steps s
-        LEFT JOIN ops_agent_sessions sess ON sess.id = (s.result->>'agent_session_id')::uuid
+        LEFT JOIN LATERAL (
+            SELECT candidate.*
+            FROM ops_agent_sessions candidate
+            WHERE (
+                s.result->>'agent_session_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                AND candidate.id::text = s.result->>'agent_session_id'
+            )
+            OR (
+                candidate.source = 'mission'
+                AND candidate.result->>'mission_step_id' = s.id::text
+                AND candidate.status IN ('succeeded', 'blocked', 'failed', 'timed_out')
+                AND candidate.completed_at > s.started_at
+            )
+            OR (
+                s.result->>'agent_session_id' IS NULL
+                AND candidate.source = 'mission'
+                AND candidate.source_id = s.mission_id::text
+                AND candidate.agent_id = s.assigned_agent
+                AND candidate.status IN ('succeeded', 'blocked', 'failed', 'timed_out')
+                AND candidate.completed_at > s.started_at
+                AND (
+                    SELECT COUNT(*) FROM ops_agent_sessions terminal
+                    WHERE terminal.source = 'mission'
+                      AND terminal.source_id = s.mission_id::text
+                      AND terminal.agent_id = s.assigned_agent
+                      AND terminal.status IN ('succeeded', 'blocked', 'failed', 'timed_out')
+                      AND terminal.completed_at > s.started_at
+                ) = 1
+                AND (
+                    SELECT COUNT(*) FROM ops_mission_steps unmatched
+                    WHERE unmatched.mission_id = s.mission_id
+                      AND unmatched.assigned_agent = s.assigned_agent
+                      AND (
+                        unmatched.status = 'running'
+                        OR (
+                            unmatched.status = 'failed'
+                            AND unmatched.failure_reason LIKE 'Swept — step running with no %agent session'
+                        )
+                      )
+                      AND unmatched.result->>'agent_session_id' IS NULL
+                      AND unmatched.started_at <= candidate.completed_at
+                ) = 1
+                AND NOT EXISTS (
+                    SELECT 1 FROM ops_agent_sessions live
+                    WHERE live.source = 'mission'
+                      AND live.source_id = s.mission_id::text
+                      AND live.agent_id = s.assigned_agent
+                      AND live.status IN ('pending', 'running')
+                      AND live.created_at >= s.started_at
+                )
+            )
+            ORDER BY
+                CASE
+                    WHEN s.result->>'agent_session_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                     AND candidate.id::text = s.result->>'agent_session_id'
+                    THEN 0
+                    WHEN candidate.result->>'mission_step_id' = s.id::text
+                    THEN 1
+                    ELSE 2
+                END,
+                candidate.completed_at DESC NULLS LAST
+            LIMIT 1
+        ) sess ON TRUE
         WHERE (
             s.status = 'running'
             OR (
@@ -1202,7 +1267,6 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 AND s.failure_reason LIKE 'Swept — step running with no %agent session'
             )
         )
-        AND s.result->>'agent_session_id' IS NOT NULL
     `;
 
     if (steps.length === 0) return false;
@@ -1218,7 +1282,12 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 SET status = 'succeeded',
                     failure_reason = NULL,
                     completed_at = NOW(),
-                    updated_at = NOW()
+                    updated_at = NOW(),
+                    result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
+                        'agent_session_id', ${step.session_id},
+                        'reconciledBy', 'worker-finalizer',
+                        'reconciledAt', NOW()
+                    )
                 WHERE id = ${step.id}
                   AND (
                     status = 'running'
@@ -1244,7 +1313,7 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 outcome: 'succeeded',
                 recordedBy: step.assigned_agent ?? step.session_agent_id,
                 evidence: {
-                    agentSessionId: undefined,
+                    agentSessionId: step.session_id ?? undefined,
                     sessionStatus: step.session_status,
                     sessionSummary: step.session_summary ?? undefined,
                     recoveredSweptFailure: step.step_status === 'failed',
@@ -1302,9 +1371,20 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 SET status = 'blocked',
                     failure_reason = ${step.session_blocked_reason ?? 'Agent session blocked'},
                     completed_at = NOW(),
-                    updated_at = NOW()
+                    updated_at = NOW(),
+                    result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
+                        'agent_session_id', ${step.session_id},
+                        'reconciledBy', 'worker-finalizer',
+                        'reconciledAt', NOW()
+                    )
                 WHERE id = ${step.id}
-                  AND status = 'running'
+                  AND (
+                    status = 'running'
+                    OR (
+                        status = 'failed'
+                        AND failure_reason LIKE 'Swept — step running with no %agent session'
+                    )
+                  )
                 RETURNING id
             `;
             if (updated.length === 0) continue;
@@ -1322,11 +1402,14 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 reason: step.session_blocked_reason ?? 'Agent session blocked',
                 recordedBy: step.assigned_agent ?? step.session_agent_id,
                 evidence: {
+                    agentSessionId: step.session_id ?? undefined,
                     sessionStatus: step.session_status,
                     sessionSummary: step.session_summary ?? undefined,
                 },
             });
-            await finalizeMissionIfComplete(step.mission_id);
+            await finalizeMissionIfComplete(step.mission_id, {
+                recoverSweptFailure: step.step_status === 'failed',
+            });
         } else if (
             step.session_status === 'failed' ||
             step.session_status === 'timed_out'
@@ -1336,9 +1419,20 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 SET status = 'failed',
                     failure_reason = ${step.session_error ?? (step.session_status === 'timed_out' ? 'Agent session timed out' : 'Agent session failed')},
                     completed_at = NOW(),
-                    updated_at = NOW()
+                    updated_at = NOW(),
+                    result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
+                        'agent_session_id', ${step.session_id},
+                        'reconciledBy', 'worker-finalizer',
+                        'reconciledAt', NOW()
+                    )
                 WHERE id = ${step.id}
-                  AND status = 'running'
+                  AND (
+                    status = 'running'
+                    OR (
+                        status = 'failed'
+                        AND failure_reason LIKE 'Swept — step running with no %agent session'
+                    )
+                  )
                 RETURNING id
             `;
             if (updated.length === 0) continue;
@@ -1359,9 +1453,14 @@ async function finalizeMissionSteps(): Promise<boolean> {
                         'Agent session timed out'
                     :   'Agent session failed'),
                 recordedBy: step.assigned_agent ?? step.session_agent_id,
-                evidence: { sessionStatus: step.session_status },
+                evidence: {
+                    agentSessionId: step.session_id ?? undefined,
+                    sessionStatus: step.session_status,
+                },
             });
-            await finalizeMissionIfComplete(step.mission_id);
+            await finalizeMissionIfComplete(step.mission_id, {
+                recoverSweptFailure: step.step_status === 'failed',
+            });
         }
         // If still running/pending, leave it alone
     }
@@ -1817,8 +1916,8 @@ async function recoverSweptLiveMissionSteps(): Promise<boolean> {
         FROM ops_agent_sessions session
         WHERE step.status = 'failed'
           AND step.failure_reason = 'Swept — step running with no live agent session'
-          AND step.result->>'agent_session_id' IS NOT NULL
-          AND session.id = (step.result->>'agent_session_id')::uuid
+          AND step.result->>'agent_session_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          AND session.id::text = step.result->>'agent_session_id'
           AND session.status IN ('pending', 'running')
         RETURNING step.id, step.mission_id, step.kind, step.assigned_agent, session.status AS session_status
     `;
@@ -1873,7 +1972,8 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
           AND step.result->>'agent_session_id' IS NOT NULL
           AND NOT EXISTS (
               SELECT 1 FROM ops_agent_sessions s
-              WHERE s.id = (step.result->>'agent_session_id')::uuid
+              WHERE step.result->>'agent_session_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                AND s.id::text = step.result->>'agent_session_id'
           )
         RETURNING step.id, step.mission_id, step.kind, step.assigned_agent
     `;
