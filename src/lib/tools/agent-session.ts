@@ -12,6 +12,7 @@ import { queryRelevantMemories } from '@/lib/ops/memory';
 import { getScratchpad } from '@/lib/ops/scratchpad';
 import { buildBriefing } from '@/lib/ops/situational-briefing';
 import { loadPrimeDirective } from '@/lib/ops/prime-directive';
+import { unsupportedHighRiskClaimLines } from '@/lib/ops/claim-evidence';
 import { randomUUID } from 'node:crypto';
 import { logger } from '@/lib/logger';
 import type { AgentId, LLMMessage, ToolCallRecord, ToolDefinition } from '../types';
@@ -619,6 +620,9 @@ function invalidGroundingIssues(stepKind: string | null, text: string): string[]
     }
     if (stepKind === 'draft_product_spec' && containsUnverifiedProductSpecMetric(text)) {
         issues.push('product spec success metric is framed as verified/completed outcome instead of target/proposed metric');
+    }
+    if (unsupportedHighRiskClaimLines(text).length > 0) {
+        issues.push('high-risk factual claim lacks explicit evidence or hypothesis/target framing');
     }
 
     return issues;

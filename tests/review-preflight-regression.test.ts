@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'bun:test';
+import { unsupportedHighRiskClaimLines } from '../src/lib/ops/claim-evidence';
 
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ?? process.cwd();
 
@@ -97,5 +98,28 @@ describe('review and audit preflight regressions', () => {
         expect(agentSession).toContain('target|proposed|goal|aim|planned|candidate|success metric|should|will');
         expect(agentSession).toContain('verified|observed|achieved|completed|implemented|approved|documented|resolved|delivered');
         expect(stepPrompts).toContain('Success metrics must be labelled as targets/proposed metrics unless backed by verified evidence');
+    });
+
+    test('grounded artifacts flag high-risk factual claims without explicit evidence', () => {
+        const agentSession = readRepoFile('src/lib/tools/agent-session.ts');
+
+        expect(agentSession).toContain('high-risk factual claim lacks explicit evidence or hypothesis/target framing');
+        expect(agentSession).toContain('unsupportedHighRiskClaimLines');
+        expect(readRepoFile('src/lib/ops/claim-evidence.ts')).toContain('GDPR|CCPA|SOC');
+        expect(readRepoFile('src/lib/ops/claim-evidence.ts')).toContain('verified|observed|achieved|completed|implemented');
+        expect(readRepoFile('src/lib/ops/claim-evidence.ts')).toContain('target|proposed|proposal|hypothesis');
+    });
+
+    test('high-risk claim detection is line-level and ignores grounding references', () => {
+        expect(unsupportedHighRiskClaimLines(`## Grounding\n- src/lib/ops/execution-evidence.ts\n\n## Notes\nThe target is 95% audit coverage.`)).toEqual([]);
+        expect(unsupportedHighRiskClaimLines(`## Grounding\n- file_read src/foo.ts\n\n## Claims\nThe system is SOC 2 compliant and costs were reduced by 50%.`)).toEqual([
+            'The system is SOC 2 compliant and costs were reduced by 50%.',
+        ]);
+        expect(unsupportedHighRiskClaimLines(`Implemented encryption per file_read src/security.ts.`)).toEqual([]);
+        expect(unsupportedHighRiskClaimLines(`## Security\n\nDetails to follow.`)).toEqual([]);
+        expect(unsupportedHighRiskClaimLines(`**Grounding:**\n- file_read src/foo.ts\n\nThe system is SOC 2 compliant and costs were reduced by 50%.`)).toEqual([
+            'The system is SOC 2 compliant and costs were reduced by 50%.',
+        ]);
+        expect(unsupportedHighRiskClaimLines(`## Grounding\n\nSecurity review notes.`)).toEqual([]);
     });
 });
