@@ -60,7 +60,10 @@ const sql = postgres(process.env.DATABASE_URL);
 // ─────────────────────────────────────────────
 const onlyArg = process.argv.indexOf('--only');
 const only = onlyArg !== -1 ? process.argv[onlyArg + 1] : null;
-const sections =
+const skipDiscordRefresh = ['1', 'true', 'yes'].includes(
+    String(process.env.SKIP_DISCORD_REFRESH || '').toLowerCase(),
+);
+const requestedSections =
     only ?
         [only]
     :   [
@@ -72,6 +75,7 @@ const sections =
             'discord-channels',
             'admin',
         ];
+const sections = skipDiscordRefresh ? requestedSections.filter(section => section !== 'discord-channels') : requestedSections;
 
 // ═════════════════════════════════════════════
 // 1. AGENT REGISTRY
@@ -1542,7 +1546,10 @@ async function seedAdmin() {
 // ═════════════════════════════════════════════
 
 async function main() {
-    log.info('Starting seed', { sections });
+    log.info('Starting seed', { sections, skipDiscordRefresh });
+    if (skipDiscordRefresh) {
+        log.info('Skipping Discord channel seed because SKIP_DISCORD_REFRESH is enabled');
+    }
 
     try {
         if (sections.includes('agents')) await seedAgents();

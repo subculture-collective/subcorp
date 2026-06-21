@@ -1,6 +1,7 @@
 # ─── SUBCORP — Makefile ───
 
 .PHONY: \
+    fresh fresh-with-discord-refresh \
 	dev-up dev-down dev-restart dev-rebuild dev-rebuild-toolbox dev-status \
 	dev-logs dev-logs-app dev-logs-worker dev-logs-db \
 	dev-migrate dev-seed dev-fresh dev-nuke dev-init-workspace \
@@ -26,9 +27,21 @@ PG_SUPERUSER := onnwee
 
 PROJECT_ROOT := $(shell pwd)
 HEARTBEAT_TIMEOUT ?= 180
+FRESH_TARGET ?= prod-fresh
+SKIP_DISCORD_REFRESH ?= 0
 
 DEV_COMPOSE  := docker compose -f docker-compose.yml -f docker-compose.dev.yml
 PROD_COMPOSE := docker compose -f docker-compose.yml -f docker-compose.override.yml
+
+# Operator-friendly aliases. `make fresh` intentionally skips Discord channel
+# clone/delete refresh; run `make fresh-with-discord-refresh` only when you
+# explicitly want to rebuild Discord channels.
+fresh: ## Fresh start current prod stack without Discord channel refresh
+	$(MAKE) $(FRESH_TARGET) SKIP_DISCORD_REFRESH=1
+
+fresh-with-discord-refresh: ## Fresh start, then refresh Discord channels explicitly
+	$(MAKE) $(FRESH_TARGET)
+	$(MAKE) reset-discord-channels
 
 # ──────────────────────────────────────────
 # Dev — Lifecycle
@@ -83,6 +96,7 @@ dev-migrate: ## [dev] Run all SQL migrations
 
 dev-seed: ## [dev] Seed all ops data
 	$(DEV_COMPOSE) run --rm --entrypoint node \
+		-e SKIP_DISCORD_REFRESH=$(SKIP_DISCORD_REFRESH) \
 		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
 		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
 		--no-deps $(SVC_APP) scripts/go-live/seed.mjs
@@ -189,6 +203,7 @@ prod-migrate: ## [prod] Run all SQL migrations
 
 prod-seed: ## [prod] Seed all ops data
 	$(PROD_COMPOSE) run --rm --entrypoint node \
+		-e SKIP_DISCORD_REFRESH=$(SKIP_DISCORD_REFRESH) \
 		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
 		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
 		--no-deps $(SVC_APP) scripts/go-live/seed.mjs
