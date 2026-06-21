@@ -28,7 +28,7 @@ PG_SUPERUSER := onnwee
 PROJECT_ROOT := $(shell pwd)
 HEARTBEAT_TIMEOUT ?= 180
 FRESH_TARGET ?= prod-fresh
-SKIP_DISCORD_REFRESH ?= 0
+SKIP_DISCORD_REFRESH ?= 1
 
 DEV_COMPOSE  := docker compose -f docker-compose.yml -f docker-compose.dev.yml
 PROD_COMPOSE := docker compose -f docker-compose.yml -f docker-compose.override.yml
@@ -40,7 +40,7 @@ fresh: ## Fresh start current prod stack without Discord channel refresh
 	$(MAKE) $(FRESH_TARGET) SKIP_DISCORD_REFRESH=1
 
 fresh-with-discord-refresh: ## Fresh start, then refresh Discord channels explicitly
-	$(MAKE) $(FRESH_TARGET)
+	$(MAKE) $(FRESH_TARGET) SKIP_DISCORD_REFRESH=0
 	$(MAKE) reset-discord-channels
 
 # ──────────────────────────────────────────
@@ -201,7 +201,7 @@ prod-migrate: ## [prod] Run all SQL migrations
 		-v $(PROJECT_ROOT)/db/migrations:/app/db/migrations:ro \
 		--no-deps $(SVC_APP) scripts/go-live/migrate.mjs
 
-prod-seed: ## [prod] Seed all ops data
+prod-seed: ## [prod] Seed all ops data; skips Discord channels unless SKIP_DISCORD_REFRESH=0
 	$(PROD_COMPOSE) run --rm --entrypoint node \
 		-e SKIP_DISCORD_REFRESH=$(SKIP_DISCORD_REFRESH) \
 		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
@@ -218,7 +218,7 @@ prod-fresh: ## [prod] Stop → nuke DB → rebuild → migrate → seed → init
 	@echo "Waiting for Postgres to be ready..."
 	@until docker exec $(PG_CONTAINER) pg_isready -U $(PG_SUPERUSER) -d postgres >/dev/null 2>&1; do sleep 1; done
 	$(MAKE) prod-migrate
-	$(MAKE) prod-seed
+	$(MAKE) prod-seed SKIP_DISCORD_REFRESH=$(SKIP_DISCORD_REFRESH)
 	$(PROD_COMPOSE) exec $(SVC_TOOLBOX) /usr/local/bin/init-workspace.sh
 	@echo "Fresh start complete."
 
@@ -291,7 +291,11 @@ seed-rss: ## Seed RSS feeds only
 	$(RUN_SEED_DEV) scripts/go-live/seed.mjs --only rss-feeds
 
 seed-discord: ## Seed Discord channels only
-	$(RUN_SEED_DEV) scripts/go-live/seed.mjs --only discord-channels
+	$(DEV_COMPOSE) run --rm --entrypoint node \
+		-e SKIP_DISCORD_REFRESH=0 \
+		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
+		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
+		--no-deps $(SVC_APP) scripts/go-live/seed.mjs --only discord-channels
 
 purge-discord: ## Purge all messages from Discord channels
 	$(PROD_COMPOSE) run --rm \
@@ -300,6 +304,8 @@ purge-discord: ## Purge all messages from Discord channels
 		--no-deps $(SVC_APP) node scripts/go-live/purge-discord.mjs
 
 reset-discord-channels: ## Fast wipe Discord channels by clone/delete; updates .env + DB, then restarts app/worker
+	$(MAKE) prod-migrate
+	$(MAKE) prod-seed SKIP_DISCORD_REFRESH=0
 	$(PROD_COMPOSE) run --rm \
 		--user root \
 		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
