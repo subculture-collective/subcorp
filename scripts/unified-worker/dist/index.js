@@ -6853,18 +6853,7 @@ async function llmGenerate(options) {
     );
     if (ollamaText) return ollamaText;
     if (isOllamaRoutedModel(resolvedOllamaModel) && !shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
-      recordProviderFallbackDecision({
-        fromProvider: localWasTried ? "ollama" : "none",
-        toProvider: "openrouter",
-        reason: "explicit_local_model_cloud_fallback_disallowed",
-        attempted: false,
-        trackingContext,
-        extra: {
-          model: resolvedOllamaModel,
-          policy: openRouterFallbackPolicy(localWasTried)
-        }
-      });
-      log.warn("Explicit Ollama/llama-line model request failed; cloud fallback disallowed by policy", {
+      log.warn("Explicit Ollama/llama-line model request failed; no cloud fallback configured", {
         model: resolvedOllamaModel,
         context: trackingContext?.context
       });
@@ -6872,23 +6861,12 @@ async function llmGenerate(options) {
     }
   }
   if (!shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
-    recordProviderFallbackDecision({
-      fromProvider: localWasTried ? "ollama" : "none",
-      toProvider: "openrouter",
-      reason: "openrouter_policy_disabled",
-      attempted: false,
-      trackingContext,
-      extra: {
-        policy: openRouterFallbackPolicy(localWasTried),
-        ollamaAvailable: !!(OLLAMA_API_KEY || OLLAMA_LOCAL_URL)
-      }
-    });
     incLlmEmptyText({
       provider: "ollama",
       context: trackingContext?.context,
       agentId: trackingContext?.agentId
     });
-    log.warn("Ollama returned empty and OpenRouter fallback is disabled by policy", {
+    log.warn("Ollama returned empty; no cloud fallback configured", {
       context: trackingContext?.context,
       agentId: trackingContext?.agentId,
       ollamaAvailable: !!(OLLAMA_API_KEY || OLLAMA_LOCAL_URL),
@@ -7465,19 +7443,7 @@ async function llmGenerateWithTools(options) {
       return { text: ollamaResult.text, toolCalls: ollamaResult.toolCalls };
     }
     if (isOllamaRoutedModel(resolvedModel) && !shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
-      recordProviderFallbackDecision({
-        fromProvider: localWasTried ? "ollama-tools" : "none",
-        toProvider: "openrouter-tools",
-        reason: "explicit_local_tool_model_cloud_fallback_disallowed",
-        attempted: false,
-        trackingContext,
-        extra: {
-          model: resolvedModel,
-          policy: openRouterFallbackPolicy(localWasTried),
-          toolNames: tools.map((t) => t.name)
-        }
-      });
-      log.warn("Explicit Ollama/llama-line tool-call model failed; cloud fallback disallowed by policy", {
+      log.warn("Explicit Ollama/llama-line tool-call model failed; no cloud fallback configured", {
         model: resolvedModel,
         context: trackingContext?.context
       });
@@ -7485,23 +7451,12 @@ async function llmGenerateWithTools(options) {
     }
   }
   if (!shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
-    recordProviderFallbackDecision({
-      fromProvider: localWasTried ? "ollama-tools" : "none",
-      toProvider: "openrouter-tools",
-      reason: "openrouter_tool_policy_disabled",
-      attempted: false,
-      trackingContext,
-      extra: {
-        policy: openRouterFallbackPolicy(localWasTried),
-        toolNames: tools.map((t) => t.name)
-      }
-    });
     incLlmEmptyText({
       provider: "ollama-tools",
       context: trackingContext?.context,
       agentId: trackingContext?.agentId
     });
-    log.warn("Ollama returned empty and OpenRouter tool fallback is disabled by policy", {
+    log.warn("Ollama returned empty; no cloud tool fallback configured", {
       context: trackingContext?.context,
       agentId: trackingContext?.agentId,
       hasTools,
@@ -8876,12 +8831,12 @@ async function checkCapGates(input) {
   const missionCapPolicy = await getMissionCapPolicy();
   const [{ count: activeMissions }] = await sql`
         SELECT COUNT(*)::int as count FROM ops_missions
-        WHERE status = ANY(${ACTIVE_MISSION_STATUSES})
+        WHERE status = ANY(${sql.array(ACTIVE_MISSION_STATUSES)}::text[])
           AND (
             EXISTS (
                 SELECT 1 FROM ops_mission_steps s
                 WHERE s.mission_id = ops_missions.id
-                  AND s.status = ANY(${ACTIVE_STEP_STATUSES})
+                  AND s.status = ANY(${sql.array(ACTIVE_STEP_STATUSES)}::text[])
             )
             OR updated_at >= NOW() - (${missionCapPolicy.activeMissionStaleHours} * INTERVAL '1 hour')
           )
@@ -8913,7 +8868,7 @@ async function checkCapGates(input) {
                 SELECT COUNT(*)::int as count FROM ops_mission_steps s
                 JOIN ops_missions m ON s.mission_id = m.id
                 WHERE m.created_by = ${input.agent_id}
-                AND s.kind = ANY(${draftKinds})
+                AND s.kind = ANY(${sql.array(draftKinds)}::text[])
                 AND s.created_at >= ${todayStart.toISOString()}
             `;
       if (todayDrafts >= maxDrafts) {
@@ -10172,7 +10127,7 @@ async function enforceMemoryCap(agentId) {
     `;
   if (oldest.length > 0) {
     const ids = oldest.map((r) => r.id);
-    await sql`DELETE FROM ops_agent_memory WHERE id = ANY(${ids})`;
+    await sql`DELETE FROM ops_agent_memory WHERE id = ANY(${sql.array(ids)}::uuid[])`;
   }
 }
 var log10, configuredMemoryCap, MAX_MEMORIES_PER_AGENT;
@@ -20176,7 +20131,7 @@ async function finalizeMissionSteps() {
                     completed_at = NOW(),
                     updated_at = NOW(),
                     result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
-                        'agent_session_id', ${step.session_id},
+                        'agent_session_id', ${step.session_id}::text,
                         'reconciledBy', 'worker-finalizer',
                         'reconciledAt', NOW()
                     )
@@ -20260,7 +20215,7 @@ async function finalizeMissionSteps() {
                     completed_at = NOW(),
                     updated_at = NOW(),
                     result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
-                        'agent_session_id', ${step.session_id},
+                        'agent_session_id', ${step.session_id}::text,
                         'reconciledBy', 'worker-finalizer',
                         'reconciledAt', NOW()
                     )
@@ -20305,7 +20260,7 @@ async function finalizeMissionSteps() {
                     completed_at = NOW(),
                     updated_at = NOW(),
                     result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
-                        'agent_session_id', ${step.session_id},
+                        'agent_session_id', ${step.session_id}::text,
                         'reconciledBy', 'worker-finalizer',
                         'reconciledAt', NOW()
                     )
@@ -20748,7 +20703,13 @@ async function sweepOrphanedMissionSteps() {
                 'requeuedAt', NOW()
             )
         WHERE status = 'running'
-          AND started_at < NOW() - INTERVAL '2 hours'
+          AND (
+              started_at < NOW() - INTERVAL '2 hours'
+              OR (
+                  kind IN ('memory_archaeology', 'convene_roundtable')
+                  AND started_at < NOW() - INTERVAL '15 minutes'
+              )
+          )
           AND result->>'agent_session_id' IS NULL
         RETURNING id, mission_id, kind, assigned_agent
     `;
@@ -20796,13 +20757,15 @@ async function sweepOrphanedMissionSteps() {
   }
   return requeued.length > 0 || orphaned.length > 0;
 }
-async function runMaintenanceTasks() {
-  await sweepStaleAgentSessions();
-  await sweepStaleRoundtables();
-  await finalizeMissionSteps();
-  await recoverSweptLiveMissionSteps();
-  await sweepOrphanedMissionSteps();
-  await triggerHeartbeatIfDue();
+async function runMaintenanceTasks(options = {}) {
+  await runWorkerStage("maintenance.sweep_stale_agent_sessions", sweepStaleAgentSessions);
+  await runWorkerStage("maintenance.sweep_stale_roundtables", sweepStaleRoundtables);
+  await runWorkerStage("maintenance.finalize_mission_steps", finalizeMissionSteps);
+  await runWorkerStage("maintenance.recover_swept_live_mission_steps", recoverSweptLiveMissionSteps);
+  await runWorkerStage("maintenance.sweep_orphaned_mission_steps", sweepOrphanedMissionSteps);
+  if (options.triggerHeartbeat ?? true) {
+    await runWorkerStage("maintenance.trigger_heartbeat_if_due", triggerHeartbeatIfDue);
+  }
 }
 async function finalizeMissionIfComplete(missionId, options) {
   const [counts] = await sql2`
@@ -20859,6 +20822,18 @@ async function waitForDb(maxRetries = 30, intervalMs = 2e3) {
   }
 }
 var running = true;
+async function runWorkerStage(stage, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    log36.error("Worker stage failed", {
+      stage,
+      error: err,
+      stack: err instanceof Error ? err.stack : void 0
+    });
+    throw err;
+  }
+}
 async function catchUpStuckReviews() {
   const stuck = await sql2`
         SELECT d.id, d.review_session_id, d.title
@@ -20942,21 +20917,21 @@ async function catchUpOrphanedMissions() {
 }
 async function pollLoop() {
   await waitForDb();
-  const toolbox = await checkToolboxAvailable();
+  const toolbox = await runWorkerStage("startup.check_toolbox", checkToolboxAvailable);
   if (!toolbox.ok) {
     disableDockerBackedTools(toolbox.reason);
   }
-  await catchUpStuckReviews();
-  await catchUpOrphanedReviewDrafts();
-  await catchUpOrphanedMissions();
-  const startupPublish = await publishApprovedDrafts();
+  await runWorkerStage("startup.catch_up_stuck_reviews", catchUpStuckReviews);
+  await runWorkerStage("startup.catch_up_orphaned_review_drafts", catchUpOrphanedReviewDrafts);
+  await runWorkerStage("startup.catch_up_orphaned_missions", catchUpOrphanedMissions);
+  const startupPublish = await runWorkerStage("startup.publish_approved_drafts", publishApprovedDrafts);
   if (startupPublish.published > 0 || startupPublish.failed > 0) {
     log36.info("Startup content publish sweep complete", {
       published: startupPublish.published,
       failed: startupPublish.failed
     });
   }
-  const startupGhostBackfill = await mirrorPublishedDraftBackfill();
+  const startupGhostBackfill = await runWorkerStage("startup.ghost_backfill", mirrorPublishedDraftBackfill);
   if (!startupGhostBackfill.skipped && startupGhostBackfill.processed > 0) {
     log36.info("Startup Ghost backfill sweep complete", {
       processed: startupGhostBackfill.processed,
@@ -20965,7 +20940,7 @@ async function pollLoop() {
       skipped: startupGhostBackfill.skipped
     });
   }
-  const startupGovernanceBackfill = await backfillGovernanceVotes();
+  const startupGovernanceBackfill = await runWorkerStage("startup.governance_backfill", backfillGovernanceVotes);
   if (startupGovernanceBackfill.processed > 0) {
     log36.info("Startup governance vote backfill complete", {
       processed: startupGovernanceBackfill.processed,
@@ -20975,13 +20950,13 @@ async function pollLoop() {
       failed: startupGovernanceBackfill.failed
     });
   }
-  await runMaintenanceTasks();
+  await runWorkerStage("startup.maintenance", () => runMaintenanceTasks({ triggerHeartbeat: false }));
   while (running) {
     try {
-      await pollRoundtables();
       const hadSession = await pollAgentSessions();
       await pollMissionSteps();
       await finalizeMissionSteps();
+      await pollRoundtables();
       if (hadSession) {
         await runMaintenanceTasks();
         continue;

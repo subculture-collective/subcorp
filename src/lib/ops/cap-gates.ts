@@ -63,12 +63,12 @@ export async function checkCapGates(input: ProposalInput): Promise<GateResult> {
     // Gate 1: Active mission count
     const [{ count: activeMissions }] = await sql<[{ count: number }]>`
         SELECT COUNT(*)::int as count FROM ops_missions
-        WHERE status = ANY(${ACTIVE_MISSION_STATUSES})
+        WHERE status = ANY(${sql.array(ACTIVE_MISSION_STATUSES)}::text[])
           AND (
             EXISTS (
                 SELECT 1 FROM ops_mission_steps s
                 WHERE s.mission_id = ops_missions.id
-                  AND s.status = ANY(${ACTIVE_STEP_STATUSES})
+                  AND s.status = ANY(${sql.array(ACTIVE_STEP_STATUSES)}::text[])
             )
             OR updated_at >= NOW() - (${missionCapPolicy.activeMissionStaleHours} * INTERVAL '1 hour')
           )
@@ -109,7 +109,7 @@ export async function checkCapGates(input: ProposalInput): Promise<GateResult> {
                 SELECT COUNT(*)::int as count FROM ops_mission_steps s
                 JOIN ops_missions m ON s.mission_id = m.id
                 WHERE m.created_by = ${input.agent_id}
-                AND s.kind = ANY(${draftKinds})
+                AND s.kind = ANY(${sql.array(draftKinds)}::text[])
                 AND s.created_at >= ${todayStart.toISOString()}
             `;
 

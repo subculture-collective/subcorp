@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
                 )
                 SELECT e.id, e.agent_id, e.kind, e.title, e.summary, e.tags, e.created_at
                 FROM ops_agent_events e, cursor_row c
-                WHERE e.kind = ANY(${PUBLIC_SAFE_KINDS as unknown as string[]})
+                WHERE e.kind = ANY(${sql.array(PUBLIC_SAFE_KINDS as unknown as string[])}::text[])
                 AND (
                     e.created_at > c.created_at
                     OR (
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
             rows = await sql`
                 SELECT id, agent_id, kind, title, summary, tags, created_at
                 FROM ops_agent_events
-                WHERE kind = ANY(${PUBLIC_SAFE_KINDS as unknown as string[]})
+                WHERE kind = ANY(${sql.array(PUBLIC_SAFE_KINDS as unknown as string[])}::text[])
                 ORDER BY created_at DESC
                 LIMIT ${limit}
             `;

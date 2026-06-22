@@ -1284,7 +1284,7 @@ async function finalizeMissionSteps(): Promise<boolean> {
                     completed_at = NOW(),
                     updated_at = NOW(),
                     result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
-                        'agent_session_id', ${step.session_id},
+                        'agent_session_id', ${step.session_id}::text,
                         'reconciledBy', 'worker-finalizer',
                         'reconciledAt', NOW()
                     )
@@ -1373,7 +1373,7 @@ async function finalizeMissionSteps(): Promise<boolean> {
                     completed_at = NOW(),
                     updated_at = NOW(),
                     result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
-                        'agent_session_id', ${step.session_id},
+                        'agent_session_id', ${step.session_id}::text,
                         'reconciledBy', 'worker-finalizer',
                         'reconciledAt', NOW()
                     )
@@ -1421,7 +1421,7 @@ async function finalizeMissionSteps(): Promise<boolean> {
                     completed_at = NOW(),
                     updated_at = NOW(),
                     result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
-                        'agent_session_id', ${step.session_id},
+                        'agent_session_id', ${step.session_id}::text,
                         'reconciledBy', 'worker-finalizer',
                         'reconciledAt', NOW()
                     )
@@ -1954,7 +1954,13 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
                 'requeuedAt', NOW()
             )
         WHERE status = 'running'
-          AND started_at < NOW() - INTERVAL '2 hours'
+          AND (
+              started_at < NOW() - INTERVAL '2 hours'
+              OR (
+                  kind IN ('memory_archaeology', 'convene_roundtable')
+                  AND started_at < NOW() - INTERVAL '15 minutes'
+              )
+          )
           AND result->>'agent_session_id' IS NULL
         RETURNING id, mission_id, kind, assigned_agent
     `;
@@ -2011,25 +2017,27 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
     return requeued.length > 0 || orphaned.length > 0;
 }
 
-async function runMaintenanceTasks(): Promise<void> {
+async function runMaintenanceTasks(options: { triggerHeartbeat?: boolean } = {}): Promise<void> {
     // Sweep stale agent sessions stuck in 'running' past their timeout
-    await sweepStaleAgentSessions();
+    await runWorkerStage('maintenance.sweep_stale_agent_sessions', sweepStaleAgentSessions);
 
     // Sweep roundtables stuck in 'running' after restarts/timeouts
-    await sweepStaleRoundtables();
+    await runWorkerStage('maintenance.sweep_stale_roundtables', sweepStaleRoundtables);
 
     // Finalize terminal session-backed mission steps before orphan sweeping.
-    await finalizeMissionSteps();
+    await runWorkerStage('maintenance.finalize_mission_steps', finalizeMissionSteps);
 
     // Undo any historical/previous-worker false sweeps where the linked agent
     // session is still pending or running.
-    await recoverSweptLiveMissionSteps();
+    await runWorkerStage('maintenance.recover_swept_live_mission_steps', recoverSweptLiveMissionSteps);
 
     // Sweep genuinely orphaned mission steps only after a generous grace window.
-    await sweepOrphanedMissionSteps();
+    await runWorkerStage('maintenance.sweep_orphaned_mission_steps', sweepOrphanedMissionSteps);
 
     // Keep autonomous output moving even when host cron/timers are absent.
-    await triggerHeartbeatIfDue();
+    if (options.triggerHeartbeat ?? true) {
+        await runWorkerStage('maintenance.trigger_heartbeat_if_due', triggerHeartbeatIfDue);
+    }
 }
 
 /** Check if all steps in a mission are done, finalize if so */
@@ -2109,6 +2117,19 @@ async function waitForDb(maxRetries = 30, intervalMs = 2000): Promise<void> {
 // ─── Main poll loop ───
 
 let running = true;
+
+async function runWorkerStage<T>(stage: string, fn: () => Promise<T>): Promise<T> {
+    try {
+        return await fn();
+    } catch (err) {
+        log.error('Worker stage failed', {
+            stage,
+            error: err,
+            stack: err instanceof Error ? err.stack : undefined,
+        });
+        throw err;
+    }
+}
 
 /** One-time: process content_review sessions that completed but were never processed */
 async function catchUpStuckReviews(): Promise<void> {
@@ -2226,22 +2247,22 @@ async function catchUpOrphanedMissions(): Promise<void> {
 async function pollLoop(): Promise<void> {
     await waitForDb();
 
-    const toolbox = await checkToolboxAvailable();
+    const toolbox = await runWorkerStage('startup.check_toolbox', checkToolboxAvailable);
     if (!toolbox.ok) {
         disableDockerBackedTools(toolbox.reason);
     }
 
     // Catch up on any stuck reviews from before the fix
-    await catchUpStuckReviews();
+    await runWorkerStage('startup.catch_up_stuck_reviews', catchUpStuckReviews);
 
     // Release review drafts that lost their path and have sat in limbo too long
-    await catchUpOrphanedReviewDrafts();
+    await runWorkerStage('startup.catch_up_orphaned_review_drafts', catchUpOrphanedReviewDrafts);
 
     // Finalize any orphaned missions stuck in 'approved' with all steps done
-    await catchUpOrphanedMissions();
+    await runWorkerStage('startup.catch_up_orphaned_missions', catchUpOrphanedMissions);
 
     // Publish any existing approved content drafts on startup
-    const startupPublish = await publishApprovedDrafts();
+    const startupPublish = await runWorkerStage('startup.publish_approved_drafts', publishApprovedDrafts);
     if (startupPublish.published > 0 || startupPublish.failed > 0) {
         log.info('Startup content publish sweep complete', {
             published: startupPublish.published,
@@ -2250,7 +2271,7 @@ async function pollLoop(): Promise<void> {
     }
 
     // Attempt Ghost backfill mirrors on startup
-    const startupGhostBackfill = await mirrorPublishedDraftBackfill();
+    const startupGhostBackfill = await runWorkerStage('startup.ghost_backfill', mirrorPublishedDraftBackfill);
     if (!startupGhostBackfill.skipped && startupGhostBackfill.processed > 0) {
         log.info('Startup Ghost backfill sweep complete', {
             processed: startupGhostBackfill.processed,
@@ -2261,7 +2282,7 @@ async function pollLoop(): Promise<void> {
     }
 
     // Backfill governance votes for completed debates still stuck in voting
-    const startupGovernanceBackfill = await backfillGovernanceVotes();
+    const startupGovernanceBackfill = await runWorkerStage('startup.governance_backfill', backfillGovernanceVotes);
     if (startupGovernanceBackfill.processed > 0) {
         log.info('Startup governance vote backfill complete', {
             processed: startupGovernanceBackfill.processed,
@@ -2273,20 +2294,22 @@ async function pollLoop(): Promise<void> {
     }
 
     // Run maintenance once before any queue backlog can starve it.
-    await runMaintenanceTasks();
+    await runWorkerStage('startup.maintenance', () => runMaintenanceTasks({ triggerHeartbeat: false }));
 
     while (running) {
         try {
-            // Roundtables first — user questions should not be starved by agent sessions
-            await pollRoundtables();
-
-            // Agent sessions — high priority, check every loop
+            // Agent sessions first — mission/session queues should not sit behind
+            // long-running autonomous roundtables.
             const hadSession = await pollAgentSessions();
 
             // Mission steps — dispatch alongside agent sessions so code builds
             // are never starved by conversation/workflow backlogs.
             await pollMissionSteps();
             await finalizeMissionSteps();
+
+            // Roundtables are long-running; run them after queue claims so they
+            // cannot prevent pending mission sessions from starting.
+            await pollRoundtables();
 
             if (hadSession) {
                 await runMaintenanceTasks();

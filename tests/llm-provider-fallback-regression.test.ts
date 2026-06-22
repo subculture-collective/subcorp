@@ -31,12 +31,10 @@ describe('LLM provider fallback clarity regressions', () => {
         expect(client).toContain('monthlyBudgetUsd');
     });
 
-    test('disabled, budget-blocked, direct-chat, and tool fallback paths are labelled', () => {
+    test('budget, direct-chat, and tool fallback paths are labelled', () => {
         const client = read('src/lib/llm/client.ts');
 
-        expect(client).toContain('explicit_local_model_cloud_fallback_disallowed');
-        expect(client).toContain('openrouter_policy_disabled');
-        expect(client).toContain('openrouter_tool_policy_disabled');
+        expect(client).toContain('Ollama returned empty; no cloud fallback configured');
         expect(client).toContain('budget.reason');
         expect(client).toContain('local_failed_openrouter_allowed');
         expect(client).toContain('local_tool_failed_openrouter_allowed');
@@ -47,5 +45,12 @@ describe('LLM provider fallback clarity regressions', () => {
         expect(client).toContain("fromProvider: localWasTried ? 'ollama-tools' : 'none'");
         expect(client).toContain('modelList');
         expect(client).toContain('resolvedModels');
+    });
+
+    test('disabled OpenRouter does not record a provider fallback decision', () => {
+        const client = read('src/lib/llm/client.ts');
+
+        expect(client).not.toContain('openrouter_policy_disabled');
+        expect(client).not.toContain('openrouter_tool_policy_disabled');
     });
 });

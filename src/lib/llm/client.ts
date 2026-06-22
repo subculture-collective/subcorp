@@ -1802,18 +1802,7 @@ export async function llmGenerate(
         );
         if (ollamaText) return ollamaText;
         if (isOllamaRoutedModel(resolvedOllamaModel) && !shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
-            recordProviderFallbackDecision({
-                fromProvider: localWasTried ? 'ollama' : 'none',
-                toProvider: 'openrouter',
-                reason: 'explicit_local_model_cloud_fallback_disallowed',
-                attempted: false,
-                trackingContext,
-                extra: {
-                    model: resolvedOllamaModel,
-                    policy: openRouterFallbackPolicy(localWasTried),
-                },
-            });
-            log.warn('Explicit Ollama/llama-line model request failed; cloud fallback disallowed by policy', {
+            log.warn('Explicit Ollama/llama-line model request failed; no cloud fallback configured', {
                 model: resolvedOllamaModel,
                 context: trackingContext?.context,
             });
@@ -1823,23 +1812,12 @@ export async function llmGenerate(
 
     // ── OpenRouter fallback (only when enabled) ──
     if (!shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
-        recordProviderFallbackDecision({
-            fromProvider: localWasTried ? 'ollama' : 'none',
-            toProvider: 'openrouter',
-            reason: 'openrouter_policy_disabled',
-            attempted: false,
-            trackingContext,
-            extra: {
-                policy: openRouterFallbackPolicy(localWasTried),
-                ollamaAvailable: !!(OLLAMA_API_KEY || OLLAMA_LOCAL_URL),
-            },
-        });
         incLlmEmptyText({
             provider: 'ollama',
             context: trackingContext?.context,
             agentId: trackingContext?.agentId,
         });
-        log.warn('Ollama returned empty and OpenRouter fallback is disabled by policy', {
+        log.warn('Ollama returned empty; no cloud fallback configured', {
             context: trackingContext?.context,
             agentId: trackingContext?.agentId,
             ollamaAvailable: !!(OLLAMA_API_KEY || OLLAMA_LOCAL_URL),
@@ -2599,19 +2577,7 @@ export async function llmGenerateWithTools(
         }
 
         if (isOllamaRoutedModel(resolvedModel) && !shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
-            recordProviderFallbackDecision({
-                fromProvider: localWasTried ? 'ollama-tools' : 'none',
-                toProvider: 'openrouter-tools',
-                reason: 'explicit_local_tool_model_cloud_fallback_disallowed',
-                attempted: false,
-                trackingContext,
-                extra: {
-                    model: resolvedModel,
-                    policy: openRouterFallbackPolicy(localWasTried),
-                    toolNames: tools.map(t => t.name),
-                },
-            });
-            log.warn('Explicit Ollama/llama-line tool-call model failed; cloud fallback disallowed by policy', {
+            log.warn('Explicit Ollama/llama-line tool-call model failed; no cloud fallback configured', {
                 model: resolvedModel,
                 context: trackingContext?.context,
             });
@@ -2621,23 +2587,12 @@ export async function llmGenerateWithTools(
 
     // ── OpenRouter fallback (only when enabled) ──
     if (!shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
-        recordProviderFallbackDecision({
-            fromProvider: localWasTried ? 'ollama-tools' : 'none',
-            toProvider: 'openrouter-tools',
-            reason: 'openrouter_tool_policy_disabled',
-            attempted: false,
-            trackingContext,
-            extra: {
-                policy: openRouterFallbackPolicy(localWasTried),
-                toolNames: tools.map(t => t.name),
-            },
-        });
         incLlmEmptyText({
             provider: 'ollama-tools',
             context: trackingContext?.context,
             agentId: trackingContext?.agentId,
         });
-        log.warn('Ollama returned empty and OpenRouter tool fallback is disabled by policy', {
+        log.warn('Ollama returned empty; no cloud tool fallback configured', {
             context: trackingContext?.context,
             agentId: trackingContext?.agentId,
             hasTools,

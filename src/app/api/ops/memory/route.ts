@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
                 .split(',')
                 .filter(t => VALID_TYPES.has(t as MemoryType)) as MemoryType[];
             if (types.length > 0) {
-                conditions.push(sql`type = ANY(${types})`);
+                conditions.push(sql`type = ANY(${sql.array(types)}::text[])`);
             }
         }
 
