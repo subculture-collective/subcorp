@@ -6,6 +6,8 @@ import { getPolicy } from './policy';
 const MAX_CONCURRENT_MISSIONS = 50;
 const MAX_DAILY_STEPS_PER_AGENT = 200;
 const ACTIVE_MISSION_STALE_HOURS = 24;
+const MAX_PENDING_MISSION_SESSIONS = 30;
+const MAX_PENDING_MISSION_SESSION_AGE_SECONDS = 1800;
 
 const ACTIVE_MISSION_STATUSES = ['approved', 'running'];
 const ACTIVE_STEP_STATUSES = ['queued', 'running'];
@@ -19,6 +21,8 @@ async function getMissionCapPolicy(): Promise<{
     maxConcurrentMissions: number;
     maxDailyStepsPerAgent: number;
     activeMissionStaleHours: number;
+    maxPendingMissionSessions: number;
+    maxPendingMissionSessionAgeSeconds: number;
 }> {
     try {
         const policy = await getPolicy('mission_caps');
@@ -38,6 +42,16 @@ async function getMissionCapPolicy(): Promise<{
                     policy?.active_mission_stale_hours ?? process.env.MISSION_CAP_ACTIVE_STALE_HOURS,
                     ACTIVE_MISSION_STALE_HOURS,
                 ),
+            maxPendingMissionSessions:
+                positiveNumberOrDefault(
+                    policy?.max_pending_mission_sessions ?? process.env.MISSION_CAP_MAX_PENDING_SESSIONS,
+                    MAX_PENDING_MISSION_SESSIONS,
+                ),
+            maxPendingMissionSessionAgeSeconds:
+                positiveNumberOrDefault(
+                    policy?.max_pending_mission_session_age_seconds ?? process.env.MISSION_CAP_MAX_PENDING_SESSION_AGE_SECONDS,
+                    MAX_PENDING_MISSION_SESSION_AGE_SECONDS,
+                ),
         };
     } catch {
         return {
@@ -52,6 +66,14 @@ async function getMissionCapPolicy(): Promise<{
             activeMissionStaleHours: positiveNumberOrDefault(
                 process.env.MISSION_CAP_ACTIVE_STALE_HOURS,
                 ACTIVE_MISSION_STALE_HOURS,
+            ),
+            maxPendingMissionSessions: positiveNumberOrDefault(
+                process.env.MISSION_CAP_MAX_PENDING_SESSIONS,
+                MAX_PENDING_MISSION_SESSIONS,
+            ),
+            maxPendingMissionSessionAgeSeconds: positiveNumberOrDefault(
+                process.env.MISSION_CAP_MAX_PENDING_SESSION_AGE_SECONDS,
+                MAX_PENDING_MISSION_SESSION_AGE_SECONDS,
             ),
         };
     }
@@ -91,7 +113,30 @@ export async function checkCapGates(input: ProposalInput): Promise<GateResult> {
         };
     }
 
-    // Gate 3: Content draft cap (policy-driven)
+    // Gate 3: mission-backed session backlog. Pending sessions are valid work,
+    // but a deep/old queue means new missions would amplify drain pressure.
+    const [pendingBacklog] = await sql<[
+        { count: number; oldest_age_seconds: number | null }
+    ]>`
+        SELECT COUNT(*)::int AS count,
+               EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_age_seconds
+        FROM ops_agent_sessions
+        WHERE status = 'pending'
+          AND source = 'mission'
+    `;
+
+    const oldestPendingAgeSeconds = pendingBacklog.oldest_age_seconds ?? 0;
+    if (
+        pendingBacklog.count >= missionCapPolicy.maxPendingMissionSessions ||
+        oldestPendingAgeSeconds >= missionCapPolicy.maxPendingMissionSessionAgeSeconds
+    ) {
+        return {
+            ok: false,
+            reason: `Mission session backlog is draining (${pendingBacklog.count}/${missionCapPolicy.maxPendingMissionSessions} pending mission sessions; oldest_age_seconds=${oldestPendingAgeSeconds}/${missionCapPolicy.maxPendingMissionSessionAgeSeconds}). New missions are paused until backlog clears.`,
+        };
+    }
+
+    // Gate 4: Content draft cap (policy-driven)
     try {
         const contentPolicy = await getPolicy('content_caps');
         const maxDrafts = (contentPolicy?.max_drafts_per_day as number) ?? 10;

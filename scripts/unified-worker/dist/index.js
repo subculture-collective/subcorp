@@ -8808,6 +8808,14 @@ async function getMissionCapPolicy() {
       activeMissionStaleHours: positiveNumberOrDefault(
         policy?.active_mission_stale_hours ?? process.env.MISSION_CAP_ACTIVE_STALE_HOURS,
         ACTIVE_MISSION_STALE_HOURS
+      ),
+      maxPendingMissionSessions: positiveNumberOrDefault(
+        policy?.max_pending_mission_sessions ?? process.env.MISSION_CAP_MAX_PENDING_SESSIONS,
+        MAX_PENDING_MISSION_SESSIONS
+      ),
+      maxPendingMissionSessionAgeSeconds: positiveNumberOrDefault(
+        policy?.max_pending_mission_session_age_seconds ?? process.env.MISSION_CAP_MAX_PENDING_SESSION_AGE_SECONDS,
+        MAX_PENDING_MISSION_SESSION_AGE_SECONDS
       )
     };
   } catch {
@@ -8823,6 +8831,14 @@ async function getMissionCapPolicy() {
       activeMissionStaleHours: positiveNumberOrDefault(
         process.env.MISSION_CAP_ACTIVE_STALE_HOURS,
         ACTIVE_MISSION_STALE_HOURS
+      ),
+      maxPendingMissionSessions: positiveNumberOrDefault(
+        process.env.MISSION_CAP_MAX_PENDING_SESSIONS,
+        MAX_PENDING_MISSION_SESSIONS
+      ),
+      maxPendingMissionSessionAgeSeconds: positiveNumberOrDefault(
+        process.env.MISSION_CAP_MAX_PENDING_SESSION_AGE_SECONDS,
+        MAX_PENDING_MISSION_SESSION_AGE_SECONDS
       )
     };
   }
@@ -8852,6 +8868,20 @@ async function checkCapGates(input) {
     return {
       ok: false,
       reason: `Daily step limit reached for ${input.agent_id} (${dailySteps}/${missionCapPolicy.maxDailyStepsPerAgent}; counts all attempted steps created today)`
+    };
+  }
+  const [pendingBacklog] = await sql`
+        SELECT COUNT(*)::int AS count,
+               EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_age_seconds
+        FROM ops_agent_sessions
+        WHERE status = 'pending'
+          AND source = 'mission'
+    `;
+  const oldestPendingAgeSeconds = pendingBacklog.oldest_age_seconds ?? 0;
+  if (pendingBacklog.count >= missionCapPolicy.maxPendingMissionSessions || oldestPendingAgeSeconds >= missionCapPolicy.maxPendingMissionSessionAgeSeconds) {
+    return {
+      ok: false,
+      reason: `Mission session backlog is draining (${pendingBacklog.count}/${missionCapPolicy.maxPendingMissionSessions} pending mission sessions; oldest_age_seconds=${oldestPendingAgeSeconds}/${missionCapPolicy.maxPendingMissionSessionAgeSeconds}). New missions are paused until backlog clears.`
     };
   }
   try {
@@ -8893,7 +8923,7 @@ async function countTodaySteps(agentId) {
     `;
   return count;
 }
-var MAX_CONCURRENT_MISSIONS, MAX_DAILY_STEPS_PER_AGENT, ACTIVE_MISSION_STALE_HOURS, ACTIVE_MISSION_STATUSES, ACTIVE_STEP_STATUSES;
+var MAX_CONCURRENT_MISSIONS, MAX_DAILY_STEPS_PER_AGENT, ACTIVE_MISSION_STALE_HOURS, MAX_PENDING_MISSION_SESSIONS, MAX_PENDING_MISSION_SESSION_AGE_SECONDS, ACTIVE_MISSION_STATUSES, ACTIVE_STEP_STATUSES;
 var init_cap_gates = __esm({
   "src/lib/ops/cap-gates.ts"() {
     "use strict";
@@ -8902,6 +8932,8 @@ var init_cap_gates = __esm({
     MAX_CONCURRENT_MISSIONS = 50;
     MAX_DAILY_STEPS_PER_AGENT = 200;
     ACTIVE_MISSION_STALE_HOURS = 24;
+    MAX_PENDING_MISSION_SESSIONS = 30;
+    MAX_PENDING_MISSION_SESSION_AGE_SECONDS = 1800;
     ACTIVE_MISSION_STATUSES = ["approved", "running"];
     ACTIVE_STEP_STATUSES = ["queued", "running"];
   }
@@ -15385,12 +15417,12 @@ function decorateRenderedTemplate(kind, agentId, rendered) {
   const contract = completionContract(kind, agentId);
   const body = adaptBodyForAgentTools(kind, agentId, rendered);
   if (kind === "audit_system") {
-    return WORKSPACE_PATH_GUIDANCE + AUDIT_EVIDENCE_GUIDANCE + fileReadGuidance + groundingGuidance + contract + body;
+    return WORKSPACE_PATH_GUIDANCE + AUDIT_EVIDENCE_GUIDANCE + fileReadGuidance + groundingGuidance + FINAL_EVIDENCE_CHECKLIST + contract + body;
   }
   if (kind === "patch_code" || kind === "self_evolution") {
-    return WORKSPACE_PATH_GUIDANCE + fileReadGuidance + groundingGuidance + contract + body;
+    return WORKSPACE_PATH_GUIDANCE + fileReadGuidance + groundingGuidance + FINAL_EVIDENCE_CHECKLIST + contract + body;
   }
-  return fileReadGuidance + groundingGuidance + contract + body;
+  return fileReadGuidance + groundingGuidance + FINAL_EVIDENCE_CHECKLIST + contract + body;
 }
 function needsArtifactGrounding(kind) {
   return [
@@ -15467,13 +15499,13 @@ Payload: ${payloadStr}
     }
   }
   body = adaptBodyForAgentTools(kind, ctx.agentId, body);
-  const prompt = header + completionContract(kind, ctx.agentId) + body;
+  const prompt = header + FINAL_EVIDENCE_CHECKLIST + completionContract(kind, ctx.agentId) + body;
   return opts?.withVersion ? { prompt, templateVersion: null } : prompt;
 }
 function slugify(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30);
 }
-var WORKSPACE_ROOT2, GITEA_BASE_URL2, GITEA_ORG2, GITEA_PROJECT_ORG2, WORKSPACE_PATH_GUIDANCE, AUDIT_EVIDENCE_GUIDANCE, FILE_READ_GUIDANCE, ARTIFACT_GROUNDING_GUIDANCE, STEP_COMPLETION_CONTRACTS, SELF_EVOLUTION_REPO_SETUP, TEMPLATE_CACHE_TTL_MS, templateCache, STEP_INSTRUCTIONS;
+var WORKSPACE_ROOT2, GITEA_BASE_URL2, GITEA_ORG2, GITEA_PROJECT_ORG2, WORKSPACE_PATH_GUIDANCE, AUDIT_EVIDENCE_GUIDANCE, FILE_READ_GUIDANCE, ARTIFACT_GROUNDING_GUIDANCE, FINAL_EVIDENCE_CHECKLIST, STEP_COMPLETION_CONTRACTS, SELF_EVOLUTION_REPO_SETUP, TEMPLATE_CACHE_TTL_MS, templateCache, STEP_INSTRUCTIONS;
 var init_step_prompts = __esm({
   "src/lib/ops/step-prompts.ts"() {
     "use strict";
@@ -15493,12 +15525,14 @@ var init_step_prompts = __esm({
 `;
     ARTIFACT_GROUNDING_GUIDANCE = `Artifact grounding rule: do not claim code changes, schema changes, metrics, coverage, compliance, operational outcomes, or completed work unless you verified them with bash, file_read, web_fetch, or an explicitly cited source artifact. Include a "Grounding" section listing the exact files, commands, DB rows, URLs, or source artifacts used. Do not cite example.com/placeholder URLs or files marked missing/not found as evidence. If a claim is not verified, label it as a proposal, assumption, or next step instead of stating it as fact.
 `;
+    FINAL_EVIDENCE_CHECKLIST = `Before final answer: reread the Completion contract and verify every required tool call and evidence section exists. If any required evidence is missing, do not claim success; write a blocked/partial result that names the missing tool, source, or artifact.
+`;
     STEP_COMPLETION_CONTRACTS = {
-      research_topic: `Completion contract: you MUST call web_search successfully and write notes with file_write. Include a Sources section listing query strings and URLs or state exactly which search failed.
+      research_topic: `Completion contract: you MUST call web_search successfully and write notes with file_write. Prefer web_fetch for the strongest URLs when useful. Include a Sources section listing query strings, URLs, fetched pages, and any failed searches/fetches.
 `,
-      scan_signals: `Completion contract: you MUST call web_search successfully and write a signal report with file_write. Include a Sources section listing query strings and URLs or state exactly which search failed.
+      scan_signals: `Completion contract: you MUST call web_search successfully and write a signal report with file_write. Prefer web_fetch for the strongest URLs when useful. Include a Sources section listing query strings, URLs, fetched pages, and any failed searches/fetches.
 `,
-      audit_system: `Completion contract: you MUST call bash successfully and write an audit artifact with file_write. The artifact MUST include an evidence table with columns: claim | command_or_source | observed_output | severity.
+      audit_system: `Completion contract: you MUST call bash successfully and write an audit artifact with file_write. The artifact MUST include the command(s) run, observed output excerpts, and an evidence table with columns: claim | command_or_source | observed_output | severity.
 `,
       patch_code: `Completion contract: you MUST create or modify at least one source/config file with file_write and write a changelog artifact. The changelog MUST include a Grounding section with exact written files and verification commands.
 `,
@@ -18209,6 +18243,8 @@ ${ctx.primeDirective}
 `;
   prompt += `IMPORTANT: When the task asks you to read, write, search, run commands, inspect Git, or publish, you MUST call the relevant tool. Do not claim you completed work without tool results.
 `;
+  prompt += `IMPORTANT: If your prompt includes a Completion contract, treat it as a pass/fail checklist. Before your final answer, verify every required tool call, source list, Grounding section, audit evidence table, and handoff has been produced. If any required evidence is missing, report a blocked or partial outcome instead of claiming success.
+`;
   prompt += `IMPORTANT: Prefer the structured tool calling API. If your runtime cannot emit native tool calls, emit exactly <function_calls><invoke name="tool_name"><parameter name="param">value</parameter></invoke></function_calls>; the runtime will execute it. Do not leave tool XML in your final answer.
 `;
   prompt += `IMPORTANT: Only call tools from the list below. Do NOT invent tool names.
@@ -19240,6 +19276,20 @@ var AGENT_SESSION_CONCURRENCY = Math.max(
   1,
   Number.parseInt(process.env.WORKER_AGENT_SESSION_CONCURRENCY ?? "2", 10) || 1
 );
+var ROUNDTABLE_CONCURRENCY = Math.max(
+  1,
+  Number.parseInt(process.env.WORKER_ROUNDTABLE_CONCURRENCY ?? "1", 10) || 1
+);
+var PENDING_SESSION_WARN_SECONDS = Math.max(
+  60,
+  Number.parseInt(process.env.WORKER_PENDING_SESSION_WARN_SECONDS ?? "1800", 10) || 1800
+);
+var PENDING_SESSION_WARN_INTERVAL_MS = Math.max(
+  6e4,
+  (Number.parseInt(process.env.WORKER_PENDING_SESSION_WARN_INTERVAL_SECONDS ?? "900", 10) || 900) * 1e3
+);
+var activeRoundtableIds = /* @__PURE__ */ new Set();
+var lastPendingSessionWarningAt = 0;
 async function pollAgentSessions() {
   await reapExpiredRunningAgentSessions();
   const sessions = await sql2`
@@ -19520,29 +19570,7 @@ async function processAgentSession(session) {
         `;
   }
 }
-async function pollRoundtables() {
-  const rows = await sql2`
-        UPDATE ops_roundtable_sessions
-        SET status = 'running'
-        WHERE id = (
-            SELECT id FROM ops_roundtable_sessions
-            WHERE status = 'pending'
-            AND scheduled_for <= NOW()
-            ORDER BY
-                CASE WHEN source = 'user_question' THEN 0 ELSE 1 END,
-                created_at ASC
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED
-        )
-        RETURNING *
-    `;
-  const session = rows[0];
-  if (!session) return false;
-  await sql2`
-        UPDATE ops_roundtable_sessions
-        SET status = 'pending'
-        WHERE id = ${session.id}
-    `;
+async function processRoundtableSession(session) {
   log36.info("Processing roundtable", {
     sessionId: session.id,
     format: session.format,
@@ -19595,7 +19623,54 @@ async function pollRoundtables() {
       error: err,
       sessionId: session.id
     });
+    await sql2`
+            UPDATE ops_roundtable_sessions
+            SET status = 'failed',
+                completed_at = NOW(),
+                metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                    'failureReason', ${err.message},
+                    'failedAt', NOW()
+                )
+            WHERE id = ${session.id}
+              AND status = 'running'
+        `;
   }
+}
+async function pollRoundtables() {
+  if (activeRoundtableIds.size >= ROUNDTABLE_CONCURRENCY) return false;
+  const rows = await sql2`
+        UPDATE ops_roundtable_sessions
+        SET status = 'running', started_at = NOW()
+        WHERE id = (
+            SELECT id FROM ops_roundtable_sessions
+            WHERE status = 'pending'
+            AND scheduled_for <= NOW()
+            ORDER BY
+                CASE WHEN source = 'user_question' THEN 0 ELSE 1 END,
+                created_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
+    `;
+  const session = rows[0];
+  if (!session) return false;
+  activeRoundtableIds.add(session.id);
+  log36.info("Launched roundtable processing", {
+    sessionId: session.id,
+    format: session.format,
+    topic: session.topic.slice(0, 80),
+    activeRoundtables: activeRoundtableIds.size,
+    roundtableConcurrency: ROUNDTABLE_CONCURRENCY
+  });
+  void processRoundtableSession(session).catch((err) => {
+    log36.error("Unhandled roundtable processing error", {
+      error: err,
+      sessionId: session.id
+    });
+  }).finally(() => {
+    activeRoundtableIds.delete(session.id);
+  });
   return true;
 }
 var MAX_PARALLEL_STEPS = Math.max(
@@ -20636,6 +20711,45 @@ async function sweepStaleAgentSessions() {
   }
   return stale.length > 0;
 }
+async function warnOnPendingAgentSessionBacklog() {
+  const now = Date.now();
+  if (now - lastPendingSessionWarningAt < PENDING_SESSION_WARN_INTERVAL_MS) {
+    return false;
+  }
+  const [summary] = await sql2`
+        SELECT
+            COUNT(*)::int AS total,
+            (array_agg(id ORDER BY created_at ASC))[1]::text AS oldest_id,
+            (array_agg(source ORDER BY created_at ASC))[1] AS oldest_source,
+            (array_agg(agent_id ORDER BY created_at ASC))[1] AS oldest_agent,
+            EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_age_seconds
+        FROM ops_agent_sessions
+        WHERE status = 'pending'
+    `;
+  if (!summary?.oldest_age_seconds || summary.oldest_age_seconds < PENDING_SESSION_WARN_SECONDS) {
+    return false;
+  }
+  const bySource = await sql2`
+        SELECT source,
+               COUNT(*)::int AS count,
+               EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_age_seconds
+        FROM ops_agent_sessions
+        WHERE status = 'pending'
+        GROUP BY source
+        ORDER BY count DESC, source ASC
+    `;
+  lastPendingSessionWarningAt = now;
+  log36.warn("Pending agent session backlog age threshold exceeded", {
+    total: summary.total,
+    thresholdSeconds: PENDING_SESSION_WARN_SECONDS,
+    oldestSessionId: summary.oldest_id,
+    oldestSource: summary.oldest_source,
+    oldestAgent: summary.oldest_agent,
+    oldestAgeSeconds: summary.oldest_age_seconds,
+    bySource
+  });
+  return true;
+}
 async function sweepStaleRoundtables() {
   const stale = await sql2`
         UPDATE ops_roundtable_sessions
@@ -20759,6 +20873,7 @@ async function sweepOrphanedMissionSteps() {
 }
 async function runMaintenanceTasks(options = {}) {
   await runWorkerStage("maintenance.sweep_stale_agent_sessions", sweepStaleAgentSessions);
+  await runWorkerStage("maintenance.warn_pending_agent_session_backlog", warnOnPendingAgentSessionBacklog);
   await runWorkerStage("maintenance.sweep_stale_roundtables", sweepStaleRoundtables);
   await runWorkerStage("maintenance.finalize_mission_steps", finalizeMissionSteps);
   await runWorkerStage("maintenance.recover_swept_live_mission_steps", recoverSweptLiveMissionSteps);

@@ -985,6 +985,7 @@ function buildAgentSystemPrompt(ctx: {
     prompt += `You have tools available to accomplish your task. Use them through the provided function calling interface.\n`;
     prompt += `When your task is complete, provide a clear summary of what you accomplished.\n`;
     prompt += `IMPORTANT: When the task asks you to read, write, search, run commands, inspect Git, or publish, you MUST call the relevant tool. Do not claim you completed work without tool results.\n`;
+    prompt += `IMPORTANT: If your prompt includes a Completion contract, treat it as a pass/fail checklist. Before your final answer, verify every required tool call, source list, Grounding section, audit evidence table, and handoff has been produced. If any required evidence is missing, report a blocked or partial outcome instead of claiming success.\n`;
     prompt += `IMPORTANT: Prefer the structured tool calling API. If your runtime cannot emit native tool calls, emit exactly <function_calls><invoke name="tool_name"><parameter name="param">value</parameter></invoke></function_calls>; the runtime will execute it. Do not leave tool XML in your final answer.\n`;
     prompt += `IMPORTANT: Only call tools from the list below. Do NOT invent tool names.\n\n`;
 

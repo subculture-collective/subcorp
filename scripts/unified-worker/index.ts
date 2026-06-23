@@ -154,6 +154,24 @@ const AGENT_SESSION_CONCURRENCY = Math.max(
     Number.parseInt(process.env.WORKER_AGENT_SESSION_CONCURRENCY ?? '2', 10) || 1,
 );
 
+const ROUNDTABLE_CONCURRENCY = Math.max(
+    1,
+    Number.parseInt(process.env.WORKER_ROUNDTABLE_CONCURRENCY ?? '1', 10) || 1,
+);
+
+const PENDING_SESSION_WARN_SECONDS = Math.max(
+    60,
+    Number.parseInt(process.env.WORKER_PENDING_SESSION_WARN_SECONDS ?? '1800', 10) || 1800,
+);
+
+const PENDING_SESSION_WARN_INTERVAL_MS = Math.max(
+    60_000,
+    (Number.parseInt(process.env.WORKER_PENDING_SESSION_WARN_INTERVAL_SECONDS ?? '900', 10) || 900) * 1000,
+);
+
+const activeRoundtableIds = new Set<string>();
+let lastPendingSessionWarningAt = 0;
+
 /** Poll and process pending agent sessions (highest priority) */
 async function pollAgentSessions(): Promise<boolean> {
     await reapExpiredRunningAgentSessions();
@@ -511,34 +529,7 @@ async function processAgentSession(session: AgentSession): Promise<void> {
     }
 }
 
-/** Poll and process pending roundtable conversations */
-async function pollRoundtables(): Promise<boolean> {
-    const rows = await sql<RoundtableSession[]>`
-        UPDATE ops_roundtable_sessions
-        SET status = 'running'
-        WHERE id = (
-            SELECT id FROM ops_roundtable_sessions
-            WHERE status = 'pending'
-            AND scheduled_for <= NOW()
-            ORDER BY
-                CASE WHEN source = 'user_question' THEN 0 ELSE 1 END,
-                created_at ASC
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED
-        )
-        RETURNING *
-    `;
-
-    const session = rows[0];
-    if (!session) return false;
-
-    // Reset to pending so orchestrateConversation can set it properly
-    await sql`
-        UPDATE ops_roundtable_sessions
-        SET status = 'pending'
-        WHERE id = ${session.id}
-    `;
-
+async function processRoundtableSession(session: RoundtableSession): Promise<void> {
     log.info('Processing roundtable', {
         sessionId: session.id,
         format: session.format,
@@ -603,7 +594,62 @@ async function pollRoundtables(): Promise<boolean> {
             error: err,
             sessionId: session.id,
         });
+        await sql`
+            UPDATE ops_roundtable_sessions
+            SET status = 'failed',
+                completed_at = NOW(),
+                metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                    'failureReason', ${(err as Error).message},
+                    'failedAt', NOW()
+                )
+            WHERE id = ${session.id}
+              AND status = 'running'
+        `;
     }
+}
+
+/** Poll and launch pending roundtable conversations without blocking queue drains. */
+async function pollRoundtables(): Promise<boolean> {
+    if (activeRoundtableIds.size >= ROUNDTABLE_CONCURRENCY) return false;
+
+    const rows = await sql<RoundtableSession[]>`
+        UPDATE ops_roundtable_sessions
+        SET status = 'running', started_at = NOW()
+        WHERE id = (
+            SELECT id FROM ops_roundtable_sessions
+            WHERE status = 'pending'
+            AND scheduled_for <= NOW()
+            ORDER BY
+                CASE WHEN source = 'user_question' THEN 0 ELSE 1 END,
+                created_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
+    `;
+
+    const session = rows[0];
+    if (!session) return false;
+
+    activeRoundtableIds.add(session.id);
+    log.info('Launched roundtable processing', {
+        sessionId: session.id,
+        format: session.format,
+        topic: session.topic.slice(0, 80),
+        activeRoundtables: activeRoundtableIds.size,
+        roundtableConcurrency: ROUNDTABLE_CONCURRENCY,
+    });
+
+    void processRoundtableSession(session)
+        .catch(err => {
+            log.error('Unhandled roundtable processing error', {
+                error: err,
+                sessionId: session.id,
+            });
+        })
+        .finally(() => {
+            activeRoundtableIds.delete(session.id);
+        });
 
     return true;
 }
@@ -1869,6 +1915,60 @@ async function sweepStaleAgentSessions(): Promise<boolean> {
     return stale.length > 0;
 }
 
+/** Warn when pending agent sessions are old enough to indicate queue pressure. */
+async function warnOnPendingAgentSessionBacklog(): Promise<boolean> {
+    const now = Date.now();
+    if (now - lastPendingSessionWarningAt < PENDING_SESSION_WARN_INTERVAL_MS) {
+        return false;
+    }
+
+    const [summary] = await sql<[
+        {
+            total: number;
+            oldest_id: string | null;
+            oldest_source: string | null;
+            oldest_agent: string | null;
+            oldest_age_seconds: number | null;
+        }
+    ]>`
+        SELECT
+            COUNT(*)::int AS total,
+            (array_agg(id ORDER BY created_at ASC))[1]::text AS oldest_id,
+            (array_agg(source ORDER BY created_at ASC))[1] AS oldest_source,
+            (array_agg(agent_id ORDER BY created_at ASC))[1] AS oldest_agent,
+            EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_age_seconds
+        FROM ops_agent_sessions
+        WHERE status = 'pending'
+    `;
+
+    if (!summary?.oldest_age_seconds || summary.oldest_age_seconds < PENDING_SESSION_WARN_SECONDS) {
+        return false;
+    }
+
+    const bySource = await sql<{ source: string; count: number; oldest_age_seconds: number }[]>`
+        SELECT source,
+               COUNT(*)::int AS count,
+               EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_age_seconds
+        FROM ops_agent_sessions
+        WHERE status = 'pending'
+        GROUP BY source
+        ORDER BY count DESC, source ASC
+    `;
+
+    lastPendingSessionWarningAt = now;
+    log.warn('Pending agent session backlog age threshold exceeded', {
+        total: summary.total,
+        thresholdSeconds: PENDING_SESSION_WARN_SECONDS,
+        oldestSessionId: summary.oldest_id,
+        oldestSource: summary.oldest_source,
+        oldestAgent: summary.oldest_agent,
+        oldestAgeSeconds: summary.oldest_age_seconds,
+        bySource,
+    });
+
+    return true;
+}
+
 /** Sweep roundtables stuck in 'running' after worker/app restarts or abandoned voice chats */
 async function sweepStaleRoundtables(): Promise<boolean> {
     const stale = await sql<{ id: string; format: string; topic: string }[]>`
@@ -2020,6 +2120,9 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
 async function runMaintenanceTasks(options: { triggerHeartbeat?: boolean } = {}): Promise<void> {
     // Sweep stale agent sessions stuck in 'running' past their timeout
     await runWorkerStage('maintenance.sweep_stale_agent_sessions', sweepStaleAgentSessions);
+
+    // Surface queue pressure without failing valid pending backlog.
+    await runWorkerStage('maintenance.warn_pending_agent_session_backlog', warnOnPendingAgentSessionBacklog);
 
     // Sweep roundtables stuck in 'running' after restarts/timeouts
     await runWorkerStage('maintenance.sweep_stale_roundtables', sweepStaleRoundtables);

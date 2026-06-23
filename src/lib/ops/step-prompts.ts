@@ -45,13 +45,17 @@ const ARTIFACT_GROUNDING_GUIDANCE =
     `Do not cite example.com/placeholder URLs or files marked missing/not found as evidence. ` +
     `If a claim is not verified, label it as a proposal, assumption, or next step instead of stating it as fact.\n`;
 
+const FINAL_EVIDENCE_CHECKLIST =
+    `Before final answer: reread the Completion contract and verify every required tool call and evidence section exists. ` +
+    `If any required evidence is missing, do not claim success; write a blocked/partial result that names the missing tool, source, or artifact.\n`;
+
 const STEP_COMPLETION_CONTRACTS: Partial<Record<StepKind, string>> = {
     research_topic:
-        `Completion contract: you MUST call web_search successfully and write notes with file_write. Include a Sources section listing query strings and URLs or state exactly which search failed.\n`,
+        `Completion contract: you MUST call web_search successfully and write notes with file_write. Prefer web_fetch for the strongest URLs when useful. Include a Sources section listing query strings, URLs, fetched pages, and any failed searches/fetches.\n`,
     scan_signals:
-        `Completion contract: you MUST call web_search successfully and write a signal report with file_write. Include a Sources section listing query strings and URLs or state exactly which search failed.\n`,
+        `Completion contract: you MUST call web_search successfully and write a signal report with file_write. Prefer web_fetch for the strongest URLs when useful. Include a Sources section listing query strings, URLs, fetched pages, and any failed searches/fetches.\n`,
     audit_system:
-        `Completion contract: you MUST call bash successfully and write an audit artifact with file_write. The artifact MUST include an evidence table with columns: claim | command_or_source | observed_output | severity.\n`,
+        `Completion contract: you MUST call bash successfully and write an audit artifact with file_write. The artifact MUST include the command(s) run, observed output excerpts, and an evidence table with columns: claim | command_or_source | observed_output | severity.\n`,
     patch_code:
         `Completion contract: you MUST create or modify at least one source/config file with file_write and write a changelog artifact. The changelog MUST include a Grounding section with exact written files and verification commands.\n`,
     draft_product_spec:
@@ -189,14 +193,15 @@ function decorateRenderedTemplate(kind: StepKind, agentId: string, rendered: str
             AUDIT_EVIDENCE_GUIDANCE +
             fileReadGuidance +
             groundingGuidance +
+            FINAL_EVIDENCE_CHECKLIST +
             contract +
             body
         );
     }
     if (kind === 'patch_code' || kind === 'self_evolution') {
-        return WORKSPACE_PATH_GUIDANCE + fileReadGuidance + groundingGuidance + contract + body;
+        return WORKSPACE_PATH_GUIDANCE + fileReadGuidance + groundingGuidance + FINAL_EVIDENCE_CHECKLIST + contract + body;
     }
-    return fileReadGuidance + groundingGuidance + contract + body;
+    return fileReadGuidance + groundingGuidance + FINAL_EVIDENCE_CHECKLIST + contract + body;
 }
 
 function needsArtifactGrounding(kind: StepKind): boolean {
@@ -292,7 +297,7 @@ export async function buildStepPrompt(
 
     body = adaptBodyForAgentTools(kind, ctx.agentId, body);
 
-    const prompt = header + completionContract(kind, ctx.agentId) + body;
+    const prompt = header + FINAL_EVIDENCE_CHECKLIST + completionContract(kind, ctx.agentId) + body;
     return opts?.withVersion ? { prompt, templateVersion: null } : prompt;
 }
 
