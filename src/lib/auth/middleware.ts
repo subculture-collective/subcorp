@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { validateSession } from './session';
 import type { AuthUser, UserRole } from './types';
 
+function unauthorized(): NextResponse {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+}
+
 /** Require authenticated user. Returns AuthUser or 401 response. */
 export async function requireAuth(): Promise<
     AuthUser | NextResponse
@@ -31,6 +35,42 @@ export async function optionalAuth(): Promise<AuthUser | null> {
     return validateSession();
 }
 
+/** Require authenticated user with member/admin access for ops reads. */
+export async function requireOpsRead(): Promise<AuthUser | NextResponse> {
+    return requireRole('member', 'admin');
+}
+
+/** Require CRON_SECRET bearer token. Fails closed if CRON_SECRET is unset. */
+export async function requireCron(
+    request: Request,
+): Promise<'cron' | NextResponse> {
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) return unauthorized();
+
+    const authHeader = request.headers.get('authorization');
+    if (authHeader === `Bearer ${cronSecret}`) return 'cron';
+
+    return unauthorized();
+}
+
+/** Require authenticated user with any of the given roles, or CRON_SECRET. */
+export async function requireRoleOrCron(
+    request: Request,
+    ...roles: UserRole[]
+): Promise<AuthUser | 'cron' | NextResponse> {
+    const auth = await validateSession();
+    if (auth && roles.includes(auth.user.role)) return auth;
+
+    return requireCron(request);
+}
+
+/** Require admin user or CRON_SECRET. */
+export async function requireOpsAdminOrCron(
+    request: Request,
+): Promise<AuthUser | 'cron' | NextResponse> {
+    return requireRoleOrCron(request, 'admin');
+}
+
 /**
  * Require user auth OR CRON_SECRET bearer token.
  * Used for endpoints that both dashboard users and workers/cron call.
@@ -42,12 +82,5 @@ export async function requireAuthOrCron(
     const auth = await validateSession();
     if (auth) return auth;
 
-    // Fall back to CRON_SECRET bearer token
-    const authHeader = request.headers.get('authorization');
-    const cronSecret = process.env.CRON_SECRET;
-    if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
-        return 'cron';
-    }
-
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return requireCron(request);
 }

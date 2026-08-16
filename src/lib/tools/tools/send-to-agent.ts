@@ -41,7 +41,7 @@ export const sendToAgentTool: NativeTool = {
 
         const b64 = Buffer.from(content).toString('base64');
         const dir = `/workspace/agents/${target}/inbox`;
-        const command = `mkdir -p '${dir}' && echo '${b64}' | base64 -d > '${fullPath}'`;
+        const command = `mkdir -p '${dir}' && echo '${b64}' | base64 -d > '${fullPath}' && chmod 0644 '${fullPath}'`;
 
         const result = await execInToolbox(command, 10_000);
 

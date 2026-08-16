@@ -41,6 +41,8 @@ export interface DiscordEmbed {
 const WEBHOOK_MIN_INTERVAL_MS = 600; // ~1.7 req/s — safe headroom under 5/2s burst
 const MAX_RETRIES = 3;
 const DISCORD_TIMEOUT_MS = 15_000;
+const DISCORD_CONTENT_LIMIT = 2000;
+const DISCORD_TRUNCATION_SUFFIX = '\n\n… [truncated to fit Discord 2000 character limit]';
 
 type WebhookResult = { id: string; channel_id: string } | null;
 interface QueueEntry {
@@ -109,6 +111,12 @@ function sleep(ms: number): Promise<void> {
     return new Promise(r => setTimeout(r, ms));
 }
 
+function truncateDiscordContent(content: string): string {
+    if (content.length <= DISCORD_CONTENT_LIMIT) return content;
+    return content.slice(0, DISCORD_CONTENT_LIMIT - DISCORD_TRUNCATION_SUFFIX.length) +
+        DISCORD_TRUNCATION_SUFFIX;
+}
+
 /**
  * Generic Discord fetch with timeout + retry for transient failures.
  */
@@ -152,7 +160,7 @@ function buildWebhookUrlAndPayload(options: WebhookPostOptions): {
     const payload: Record<string, unknown> = {};
     if (options.username) payload.username = options.username;
     if (options.avatarUrl) payload.avatar_url = options.avatarUrl;
-    if (options.content) payload.content = options.content;
+    if (options.content) payload.content = truncateDiscordContent(options.content);
     if (options.embeds) payload.embeds = options.embeds;
 
     // Guard: Discord rejects messages with no content and no embeds

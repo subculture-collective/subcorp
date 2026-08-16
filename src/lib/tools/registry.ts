@@ -5,7 +5,8 @@ import { bashTool } from './tools/bash';
 import { webSearchTool } from './tools/web-search';
 import { webFetchTool } from './tools/web-fetch';
 import { fileReadTool } from './tools/file-read';
-import { fileWriteTool, createFileWriteExecute, WRITE_ACLS } from './tools/file-write';
+import { fileWriteTool, createFileWriteExecute } from './tools/file-write';
+import { getCapabilityToolNames, getCapabilityWritePaths, getDroidToolNames } from './capabilities';
 import { sendToAgentTool } from './tools/send-to-agent';
 import { spawnDroidTool } from './tools/spawn-droid';
 import { checkDroidTool } from './tools/check-droid';
@@ -63,8 +64,9 @@ const ALL_TOOLS: NativeTool[] = [
  * For propose_policy_change, binds the agentId to track who is proposing.
  */
 export function getAgentTools(agentId: AgentId, sessionId?: string): ToolDefinition[] {
+    const toolNames = new Set(getCapabilityToolNames(agentId));
     return ALL_TOOLS
-        .filter(tool => tool.agents.includes(agentId))
+        .filter(tool => toolNames.has(tool.name))
         .filter(tool => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name))
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         .map(({ agents: _agents, ...tool }) => {
@@ -109,10 +111,11 @@ export function getAgentTools(agentId: AgentId, sessionId?: string): ToolDefinit
 
 /**
  * Get a limited toolset for droid sub-agents.
- * Droids get file_read, file_write (ACL-bound to droids/ prefix), bash, web_search.
+ * Droids get file_read, file_write (ACL-bound to droids/ prefix), web_search, and web_fetch.
+ * They intentionally do not get raw bash because shell redirection can bypass file_write ACLs.
  */
 export function getDroidTools(droidId: string): ToolDefinition[] {
-    const droidToolNames = ['file_read', 'file_write', 'bash', 'web_search', 'web_fetch'];
+    const droidToolNames = getDroidToolNames();
     return ALL_TOOLS
         .filter(tool => droidToolNames.includes(tool.name))
         .filter(tool => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name))
@@ -129,8 +132,9 @@ export function getDroidTools(droidId: string): ToolDefinition[] {
  * Get tool names available to a specific agent.
  */
 export function getAgentToolNames(agentId: AgentId): string[] {
+    const toolNames = new Set(getCapabilityToolNames(agentId));
     return ALL_TOOLS
-        .filter(tool => tool.agents.includes(agentId))
+        .filter(tool => toolNames.has(tool.name))
         .filter(tool => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name))
         .map(tool => tool.name);
 }
@@ -140,8 +144,7 @@ export function getAgentToolNames(agentId: AgentId): string[] {
  */
 export function getAgentWritePaths(agentId: AgentId): string[] {
     if (!dockerBackedToolsEnabled()) return [];
-    if (!fileWriteTool.agents.includes(agentId)) return [];
-    return WRITE_ACLS[agentId] ?? [];
+    return getCapabilityWritePaths(agentId);
 }
 
 /**

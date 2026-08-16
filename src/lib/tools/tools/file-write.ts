@@ -4,6 +4,7 @@
 import type { NativeTool } from '../types';
 import type { AgentId } from '../../types';
 import { execInToolbox } from '../executor';
+import { WRITE_ACLS } from '../capabilities';
 import { randomUUID } from 'node:crypto';
 import { sql } from '@/lib/db';
 import {
@@ -13,20 +14,9 @@ import {
 } from '@/lib/ops/grant-authority-events';
 import path from 'node:path';
 import { createLogger } from '@/lib/logger';
+import { tenantCacheKey } from '@/lib/tenant/cache-key';
 
-/**
- * Per-agent write ACLs.
- * Each entry is a prefix relative to /workspace/ that the agent may write to.
- * All agents can read all of /workspace.
- */
-export const WRITE_ACLS: Record<AgentId, string[]> = {
-    chora: [],
-    subrosa: [],
-    thaum: [],
-    praxis: ['agents/praxis/', 'output/', 'shared/', 'projects/'],
-    mux: ['agents/mux/', 'output/', 'shared/', 'projects/'],
-    primus: ['agents/primus/', 'output/', 'shared/', 'projects/'],
-};
+export { WRITE_ACLS } from '../capabilities';
 
 const log = createLogger({ service: 'file_write' });
 
@@ -99,37 +89,26 @@ async function isPathAllowedWithGrants(agentId: string, relativePath: string): P
     }
 }
 
-/** Append a manifest entry for artifacts written to output/ */
-async function appendManifest(
-    artifactId: string,
-    fullPath: string,
-    agentId: string,
-    contentLength: number,
-): Promise<void> {
-    const relativePath = fullPath.replace('/workspace/', '');
+function forbiddenWorkspaceProjectRootWritePath(relativePath: string): string | null {
+    if (/^shared\/manifests(?:\/|$)/i.test(relativePath)) {
+        return 'trusted artifact manifests are orchestrator-managed and cannot be written through file_write';
+    }
 
-    // Determine artifact type from path
-    let artifactType = 'unknown';
-    if (relativePath.startsWith('output/briefings/')) artifactType = 'briefing';
-    else if (relativePath.startsWith('output/reports/')) artifactType = 'report';
-    else if (relativePath.startsWith('output/reviews/')) artifactType = 'review';
-    else if (relativePath.startsWith('output/digests/')) artifactType = 'digest';
-    else if (relativePath.startsWith('output/')) artifactType = 'artifact';
+    const outputProjectsTarget = /^output\/projects\//i;
+    if (outputProjectsTarget.test(relativePath)) {
+        return 'product code writes must not be placed under /workspace/output/projects; use a mission-specific /workspace/projects/<slug>/ directory for code and output/reports or output/reviews for artifacts';
+    }
 
-    const entry = JSON.stringify({
-        artifact_id: artifactId,
-        path: relativePath,
-        agent_id: agentId,
-        type: artifactType,
-        created_at: new Date().toISOString(),
-        bytes: contentLength,
-    });
+    if (/^projects\/agents\//i.test(relativePath)) {
+        return 'agent notes and inbox handoffs must be written under agents/<agent>/, not /workspace/projects/agents';
+    }
 
-    const b64 = Buffer.from(entry + '\n').toString('base64');
-    await execInToolbox(
-        `echo '${b64}' | base64 -d >> /workspace/shared/manifests/index.jsonl`,
-        5_000,
-    );
+    const directProjectsRootTarget = /^projects\/(?:package\.json|README\.md|app\.py|server\.js|index\.[a-z]+|src(?:\/|$)|tests?(?:\/|$)|config(?:\/|$))/i;
+    if (directProjectsRootTarget.test(relativePath)) {
+        return 'product code writes must target a mission-specific /workspace/projects/<slug>/ directory, not /workspace/projects root';
+    }
+
+    return null;
 }
 
 /**
@@ -174,12 +153,19 @@ export function createFileWriteExecute(agentId: string) {
             };
         }
 
+        const workspaceProjectRootWrite = forbiddenWorkspaceProjectRootWritePath(relativePath);
+        if (workspaceProjectRootWrite) {
+            return { error: workspaceProjectRootWrite, denied: true, policy: 'workspace_project_root_boundary' };
+        }
+
         // Base64-encode content to avoid shell escaping issues
         const b64 = Buffer.from(content).toString('base64');
         const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
         const op = append ? '>>' : '>';
 
-        const command = `mkdir -p '${dir.replace(/'/g, "'\\''")}' && echo '${b64}' | base64 -d ${op} '${fullPath.replace(/'/g, "'\\''")}'`;
+        const escapedDir = dir.replace(/'/g, "'\\''");
+        const escapedPath = fullPath.replace(/'/g, "'\\''");
+        const command = `mkdir -p '${escapedDir}' && echo '${b64}' | base64 -d ${op} '${escapedPath}' && chmod 0644 '${escapedPath}'`;
 
         const result = await execInToolbox(command, 10_000);
 
@@ -187,24 +173,9 @@ export function createFileWriteExecute(agentId: string) {
             return { error: `File write failed: ${result.stderr || 'unknown error'}` };
         }
 
-        // Auto-append manifest for output/ writes
-        if (relativePath.startsWith('output/')) {
-            const artifactId = randomUUID();
-            try {
-                await appendManifest(artifactId, fullPath, agentId, content.length);
-            } catch (manifestErr) {
-                // Non-fatal — don't fail the write because manifest append failed
-                log.warn('Manifest append failed (non-fatal)', {
-                    error: manifestErr,
-                    agentId,
-                    path: fullPath,
-                    artifactId,
-                });
-            }
-            return { path: fullPath, bytes: content.length, appended: append, artifact_id: artifactId };
-        }
-
-        return { path: fullPath, bytes: content.length, appended: append };
+        return relativePath.startsWith('output/')
+            ? { path: fullPath, bytes: content.length, appended: append, artifact_id: randomUUID() }
+            : { path: fullPath, bytes: content.length, appended: append };
     };
 }
 

@@ -4,6 +4,42 @@
 
 set -euo pipefail
 
+GITEA_BASE_URL="${GITEA_BASE_URL:-https://git.subcult.tv}"
+GITEA_ORG="${GITEA_ORG:-subculture-collective}"
+GITEA_USERNAME="${GITEA_USERNAME:-x-access-token}"
+AGENT_GIT_TOKEN="${GITEA_TOKEN:-${GITHUB_TOKEN:-}}"
+
+# Configure non-interactive HTTPS auth for Gitea without embedding tokens in
+# repository remotes. GITHUB_TOKEN is accepted only as a backward-compatible
+# fallback for older deployments; prefer GITEA_TOKEN.
+cat > /usr/local/bin/gitea-askpass << 'ASKPASS'
+#!/bin/sh
+case "$1" in
+    *Username*) printf '%s\n' "${GITEA_USERNAME:-x-access-token}" ;;
+    *Password*) printf '%s\n' "${GITEA_TOKEN:-${GITHUB_TOKEN:-}}" ;;
+    *) printf '%s\n' "${GITEA_TOKEN:-${GITHUB_TOKEN:-}}" ;;
+esac
+ASKPASS
+chmod 700 /usr/local/bin/gitea-askpass
+
+cat > /etc/workspace-env.sh << 'ENVSH'
+umask 0022
+export PATH="/usr/local/bin:$PATH"
+export GIT_ASKPASS=/usr/local/bin/gitea-askpass
+export GIT_TERMINAL_PROMPT=0
+ENVSH
+
+git config --global user.email "agents@subcult.tv"
+git config --global user.name "Subcorp Agents"
+git config --global init.defaultBranch main
+git config --global core.askPass /usr/local/bin/gitea-askpass
+
+if command -v sync-workspace-to-gitea.sh >/dev/null 2>&1; then
+    echo "Workspace sync helper available: /usr/local/bin/sync-workspace-to-gitea.sh"
+else
+    echo "Warning: sync-workspace-to-gitea.sh is missing from PATH" >&2
+fi
+
 # ── Create directory structure ──
 for agent in chora subrosa thaum praxis mux primus; do
     mkdir -p /workspace/agents/$agent/{drafts,notes,inbox}
@@ -21,9 +57,20 @@ REPO_DST=/workspace/projects/subcorp
 BRANCH=agents/workspace
 
 if [ -d "$REPO_SRC" ]; then
-    # Always sync from the image (fresh copy each rebuild)
-    rm -rf "$REPO_DST"
-    cp -a "$REPO_SRC" "$REPO_DST"
+    # Always sync from the image (fresh copy each rebuild). Build the new copy
+    # next to the old one and swap it into place so reruns don't fail if a
+    # previous tree cannot be removed cleanly from the shared Docker volume.
+    REPO_TMP="${REPO_DST}.tmp.$$"
+    REPO_OLD="${REPO_DST}.old.$$"
+    rm -rf "$REPO_TMP" "$REPO_OLD"
+    cp -a "$REPO_SRC" "$REPO_TMP"
+    if [ -e "$REPO_DST" ]; then
+        mv "$REPO_DST" "$REPO_OLD"
+    fi
+    mv "$REPO_TMP" "$REPO_DST"
+    if [ -e "$REPO_OLD" ]; then
+        rm -rf "$REPO_OLD" 2>/dev/null || echo "Warning: could not fully remove $REPO_OLD; continuing with fresh repo copy"
+    fi
 
     cd "$REPO_DST"
     git init -q
@@ -33,10 +80,13 @@ if [ -d "$REPO_SRC" ]; then
     git commit -q -m "Initial: synced from build $(date -Iseconds)"
     git checkout -q -b "$BRANCH"
 
-    # Set up GitHub remote if token is available
-    if [ -n "${GITHUB_TOKEN:-}" ]; then
-        git remote add origin "https://x-access-token:${GITHUB_TOKEN}@git.subcult.tv/subculture-collective/subcorp.git" 2>/dev/null || true
-        echo "GitHub remote configured for $REPO_DST"
+    # Set up tokenless Gitea remote. Authentication is supplied via askpass.
+    git remote remove origin 2>/dev/null || true
+    git remote add origin "${GITEA_BASE_URL}/${GITEA_ORG}/subcorp.git"
+    if [ -n "$AGENT_GIT_TOKEN" ]; then
+        echo "Gitea remote configured for $REPO_DST"
+    else
+        echo "Gitea remote configured for $REPO_DST (push disabled until GITEA_TOKEN is set)"
     fi
 
     echo "Repo initialized at $REPO_DST on branch $BRANCH"
@@ -116,6 +166,10 @@ TEMPLATE
 fi
 
 # ── Fix permissions ──
-chmod -R a+rwX /workspace
+# App/worker containers run as nextjs:nodejs (1001:1001). Keep the shared
+# workspace writable for the runtime owner without making artifacts
+# world-writable; agent writers normalize individual artifacts to 0644.
+chown -R 1001:1001 /workspace
+chmod -R u+rwX,g+rwX,o+rX,o-w /workspace
 
 echo "Workspace initialized at $(date -Iseconds)"

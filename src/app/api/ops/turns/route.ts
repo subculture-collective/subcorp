@@ -1,10 +1,14 @@
 // /api/ops/turns — List roundtable turns by session ID
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
+import { requireOpsRead } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     const { searchParams } = new URL(req.url);
     const sessionId = searchParams.get('session_id');
 

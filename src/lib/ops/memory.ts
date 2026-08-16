@@ -29,7 +29,7 @@ export async function queryAgentMemories(
         SELECT * FROM ops_agent_memory
         WHERE agent_id = ${agentId}
         AND superseded_by IS NULL
-        ${types?.length ? sql`AND type = ANY(${types})` : sql``}
+        ${types?.length ? sql`AND type = ANY(${sql.array(types)}::text[])` : sql``}
         ${tags?.length ? sql`AND tags && ${tags}` : sql``}
         ${minConfidence ? sql`AND confidence >= ${minConfidence}` : sql``}
         ORDER BY created_at DESC
@@ -178,7 +178,7 @@ export async function enforceMemoryCap(agentId: string): Promise<void> {
 
     if (oldest.length > 0) {
         const ids = oldest.map(r => r.id);
-        await sql`DELETE FROM ops_agent_memory WHERE id = ANY(${ids})`;
+        await sql`DELETE FROM ops_agent_memory WHERE id = ANY(${sql.array(ids)}::uuid[])`;
     }
 }
 

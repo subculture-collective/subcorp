@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { register, collectDefaultMetrics } from "prom-client";
 
+import "@/lib/metrics";
+
 collectDefaultMetrics();
 
 export async function GET() {

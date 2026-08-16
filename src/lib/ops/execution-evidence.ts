@@ -42,9 +42,12 @@ function defaultAcceptanceResults(
     return criteria.map(criterion => ({
         criterion,
         status:
-            outcome === 'succeeded' ? 'passed'
-            : outcome === 'dispatched' ? 'pending'
+            outcome === 'dispatched' ? 'pending'
             : 'not_verified',
+        note:
+            outcome === 'succeeded' ?
+                'Session succeeded, but acceptance criteria require explicit validator evidence before being marked passed.'
+            :   undefined,
     }));
 }
 

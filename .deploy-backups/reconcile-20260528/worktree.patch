@@ -1,0 +1,2740 @@
+diff --git a/.gitignore b/.gitignore
+index feec625..ee185ad 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -46,3 +46,4 @@ next-env.d.ts
+ # agents
+ /.swarm
+ /.claude
++docker-compose.dev.yml
+diff --git a/Makefile b/Makefile
+index 1980444..d420a36 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,15 +1,19 @@
+ # ─── SUBCORP — Makefile ───
+ 
+-.PHONY: dev build start lint typecheck clean \
+-        seed seed-agents seed-policy seed-triggers seed-relationships seed-rss seed-discord \
+-        purge-discord \
+-        verify up down restart status logs logs-app logs-worker logs-db \
+-        heartbeat db-migrate db-shell nuke fresh init-workspace \
+-        rebuild-toolbox prune \
+-        engage disengage help
++.PHONY: \
++	dev-up dev-down dev-restart dev-rebuild dev-rebuild-toolbox dev-status \
++	dev-logs dev-logs-app dev-logs-worker dev-logs-db \
++	dev-migrate dev-seed dev-fresh dev-nuke dev-init-workspace \
++	dev-heartbeat dev-engage dev-disengage dev-verify \
++	prod-up prod-down prod-restart prod-rebuild prod-rebuild-toolbox prod-status \
++	prod-logs prod-logs-app prod-logs-worker prod-logs-db \
++	prod-migrate prod-seed prod-fresh prod-nuke prod-init-workspace \
++	prod-heartbeat prod-engage prod-disengage prod-verify \
++	seed-agents seed-policy seed-triggers seed-relationships seed-rss seed-discord \
++	purge-discord reset-discord-channels lint typecheck build clean prune help
+ 
+ # ──────────────────────────────────────────
+-# Service name variables (match docker-compose.yml)
++# Variables
+ # ──────────────────────────────────────────
+ 
+ SVC_APP     := subcorp-app
+@@ -17,226 +21,322 @@ SVC_WORKER  := subcorp-worker
+ SVC_SANCTUM := subcorp-sanctum
+ SVC_TOOLBOX := subcorp-toolbox
+ 
+-# External postgres container (NOT managed by this compose file)
+ PG_CONTAINER := pg16-pgvector
+ PG_USER      := subcult
+ PG_SUPERUSER := onnwee
+ PG_DB        := subcult_ops
+ 
+-# Project root on host — for mounting seed scripts into containers
+ PROJECT_ROOT := $(shell pwd)
++HEARTBEAT_TIMEOUT ?= 180
+ 
+-# ──────────────────────────────────────────
+-# Development
+-# ──────────────────────────────────────────
+-
+-dev: ## Start Next.js dev server
+-	npm run dev
+-
+-build: ## Production build (local)
+-	npm run build
+-
+-start: ## Start production server (local)
+-	npm run start
+-
+-lint: ## Run ESLint
+-	npm run lint
+-
+-typecheck: ## Run TypeScript type-checking (no emit)
+-	npx tsc --noEmit
+-
+-clean: ## Remove .next build cache
+-	rm -rf .next
++DEV_COMPOSE  := docker compose -f docker-compose.yml -f docker-compose.dev.yml
++PROD_COMPOSE := docker compose -f docker-compose.yml -f docker-compose.override.yml
+ 
+ # ──────────────────────────────────────────
+-# Docker — Full Stack
++# Dev — Lifecycle
+ # ──────────────────────────────────────────
+ 
+-up: ## Build and start all containers
+-	docker compose up -d --build --remove-orphans
++dev-up: ## [dev] Build and start all containers
++	$(DEV_COMPOSE) up -d --build --remove-orphans
+ 
+-down: ## Stop all containers
+-	docker compose down --remove-orphans
++dev-down: ## [dev] Stop all containers
++	$(DEV_COMPOSE) down --remove-orphans
+ 
+-restart: ## Restart all containers
+-	docker compose restart
++dev-restart: ## [dev] Restart all containers
++	$(DEV_COMPOSE) restart
+ 
+-rebuild: ## Rebuild app images (no cache) and recreate containers (preserves toolbox)
+-	docker compose build --no-cache $(SVC_APP) $(SVC_WORKER) $(SVC_SANCTUM)
+-	docker compose up -d --force-recreate --remove-orphans
++dev-rebuild: ## [dev] Rebuild app images (no cache) and recreate containers
++	$(DEV_COMPOSE) build --no-cache $(SVC_APP) $(SVC_WORKER) $(SVC_SANCTUM)
++	$(DEV_COMPOSE) up -d --force-recreate --remove-orphans
+ 	docker image prune -f
+ 
+-rebuild-toolbox: ## Rebuild only the toolbox image (slow — Go/Python/security tools)
+-	docker compose build --no-cache $(SVC_TOOLBOX)
+-	docker compose up -d --force-recreate $(SVC_TOOLBOX)
+-	@echo "Toolbox rebuilt."
++dev-rebuild-toolbox: ## [dev] Rebuild only the toolbox image
++	$(DEV_COMPOSE) build --no-cache $(SVC_TOOLBOX)
++	$(DEV_COMPOSE) up -d --force-recreate $(SVC_TOOLBOX)
+ 
+-status: ## Show status of all containers
+-	docker compose ps
++dev-status: ## [dev] Show container status
++	$(DEV_COMPOSE) ps
+ 
+ # ──────────────────────────────────────────
+-# Docker — Logs
++# Dev — Logs
+ # ──────────────────────────────────────────
+ 
+-logs: ## Tail logs from all containers
+-	docker compose logs -f --tail=50
+-
+-logs-app: ## Tail app container logs
+-	docker compose logs -f --tail=50 $(SVC_APP)
++dev-logs: ## [dev] Tail all container logs
++	$(DEV_COMPOSE) logs -f --tail=50
+ 
+-logs-worker: ## Tail unified worker logs
+-	docker compose logs -f --tail=50 $(SVC_WORKER)
++dev-logs-app: ## [dev] Tail app container logs
++	$(DEV_COMPOSE) logs -f --tail=50 $(SVC_APP)
+ 
+-logs-toolbox: ## Tail toolbox container logs
+-	docker compose logs -f --tail=50 $(SVC_TOOLBOX)
++dev-logs-worker: ## [dev] Tail worker container logs
++	$(DEV_COMPOSE) logs -f --tail=50 $(SVC_WORKER)
+ 
+-logs-db: ## Tail Postgres logs (external container)
++dev-logs-db: ## [dev] Tail Postgres logs
+ 	docker logs -f --tail=50 $(PG_CONTAINER)
+ 
+ # ──────────────────────────────────────────
+-# Database
++# Dev — Database
+ # ──────────────────────────────────────────
+ 
+-db-migrate: ## Run all SQL migrations against the Postgres container (includes cron seeds)
++dev-migrate: ## [dev] Run all SQL migrations
+ 	@for f in db/migrations/*.sql; do \
+ 		echo "Running $$f..."; \
+ 		docker exec -i $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB) < "$$f" 2>&1 | tail -1; \
+ 	done
+ 	@echo "Migrations complete."
+ 
+-db-shell: ## Open psql shell in the Postgres container
+-	docker exec -it $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB)
++dev-seed: ## [dev] Seed all ops data
++	$(DEV_COMPOSE) run --rm \
++		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
++		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
++		--no-deps $(SVC_APP) node scripts/go-live/seed.mjs
++
++dev-fresh: ## [dev] Stop → rebuild → migrate → seed (no DB nuke)
++	$(DEV_COMPOSE) down --remove-orphans
++	$(DEV_COMPOSE) build --no-cache $(SVC_APP) $(SVC_WORKER) $(SVC_SANCTUM)
++	@if ! docker image inspect subcorp-subcorp-toolbox:latest >/dev/null 2>&1; then \
++		echo "Toolbox image not found, building..."; \
++		$(DEV_COMPOSE) build $(SVC_TOOLBOX); \
++	else \
++		echo "Toolbox image cached, skipping rebuild."; \
++	fi
++	$(DEV_COMPOSE) up -d --remove-orphans
++	docker image prune -f
++	@echo "Waiting for Postgres to be ready..."
++	@until docker exec $(PG_CONTAINER) pg_isready -U $(PG_USER) -d $(PG_DB) >/dev/null 2>&1; do sleep 1; done
++	$(MAKE) dev-migrate
++	$(MAKE) dev-seed
++	$(DEV_COMPOSE) exec $(SVC_TOOLBOX) /usr/local/bin/init-workspace.sh
++
++dev-nuke: ## [dev] Wipe containers, volumes, images, and DB — full reset
++	$(DEV_COMPOSE) down -v --rmi local --remove-orphans
++	@docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c \
++		"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$(PG_DB)' AND pid <> pg_backend_pid();" \
++		>/dev/null 2>&1 || true
++	@docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c "DROP DATABASE IF EXISTS $(PG_DB);" 2>/dev/null || true
++	@echo "Nuked."
++
++dev-init-workspace: ## [dev] Re-initialize workspace
++	$(DEV_COMPOSE) exec $(SVC_TOOLBOX) /usr/local/bin/init-workspace.sh
+ 
+ # ──────────────────────────────────────────
+-# Database Seeding
+-#
+-# Seeds run inside a one-off app container (same image, same network,
+-# same DATABASE_URL from .env) with the host scripts/ mounted in.
+-# This avoids needing Node on the host or baking seed scripts into
+-# the production image.
++# Dev — Ops
+ # ──────────────────────────────────────────
+ 
+-define RUN_SEED
+-	docker compose run --rm \
++dev-heartbeat: ## [dev] Trigger heartbeat
++	@CRON_SECRET=$$(grep -E '^CRON_SECRET=' .env 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'"); \
++	$(DEV_COMPOSE) exec $(SVC_APP) wget -qO- --timeout=30 \
++		--header="Authorization: Bearer $$CRON_SECRET" \
++		http://127.0.0.1:3000/api/ops/heartbeat | python3 -m json.tool
++
++dev-engage: ## [dev] Enable the system
++	@docker exec -i $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB) -c \
++		"UPDATE ops_policy SET value = '{\"enabled\": true}' WHERE key = 'system_enabled';" \
++		&& echo "System ENGAGED"
++
++dev-disengage: ## [dev] Disable the system
++	@docker exec -i $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB) -c \
++		"UPDATE ops_policy SET value = '{\"enabled\": false}' WHERE key = 'system_enabled';" \
++		&& echo "System DISENGAGED"
++
++dev-verify: ## [dev] Run launch verification checks
++	$(DEV_COMPOSE) run --rm \
+ 		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
+ 		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
+-		--no-deps \
+-		$(SVC_APP) \
+-		node
+-endef
++		--no-deps $(SVC_APP) node scripts/go-live/verify-launch.mjs
+ 
+-seed: ## Seed app-managed ops data (agents, policies, triggers, relationships, RSS, Discord, admin)
+-	$(RUN_SEED) scripts/go-live/seed.mjs
++# ──────────────────────────────────────────
++# Prod — Lifecycle
++# ──────────────────────────────────────────
+ 
+-seed-agents: ## Seed agent registry only
+-	$(RUN_SEED) scripts/go-live/seed.mjs --only agents
++prod-up: ## [prod] Build and start all containers
++	$(PROD_COMPOSE) up -d --build --remove-orphans
+ 
+-seed-policy: ## Seed policies only
+-	$(RUN_SEED) scripts/go-live/seed.mjs --only policy
++prod-down: ## [prod] Stop all containers
++	$(PROD_COMPOSE) down --remove-orphans
+ 
+-seed-triggers: ## Seed trigger rules only
+-	$(RUN_SEED) scripts/go-live/seed.mjs --only triggers
++prod-restart: ## [prod] Restart all containers
++	$(PROD_COMPOSE) restart
+ 
+-seed-relationships: ## Seed agent relationships only
+-	$(RUN_SEED) scripts/go-live/seed.mjs --only relationships
++prod-rebuild: ## [prod] Rebuild app images (no cache) and recreate containers
++	$(PROD_COMPOSE) build --no-cache $(SVC_APP) $(SVC_WORKER) $(SVC_SANCTUM)
++	$(PROD_COMPOSE) up -d --force-recreate --remove-orphans
++	docker image prune -f
+ 
+-seed-rss: ## Seed RSS feeds only
+-	$(RUN_SEED) scripts/go-live/seed.mjs --only rss-feeds
++prod-rebuild-toolbox: ## [prod] Rebuild only the toolbox image
++	$(PROD_COMPOSE) build --no-cache $(SVC_TOOLBOX)
++	$(PROD_COMPOSE) up -d --force-recreate $(SVC_TOOLBOX)
+ 
+-seed-discord: ## Seed Discord channels only
+-	$(RUN_SEED) scripts/go-live/seed.mjs --only discord-channels
++prod-status: ## [prod] Show container status
++	$(PROD_COMPOSE) ps
+ 
+-purge-discord: ## Purge all messages from Discord channels
+-	docker compose run --rm \
+-		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
+-		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
+-		--no-deps \
+-		$(SVC_APP) \
+-		node scripts/go-live/purge-discord.mjs
++# ──────────────────────────────────────────
++# Prod — Logs
++# ──────────────────────────────────────────
++
++prod-logs: ## [prod] Tail all container logs
++	$(PROD_COMPOSE) logs -f --tail=50
++
++prod-logs-app: ## [prod] Tail app container logs
++	$(PROD_COMPOSE) logs -f --tail=50 $(SVC_APP)
++
++prod-logs-worker: ## [prod] Tail worker container logs
++	$(PROD_COMPOSE) logs -f --tail=50 $(SVC_WORKER)
++
++prod-logs-db: ## [prod] Tail Postgres logs
++	docker logs -f --tail=50 $(PG_CONTAINER)
+ 
+ # ──────────────────────────────────────────
+-# Fresh Start
++# Prod — Database
+ # ──────────────────────────────────────────
+ 
+-nuke: ## Wipe everything: containers, volumes, images, DB — full reset (including toolbox)
+-	docker compose down -v --rmi local --remove-orphans
+-	@echo "Nuking database $(PG_DB)..."
+-	@docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c \
+-		"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$(PG_DB)' AND pid <> pg_backend_pid();" \
+-		>/dev/null 2>&1 || true
+-	@docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c "DROP DATABASE IF EXISTS $(PG_DB);" 2>/dev/null || true
+-	@echo "Nuked. All containers, volumes, local images, and database removed."
++prod-migrate: ## [prod] Run all SQL migrations
++	@for f in db/migrations/*.sql; do \
++		echo "Running $$f..."; \
++		docker exec -i $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB) < "$$f" 2>&1 | tail -1; \
++	done
++	@echo "Migrations complete."
+ 
+-fresh: ## Fresh start: stop → nuke DB → rebuild → migrate → seed → purge Discord → init workspace
+-	docker compose down -v --remove-orphans
+-	@echo "Nuking database $(PG_DB)..."
++prod-seed: ## [prod] Seed all ops data
++	$(PROD_COMPOSE) run --rm \
++		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
++		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
++		--no-deps $(SVC_APP) node scripts/go-live/seed.mjs
++
++prod-fresh: ## [prod] Stop → nuke DB → rebuild → migrate → seed → init workspace
++	$(PROD_COMPOSE) down -v --remove-orphans
+ 	@docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c \
+ 		"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$(PG_DB)' AND pid <> pg_backend_pid();" \
+ 		>/dev/null 2>&1 || true
+ 	docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c "DROP DATABASE IF EXISTS $(PG_DB);"
+ 	docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c "CREATE DATABASE $(PG_DB) OWNER $(PG_USER);"
+ 	docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d $(PG_DB) -c "CREATE EXTENSION IF NOT EXISTS vector;"
+-	@echo "Database $(PG_DB) recreated with pgvector."
+-	docker compose build --no-cache $(SVC_APP) $(SVC_WORKER) $(SVC_SANCTUM)
++	$(PROD_COMPOSE) build --no-cache $(SVC_APP) $(SVC_WORKER) $(SVC_SANCTUM)
+ 	@if ! docker image inspect subcorp-subcorp-toolbox:latest >/dev/null 2>&1; then \
+ 		echo "Toolbox image not found, building..."; \
+-		docker compose build $(SVC_TOOLBOX); \
++		$(PROD_COMPOSE) build $(SVC_TOOLBOX); \
+ 	else \
+ 		echo "Toolbox image cached, skipping rebuild."; \
+ 	fi
+-	docker compose up -d --remove-orphans
++	$(PROD_COMPOSE) up -d --remove-orphans
+ 	docker image prune -f
+ 	@echo "Waiting for Postgres to be ready..."
+ 	@until docker exec $(PG_CONTAINER) pg_isready -U $(PG_USER) -d $(PG_DB) >/dev/null 2>&1; do sleep 1; done
+-	$(MAKE) db-migrate
+-	$(MAKE) seed
+-	$(MAKE) purge-discord
+-	docker compose exec $(SVC_TOOLBOX) /usr/local/bin/init-workspace.sh
+-	@echo "Fresh start complete. Run 'make heartbeat' to kick things off."
++	$(MAKE) prod-migrate
++	$(MAKE) prod-seed
++	$(PROD_COMPOSE) exec $(SVC_TOOLBOX) /usr/local/bin/init-workspace.sh
++	@echo "Fresh start complete."
+ 
+-prune: ## Clean up orphaned containers, dangling images, and build cache
+-	docker container prune -f
+-	docker image prune -f
+-	docker builder prune -f --filter until=72h
+-	@echo "Cleanup complete."
++prod-nuke: ## [prod] Wipe containers, volumes, images, and DB — full reset
++	$(PROD_COMPOSE) down -v --rmi local --remove-orphans
++	@docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c \
++		"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$(PG_DB)' AND pid <> pg_backend_pid();" \
++		>/dev/null 2>&1 || true
++	@docker exec $(PG_CONTAINER) psql -U $(PG_SUPERUSER) -d postgres -c "DROP DATABASE IF EXISTS $(PG_DB);" 2>/dev/null || true
++	@echo "Nuked."
+ 
+-init-workspace: ## Re-initialize workspace (dirs, prime directive, permissions)
+-	docker compose exec $(SVC_TOOLBOX) /usr/local/bin/init-workspace.sh
++prod-init-workspace: ## [prod] Re-initialize workspace
++	$(PROD_COMPOSE) exec $(SVC_TOOLBOX) /usr/local/bin/init-workspace.sh
+ 
+ # ──────────────────────────────────────────
+-# Verification & Monitoring
++# Prod — Ops
+ # ──────────────────────────────────────────
+ 
+-verify: ## Run launch verification checks
+-	docker compose run --rm \
+-		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
+-		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
+-		--no-deps \
+-		$(SVC_APP) \
+-		node scripts/go-live/verify-launch.mjs
+-
+-heartbeat: ## Trigger heartbeat (via Docker internal network)
+-	@CRON_SECRET=$$(grep CRON_SECRET .env 2>/dev/null | cut -d= -f2); \
+-	docker compose exec $(SVC_APP) wget -qO- \
++prod-heartbeat: ## [prod] Trigger heartbeat
++	@CRON_SECRET=$$(grep -E '^CRON_SECRET=' .env 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'"); \
++	$(PROD_COMPOSE) exec $(SVC_APP) wget -qO- --timeout=$(HEARTBEAT_TIMEOUT) \
+ 		--header="Authorization: Bearer $$CRON_SECRET" \
+-		http://127.0.0.1:3000/api/ops/heartbeat | \
+-		python3 -m json.tool
++		http://127.0.0.1:3000/api/ops/heartbeat | python3 -m json.tool
++
++prod-heartbeat-ext: ## [prod] Trigger heartbeat via external URL
++	@CRON_SECRET=$$(grep -E '^CRON_SECRET=' .env 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'"); \
++	curl -s -H "Authorization: Bearer $$CRON_SECRET" \
++		https://subcorp.subcult.tv/api/ops/heartbeat | python3 -m json.tool
+ 
+-engage: ## Enable the system (heartbeat will process work)
++prod-engage: ## [prod] Enable the system
+ 	@docker exec -i $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB) -c \
+ 		"UPDATE ops_policy SET value = '{\"enabled\": true}' WHERE key = 'system_enabled';" \
+ 		&& echo "System ENGAGED"
+ 
+-disengage: ## Disable the system (heartbeat returns early, no work processed)
++prod-disengage: ## [prod] Disable the system
+ 	@docker exec -i $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB) -c \
+ 		"UPDATE ops_policy SET value = '{\"enabled\": false}' WHERE key = 'system_enabled';" \
+ 		&& echo "System DISENGAGED"
+ 
+-heartbeat-ext: ## Trigger heartbeat (via external URL)
+-	@CRON_SECRET=$$(grep CRON_SECRET .env 2>/dev/null | cut -d= -f2); \
+-	curl -s -H "Authorization: Bearer $$CRON_SECRET" \
+-		https://subcorp.subcult.tv/api/ops/heartbeat | \
+-		python3 -m json.tool
++prod-verify: ## [prod] Run launch verification checks
++	$(PROD_COMPOSE) run --rm \
++		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
++		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
++		--no-deps $(SVC_APP) node scripts/go-live/verify-launch.mjs
++
++# ──────────────────────────────────────────
++# Shared — Seeding
++# ──────────────────────────────────────────
++
++define RUN_SEED_DEV
++	$(DEV_COMPOSE) run --rm \
++		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
++		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
++		--no-deps $(SVC_APP) node
++endef
++
++seed-agents: ## Seed agent registry only
++	$(RUN_SEED_DEV) scripts/go-live/seed.mjs --only agents
++
++seed-policy: ## Seed policies only
++	$(RUN_SEED_DEV) scripts/go-live/seed.mjs --only policy
++
++seed-triggers: ## Seed trigger rules only
++	$(RUN_SEED_DEV) scripts/go-live/seed.mjs --only triggers
++
++seed-relationships: ## Seed agent relationships only
++	$(RUN_SEED_DEV) scripts/go-live/seed.mjs --only relationships
++
++seed-rss: ## Seed RSS feeds only
++	$(RUN_SEED_DEV) scripts/go-live/seed.mjs --only rss-feeds
++
++seed-discord: ## Seed Discord channels only
++	$(RUN_SEED_DEV) scripts/go-live/seed.mjs --only discord-channels
++
++purge-discord: ## Purge all messages from Discord channels
++	$(PROD_COMPOSE) run --rm \
++		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
++		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
++		--no-deps $(SVC_APP) node scripts/go-live/purge-discord.mjs
++
++reset-discord-channels: ## Fast wipe Discord channels by clone/delete; updates .env + DB, then restarts app/worker
++	$(PROD_COMPOSE) run --rm \
++		--user root \
++		-v $(PROJECT_ROOT)/scripts/go-live:/app/scripts/go-live:ro \
++		-v $(PROJECT_ROOT)/scripts/lib:/app/scripts/lib:ro \
++		-v $(PROJECT_ROOT)/.env:/app/.env \
++		--no-deps $(SVC_APP) node scripts/go-live/reset-discord-channels.mjs --yes --write-env
++	$(PROD_COMPOSE) restart $(SVC_APP) $(SVC_WORKER)
++
++# ──────────────────────────────────────────
++# Shared — Local dev (no Docker)
++# ──────────────────────────────────────────
++
++build: ## Production build (local)
++	npm run build
++
++lint: ## Run ESLint
++	npm run lint
++
++typecheck: ## Run TypeScript type-checking
++	npx tsc --noEmit
++
++clean: ## Remove .next build cache
++	rm -rf .next
++
++# ──────────────────────────────────────────
++# Shared — Maintenance
++# ──────────────────────────────────────────
++
++prune: ## Clean up orphaned containers, dangling images, and build cache
++	docker container prune -f
++	docker image prune -f
++	docker builder prune -f --filter until=72h
++	@echo "Cleanup complete."
+ 
+ # ──────────────────────────────────────────
+ # Help
+@@ -244,6 +344,6 @@ heartbeat-ext: ## Trigger heartbeat (via external URL)
+ 
+ help: ## Show this help
+ 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
++		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-28s\033[0m %s\n", $$1, $$2}'
+ 
+ .DEFAULT_GOAL := help
+diff --git a/docker-compose.override.yml b/docker-compose.override.yml
+index 6446986..30e601a 100644
+--- a/docker-compose.override.yml
++++ b/docker-compose.override.yml
+@@ -1,17 +1,17 @@
+ services:
+   subcorp-app:
+     ports:
+-      - "10.0.0.56:3010:3000"
++      - "${SUBCORP_BIND_IP:-10.0.0.56}:3010:3000"
+     environment:
+-      OLLAMA_BASE_URL: http://10.0.0.200:11434
+-      EMBEDDING_OLLAMA_URL: http://10.0.0.200:11434
++      OLLAMA_BASE_URL: http://10.0.0.50:11434
++      EMBEDDING_OLLAMA_URL: http://10.0.0.50:11434
+   subcorp-worker:
+     environment:
+-      OLLAMA_BASE_URL: http://10.0.0.200:11434
+-      EMBEDDING_OLLAMA_URL: http://10.0.0.200:11434
++      OLLAMA_BASE_URL: http://10.0.0.50:11434
++      EMBEDDING_OLLAMA_URL: http://10.0.0.50:11434
+   subcorp-sanctum:
+     ports:
+-      - "10.0.0.56:3018:3011"
++      - "${SUBCORP_BIND_IP:-10.0.0.56}:3018:3011"
+     environment:
+-      OLLAMA_BASE_URL: http://10.0.0.200:11434
+-      EMBEDDING_OLLAMA_URL: http://10.0.0.200:11434
++      OLLAMA_BASE_URL: http://10.0.0.50:11434
++      EMBEDDING_OLLAMA_URL: http://10.0.0.50:11434
+diff --git a/docker-compose.yml b/docker-compose.yml
+index ddce7f9..bb18052 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -21,9 +21,9 @@ services:
+     environment:
+       - LOG_FORMAT=pretty
+     group_add:
+-      - "987"
++      - "${DOCKER_SOCK_GID:-967}"
+     volumes:
+-      - /var/run/docker.sock:/var/run/docker.sock:ro
++      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
+       - workspace:/workspace
+     labels:
+       - com.centurylinklabs.watchtower.enable=false
+@@ -41,9 +41,9 @@ services:
+     environment:
+       - LOG_FORMAT=pretty
+     group_add:
+-      - "987"
++      - "${DOCKER_SOCK_GID:-967}"
+     volumes:
+-      - /var/run/docker.sock:/var/run/docker.sock:ro
++      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
+       - workspace:/workspace
+     labels:
+       - com.centurylinklabs.watchtower.enable=false
+@@ -74,9 +74,9 @@ services:
+     environment:
+       - LOG_FORMAT=pretty
+     group_add:
+-      - "987"
++      - "${DOCKER_SOCK_GID:-967}"
+     volumes:
+-      - /var/run/docker.sock:/var/run/docker.sock:ro
++      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
+       - workspace:/workspace
+     labels:
+       - com.centurylinklabs.watchtower.enable=false
+diff --git a/scripts/go-live/purge-discord.mjs b/scripts/go-live/purge-discord.mjs
+index a980eac..191088e 100644
+--- a/scripts/go-live/purge-discord.mjs
++++ b/scripts/go-live/purge-discord.mjs
+@@ -3,8 +3,8 @@
+ // purge-discord.mjs — Delete all bot messages from Discord channels.
+ //
+ // Queries ops_discord_channels for enabled channels, then paginates through
+-// each channel's messages and deletes only messages owned by this bot or
+-// posted via webhooks:
++// each channel's messages and deletes only messages that existed before this
++// purge started and are owned by this bot or posted via this app's webhook:
+ //   - Messages < 14 days old: bulk-delete (2-100 per call)
+ //   - Messages >= 14 days old: individual DELETE
+ //
+@@ -26,6 +26,7 @@ const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+ const MAX_RETRIES = 3;
+ const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+ let cachedBotUserId = null;
++const purgeStartedAt = Date.now();
+ 
+ if (!BOT_TOKEN) {
+     log.warn('DISCORD_BOT_TOKEN not set, skipping purge');
+@@ -100,8 +101,17 @@ async function getBotUserId() {
+     return cachedBotUserId;
+ }
+ 
+-function isOwnedByBot(message, botUserId) {
+-    return Boolean(message.webhook_id) || message.author?.id === botUserId;
++function isOlderThanPurge(message) {
++    return new Date(message.timestamp).getTime() < purgeStartedAt;
++}
++
++function isOwnedByBot(message, botUserId, webhookId) {
++    if (message.author?.id === botUserId) return true;
++
++    // Prefer the exact app webhook for this channel. If legacy DB rows do not
++    // have webhook_id yet, retain the old broad webhook behavior so historical
++    // purge still works after logging the missing identifier at channel scope.
++    return webhookId ? message.webhook_id === webhookId : Boolean(message.webhook_id);
+ }
+ 
+ // ─── Message fetching ───
+@@ -179,10 +189,17 @@ async function deleteMessage(channelId, messageId) {
+     return true;
+ }
+ 
+-async function purgeChannel(channelId, channelName) {
++async function purgeChannel(channelId, channelName, webhookId) {
+     const botUserId = await getBotUserId();
++    if (!webhookId) {
++        log.warn('Channel has no webhook_id; falling back to deleting all webhook messages', {
++            channel: channelName,
++            channelId,
++        });
++    }
++
+     const messages = (await fetchAllMessages(channelId)).filter(message =>
+-        isOwnedByBot(message, botUserId),
++        isOlderThanPurge(message) && isOwnedByBot(message, botUserId, webhookId),
+     );
+     if (messages.length === 0) {
+         log.info('No messages', { channel: channelName });
+@@ -246,18 +263,21 @@ async function main() {
+     try {
+         // Query enabled non-voice channels from DB
+         const channels = await sql`
+-            SELECT name, discord_channel_id, category
++            SELECT name, discord_channel_id, webhook_id, category
+             FROM ops_discord_channels
+             WHERE enabled = true AND category != 'voice'
+             ORDER BY name
+         `;
+ 
+-        log.info('Channels to purge', { count: channels.length });
++        log.info('Channels to purge', {
++            count: channels.length,
++            preservingMessagesCreatedAtOrAfter: new Date(purgeStartedAt).toISOString(),
++        });
+ 
+         let totalDeleted = 0;
+         for (const ch of channels) {
+             log.info('Purging channel', { channel: ch.name, id: ch.discord_channel_id, category: ch.category });
+-            const count = await purgeChannel(ch.discord_channel_id, ch.name);
++            const count = await purgeChannel(ch.discord_channel_id, ch.name, ch.webhook_id);
+             totalDeleted += count;
+             await sleep(750);
+         }
+diff --git a/scripts/go-live/seed-admin.mjs b/scripts/go-live/seed-admin.mjs
+index de92929..01dc684 100644
+--- a/scripts/go-live/seed-admin.mjs
++++ b/scripts/go-live/seed-admin.mjs
+@@ -6,9 +6,12 @@ import postgres from 'postgres';
+ import argon2 from 'argon2';
+ import readline from 'readline';
+ 
++const out = (...args) => process.stdout.write(`${args.join(' ')}\n`);
++const errOut = (...args) => process.stderr.write(`${args.join(' ')}\n`);
++
+ const DATABASE_URL = process.env.DATABASE_URL;
+ if (!DATABASE_URL) {
+-    console.error('Missing DATABASE_URL environment variable');
++    errOut('Missing DATABASE_URL environment variable');
+     process.exit(1);
+ }
+ 
+@@ -29,12 +32,12 @@ async function main() {
+     const password = await ask('Admin password: ');
+ 
+     if (!email || !username || !password) {
+-        console.error('All fields are required');
++        errOut('All fields are required');
+         process.exit(1);
+     }
+ 
+     if (password.length < 8) {
+-        console.error('Password must be at least 8 characters');
++        errOut('Password must be at least 8 characters');
+         process.exit(1);
+     }
+ 
+@@ -59,11 +62,11 @@ async function main() {
+             ON CONFLICT (user_id) DO UPDATE SET password_hash = ${passwordHash}, updated_at = NOW()
+         `;
+ 
+-        console.log(`\nAdmin user created/updated:`);
+-        console.log(`  ID:       ${user.id}`);
+-        console.log(`  Email:    ${user.email}`);
+-        console.log(`  Username: ${user.username}`);
+-        console.log(`  Role:     ${user.role}`);
++        out('\nAdmin user created/updated:');
++        out(`  ID:       ${user.id}`);
++        out(`  Email:    ${user.email}`);
++        out(`  Username: ${user.username}`);
++        out(`  Role:     ${user.role}`);
+     });
+ 
+     rl.close();
+@@ -71,6 +74,6 @@ async function main() {
+ }
+ 
+ main().catch(err => {
+-    console.error(err);
++    errOut(err?.stack ?? err);
+     process.exit(1);
+ });
+diff --git a/scripts/unified-worker/dist/index.js b/scripts/unified-worker/dist/index.js
+index df043e9..ff8ec71 100644
+--- a/scripts/unified-worker/dist/index.js
++++ b/scripts/unified-worker/dist/index.js
+@@ -1002,8 +1002,9 @@ function getRemainingBudget(deadlineAt) {
+   return Math.max(0, deadlineAt - Date.now());
+ }
+ function getOllamaAttemptTimeoutMs(opts) {
+-  const isPreferredTextAttempt = !opts.hasTools && (!!opts.preferredModel && opts.model === opts.preferredModel || !!opts.isFirstLocalAttempt);
+-  const baseTimeoutMs = opts.hasTools ? OLLAMA_TOOL_TIMEOUT_MS : isPreferredTextAttempt ? OLLAMA_PREFERRED_TEXT_TIMEOUT_MS : OLLAMA_TEXT_TIMEOUT_MS;
++  const isPreferredTextAttempt = !opts.hasTools && !!opts.preferredModel && opts.model === opts.preferredModel;
++  const isImplicitFirstLocalTextAttempt = !opts.hasTools && !opts.preferredModel && !!opts.isFirstLocalAttempt;
++  const baseTimeoutMs = opts.hasTools ? OLLAMA_TOOL_TIMEOUT_MS : isImplicitFirstLocalTextAttempt ? OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS : isPreferredTextAttempt ? OLLAMA_PREFERRED_TEXT_TIMEOUT_MS : OLLAMA_TEXT_TIMEOUT_MS;
+   return Math.min(baseTimeoutMs, opts.remainingBudgetMs);
+ }
+ async function withTimeout(label, timeoutMs, fn) {
+@@ -1032,7 +1033,10 @@ async function getReachableLocalOllamaModels() {
+     return cached.models;
+   }
+   try {
++    const tagsHeaders = {};
++    if (OLLAMA_API_KEY) tagsHeaders["Authorization"] = `Bearer ${OLLAMA_API_KEY}`;
+     const response = await fetch(`${OLLAMA_LOCAL_URL}/api/tags`, {
++      headers: tagsHeaders,
+       signal: AbortSignal.timeout(OLLAMA_TAGS_TIMEOUT_MS)
+     });
+     if (!response.ok) {
+@@ -1124,7 +1128,7 @@ function getOllamaModelsWithFallback(preferredModel) {
+       ...OLLAMA_MODEL ? [OLLAMA_MODEL] : []
+     ];
+     for (const model of localModelIds) {
+-      localModels.push({ model, baseUrl: OLLAMA_LOCAL_URL });
++      localModels.push({ model, baseUrl: OLLAMA_LOCAL_URL, apiKey: OLLAMA_API_KEY || void 0 });
+     }
+   }
+   return dedupeModelSpecs(
+@@ -1332,6 +1336,27 @@ async function ollamaChat(messages, temperature, options) {
+   }
+   return null;
+ }
++async function parseOllamaSseResponse(response) {
++  const text = await response.text();
++  const lines = text.split("\n");
++  for (const line of lines) {
++    if (!line.startsWith("data: ")) continue;
++    const payload = line.slice(6).trim();
++    if (!payload || payload === "[DONE]") continue;
++    let parsed;
++    try {
++      parsed = JSON.parse(payload);
++    } catch {
++      continue;
++    }
++    if (parsed["status"] === "ollama_unavailable" || parsed["status"] === "dropped_by_admin") {
++      throw new Error(`llama-line broker error: ${parsed["status"]}`);
++    }
++    if (typeof parsed["status"] === "string") continue;
++    return parsed;
++  }
++  throw new Error("No valid response found in llama-line SSE stream");
++}
+ async function ollamaChatWithModel(input) {
+   const {
+     spec,
+@@ -1418,7 +1443,7 @@ async function ollamaChatWithModel(input) {
+         });
+         return { result: null };
+       }
+-      const rawData = await response.json();
++      const rawData = await parseOllamaSseResponse(response);
+       const msg = rawData.message;
+       const finishReason = rawData.done_reason === "stop" || rawData.done && !msg?.tool_calls?.length ? "stop" : msg?.tool_calls?.length ? "tool_calls" : "stop";
+       const data = {
+@@ -2411,7 +2436,7 @@ function extractJson(text) {
+   }
+   return null;
+ }
+-var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TEXT_TIMEOUT_MS, OPENROUTER_TEXT_BUDGET_MS, OPENROUTER_TOOL_TIMEOUT_MS, OPENROUTER_TOOL_BUDGET_MS, OPENROUTER_MAX_INDIVIDUAL_FALLBACKS, LLM_TEXT_TOTAL_BUDGET_MS, LLM_TOOL_TOTAL_BUDGET_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_CLOUD_URL, OLLAMA_API_KEY, OLLAMA_TEXT_TIMEOUT_MS, OLLAMA_PREFERRED_TEXT_TIMEOUT_MS, OLLAMA_TOOL_TIMEOUT_MS, OLLAMA_BUDGET_MS, OLLAMA_TAGS_TIMEOUT_MS, OLLAMA_MODEL_CACHE_TTL_MS, OLLAMA_MODEL, ollamaModelCatalogCache;
++var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TEXT_TIMEOUT_MS, OPENROUTER_TEXT_BUDGET_MS, OPENROUTER_TOOL_TIMEOUT_MS, OPENROUTER_TOOL_BUDGET_MS, OPENROUTER_MAX_INDIVIDUAL_FALLBACKS, LLM_TEXT_TOTAL_BUDGET_MS, LLM_TOOL_TOTAL_BUDGET_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_CLOUD_URL, OLLAMA_API_KEY, OLLAMA_TEXT_TIMEOUT_MS, OLLAMA_PREFERRED_TEXT_TIMEOUT_MS, OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS, OLLAMA_TOOL_TIMEOUT_MS, OLLAMA_BUDGET_MS, OLLAMA_TAGS_TIMEOUT_MS, OLLAMA_MODEL_CACHE_TTL_MS, OLLAMA_MODEL, ollamaModelCatalogCache;
+ var init_client = __esm({
+   "src/lib/llm/client.ts"() {
+     "use strict";
+@@ -2498,11 +2523,12 @@ var init_client = __esm({
+     OLLAMA_LOCAL_URL = OLLAMA_ENABLED ? process.env.OLLAMA_BASE_URL ?? "" : "";
+     OLLAMA_CLOUD_URL = "https://ollama.com";
+     OLLAMA_API_KEY = OLLAMA_ENABLED ? process.env.OLLAMA_API_KEY ?? "" : "";
+-    OLLAMA_TEXT_TIMEOUT_MS = 2e4;
+-    OLLAMA_PREFERRED_TEXT_TIMEOUT_MS = 3e4;
+-    OLLAMA_TOOL_TIMEOUT_MS = 45e3;
+-    OLLAMA_BUDGET_MS = 6e4;
+-    OLLAMA_TAGS_TIMEOUT_MS = 2500;
++    OLLAMA_TEXT_TIMEOUT_MS = 6e5;
++    OLLAMA_PREFERRED_TEXT_TIMEOUT_MS = 6e5;
++    OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS = 6e5;
++    OLLAMA_TOOL_TIMEOUT_MS = 6e5;
++    OLLAMA_BUDGET_MS = 12e5;
++    OLLAMA_TAGS_TIMEOUT_MS = 5e3;
+     OLLAMA_MODEL_CACHE_TTL_MS = 3e4;
+     OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "";
+     ollamaModelCatalogCache = null;
+@@ -2519,11 +2545,13 @@ async function getEmbedding(text) {
+ async function getEmbeddingOllama(text) {
+   if (!EMBEDDING_OLLAMA_URL) return null;
+   try {
++    const embeddingHeaders = { "Content-Type": "application/json" };
++    if (EMBEDDING_OLLAMA_API_KEY) embeddingHeaders["Authorization"] = `Bearer ${EMBEDDING_OLLAMA_API_KEY}`;
+     const response = await fetch(
+       `${EMBEDDING_OLLAMA_URL}/v1/embeddings`,
+       {
+         method: "POST",
+-        headers: { "Content-Type": "application/json" },
++        headers: embeddingHeaders,
+         body: JSON.stringify({
+           model: OLLAMA_EMBEDDING_MODEL,
+           input: text
+@@ -2539,7 +2567,7 @@ async function getEmbeddingOllama(text) {
+       });
+       return null;
+     }
+-    const data = await response.json();
++    const data = await readEmbeddingResponse(response);
+     return data.data?.[0]?.embedding ?? null;
+   } catch {
+     log2.debug("Ollama embedding error (host unreachable?)", {
+@@ -2549,6 +2577,25 @@ async function getEmbeddingOllama(text) {
+     return null;
+   }
+ }
++async function readEmbeddingResponse(response) {
++  const contentType = response.headers.get("content-type") ?? "";
++  if (!contentType.includes("text/event-stream")) {
++    return await response.json();
++  }
++  const text = await response.text();
++  for (const line of text.split(/\r?\n/)) {
++    if (!line.startsWith("data: ")) continue;
++    const raw = line.slice("data: ".length).trim();
++    if (!raw || raw === "[DONE]") continue;
++    const payload = JSON.parse(raw);
++    if (payload.status === "queued") continue;
++    if (payload.status && LLAMA_LINE_TERMINAL_STATUSES.has(payload.status)) {
++      throw new Error(payload.message ?? payload.status);
++    }
++    if (payload.data?.[0]?.embedding) return payload;
++  }
++  return {};
++}
+ async function getEmbeddingOpenRouter(text) {
+   if (!OPENROUTER_API_KEY2) return null;
+   try {
+@@ -2578,7 +2625,7 @@ async function getEmbeddingOpenRouter(text) {
+     return null;
+   }
+ }
+-var log2, EMBEDDING_PROVIDER, EMBEDDING_OLLAMA_URL, OLLAMA_EMBEDDING_MODEL, OPENROUTER_API_KEY2, OPENROUTER_EMBEDDING_MODEL, OPENROUTER_EMBEDDING_DIMENSIONS, EMBEDDING_TIMEOUT_MS;
++var log2, EMBEDDING_PROVIDER, EMBEDDING_OLLAMA_URL, OLLAMA_EMBEDDING_MODEL, EMBEDDING_OLLAMA_API_KEY, OPENROUTER_API_KEY2, OPENROUTER_EMBEDDING_MODEL, OPENROUTER_EMBEDDING_DIMENSIONS, EMBEDDING_TIMEOUT_MS, LLAMA_LINE_TERMINAL_STATUSES;
+ var init_embeddings = __esm({
+   "src/lib/llm/embeddings.ts"() {
+     "use strict";
+@@ -2587,10 +2634,15 @@ var init_embeddings = __esm({
+     EMBEDDING_PROVIDER = process.env.EMBEDDING_PROVIDER ?? "ollama";
+     EMBEDDING_OLLAMA_URL = process.env.EMBEDDING_OLLAMA_URL ?? "http://localhost:11434";
+     OLLAMA_EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "bge-m3";
++    EMBEDDING_OLLAMA_API_KEY = process.env.OLLAMA_API_KEY ?? process.env.EMBEDDING_OLLAMA_API_KEY ?? "";
+     OPENROUTER_API_KEY2 = process.env.OPENROUTER_API_KEY ?? "";
+     OPENROUTER_EMBEDDING_MODEL = "openai/text-embedding-3-small";
+     OPENROUTER_EMBEDDING_DIMENSIONS = 1024;
+-    EMBEDDING_TIMEOUT_MS = 15e3;
++    EMBEDDING_TIMEOUT_MS = 12e4;
++    LLAMA_LINE_TERMINAL_STATUSES = /* @__PURE__ */ new Set([
++      "ollama_unavailable",
++      "dropped_by_admin"
++    ]);
+   }
+ });
+ 
+@@ -5584,6 +5636,33 @@ var init_voice_evolution = __esm({
+ });
+ 
+ // src/lib/tools/executor.ts
++function dockerBackedToolsEnabled() {
++  return process.env.DOCKER_BACKED_TOOLS_ENABLED !== "false" && process.env.TOOLBOX_TOOLS_ENABLED !== "false";
++}
++function disableDockerBackedTools(reason) {
++  process.env.DOCKER_BACKED_TOOLS_ENABLED = "false";
++  log18.warn("Docker-backed tools disabled", { reason });
++}
++async function checkToolboxAvailable() {
++  if (!dockerBackedToolsEnabled()) {
++    return { ok: false, reason: "Docker-backed tools disabled by environment" };
++  }
++  return new Promise((resolve) => {
++    (0, import_node_child_process.execFile)("docker", ["exec", TOOLBOX_CONTAINER, "true"], {
++      timeout: 5e3,
++      encoding: "utf8"
++    }, (error, _stdout, stderr) => {
++      if (!error) {
++        resolve({ ok: true });
++        return;
++      }
++      resolve({
++        ok: false,
++        reason: (stderr || error.message || "docker exec failed").trim()
++      });
++    });
++  });
++}
+ function getExitCode(error) {
+   const err = error;
+   if (typeof err.status === "number") return err.status;
+@@ -5591,6 +5670,14 @@ function getExitCode(error) {
+   return 1;
+ }
+ async function execInToolbox(command, timeoutMs = DEFAULT_TIMEOUT_MS) {
++  if (!dockerBackedToolsEnabled()) {
++    return {
++      stdout: "",
++      stderr: "Docker-backed tools are disabled for this executor runtime.",
++      exitCode: 126,
++      timedOut: false
++    };
++  }
+   return new Promise((resolve) => {
+     const args = [
+       "exec",
+@@ -5611,6 +5698,14 @@ async function execInToolbox(command, timeoutMs = DEFAULT_TIMEOUT_MS) {
+           timedOut = true;
+         }
+         exitCode = getExitCode(error);
++        const message = `${stderr}
++${error.message}`;
++        if (message.includes("permission denied") || message.includes("Cannot connect to the Docker daemon")) {
++          log18.error("Docker-backed executor cannot reach Docker", {
++            command: command.slice(0, 200),
++            stderr: stderr.slice(0, 500)
++          });
++        }
+       }
+       const cappedStdout = stdout.length > MAX_STDOUT ? stdout.slice(0, MAX_STDOUT) + "\n... [output truncated at 50KB]" : stdout;
+       const cappedStderr = stderr.length > MAX_STDERR ? stderr.slice(0, MAX_STDERR) + "\n... [stderr truncated at 10KB]" : stderr;
+@@ -5635,7 +5730,7 @@ async function execInToolbox(command, timeoutMs = DEFAULT_TIMEOUT_MS) {
+     });
+   });
+ }
+-var import_node_child_process, log18, TOOLBOX_CONTAINER, MAX_STDOUT, MAX_STDERR, DEFAULT_TIMEOUT_MS;
++var import_node_child_process, log18, TOOLBOX_CONTAINER, MAX_STDOUT, MAX_STDERR, DEFAULT_TIMEOUT_MS, DOCKER_BACKED_TOOL_NAMES;
+ var init_executor = __esm({
+   "src/lib/tools/executor.ts"() {
+     "use strict";
+@@ -5646,6 +5741,15 @@ var init_executor = __esm({
+     MAX_STDOUT = 50 * 1024;
+     MAX_STDERR = 10 * 1024;
+     DEFAULT_TIMEOUT_MS = 3e4;
++    DOCKER_BACKED_TOOL_NAMES = /* @__PURE__ */ new Set([
++      "bash",
++      "file_read",
++      "file_write",
++      "web_fetch",
++      "send_to_agent",
++      "spawn_droid",
++      "check_droid"
++    ]);
+   }
+ });
+ 
+@@ -7163,8 +7267,6 @@ async function orchestrateVoiceChat(session) {
+   }
+   await markSessionRunning(session, `Participants: ${session.participants.join(", ")} | live voice session`);
+   async function generateAgentTurn(speaker, turnNumber) {
+-    const voice = getVoice(speaker);
+-    const speakerName = voice?.displayName ?? speaker;
+     let interactionType;
+     if (history.length > 0) {
+       const lastSpeaker = history[history.length - 1].speaker;
+@@ -8704,7 +8806,7 @@ INSTRUCTIONS:
+ 
+ Your output is a MERGED PULL REQUEST with real code changes. Do not just describe what you would change.
+ `,
+-      github_issue: (ctx, _today, _outputDir) => `You are managing the subculture-collective GitHub organization.
++      github_issue: (ctx) => `You are managing the subculture-collective GitHub organization.
+ Org: https://github.com/subculture-collective
+ Platform repo: https://github.com/subculture-collective/subcorp
+ You have FULL ACCESS \u2014 create repos, issues, PRs, labels, projects, anything.
+@@ -8719,7 +8821,7 @@ Use bash to run gh commands. Examples:
+ 
+ Create well-structured issues with clear titles, descriptions, acceptance criteria, and appropriate labels.
+ `,
+-      github_pr: (ctx, _today, _outputDir) => `You are managing code in the subculture-collective GitHub organization.
++      github_pr: (ctx) => `You are managing code in the subculture-collective GitHub organization.
+ Org: https://github.com/subculture-collective
+ Platform repo: https://github.com/subculture-collective/subcorp
+ You have FULL ACCESS.
+@@ -8751,7 +8853,7 @@ INSTRUCTIONS:
+ 5. If you find improvements to make, create detailed PRs with clear descriptions of what you changed and why.
+ 6. Write findings to ${outputDir}/
+ `,
+-      publish_blog: (ctx, _today, _outputDir) => `You are publishing content to the SUBCULT blog at https://blog.subcult.tv (Ghost CMS).
++      publish_blog: (ctx) => `You are publishing content to the SUBCULT blog at https://blog.subcult.tv (Ghost CMS).
+ 
+ Task: ${ctx.payload.description || ctx.missionTitle}
+ 
+@@ -8763,7 +8865,7 @@ INSTRUCTIONS:
+ 4. Blog posts should be polished, on-brand, and provide genuine value to readers.
+ 5. Topics: technology, AI, autonomy, open source, creative tools, underground culture.
+ `,
+-      notify_human: (ctx, _today, _outputDir) => `You need human assistance for a task you cannot complete autonomously.
++      notify_human: (ctx) => `You need human assistance for a task you cannot complete autonomously.
+ 
+ Request: ${ctx.payload.description || ctx.missionTitle}
+ 
+@@ -10158,6 +10260,7 @@ var castVetoTool = {
+ };
+ 
+ // src/lib/tools/registry.ts
++init_executor();
+ var ALL_TOOLS = [
+   bashTool,
+   webSearchTool,
+@@ -10176,7 +10279,7 @@ var ALL_TOOLS = [
+   castVetoTool
+ ];
+ function getAgentTools(agentId, sessionId) {
+-  return ALL_TOOLS.filter((tool) => tool.agents.includes(agentId)).map(({ agents: _agents, ...tool }) => {
++  return ALL_TOOLS.filter((tool) => tool.agents.includes(agentId)).filter((tool) => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name)).map(({ agents: _agents, ...tool }) => {
+     if (tool.name === "file_write") {
+       return { ...tool, execute: createFileWriteExecute(agentId) };
+     }
+@@ -10212,7 +10315,7 @@ function getAgentTools(agentId, sessionId) {
+ }
+ function getDroidTools(droidId) {
+   const droidToolNames = ["file_read", "file_write", "bash", "web_search", "web_fetch"];
+-  return ALL_TOOLS.filter((tool) => droidToolNames.includes(tool.name)).map(({ agents: _agents, ...tool }) => {
++  return ALL_TOOLS.filter((tool) => droidToolNames.includes(tool.name)).filter((tool) => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name)).map(({ agents: _agents, ...tool }) => {
+     if (tool.name === "file_write") {
+       return { ...tool, execute: createFileWriteExecute(droidId) };
+     }
+@@ -10220,6 +10323,7 @@ function getDroidTools(droidId) {
+   });
+ }
+ function getAgentWritePaths(agentId) {
++  if (!dockerBackedToolsEnabled()) return [];
+   if (!fileWriteTool.agents.includes(agentId)) return [];
+   return WRITE_ACLS[agentId] ?? [];
+ }
+@@ -10721,6 +10825,7 @@ async function completeSession(sessionId, status, result, toolCalls, llmRounds,
+ }
+ 
+ // scripts/unified-worker/index.ts
++init_executor();
+ init_logger();
+ init_formats();
+ 
+@@ -11294,6 +11399,17 @@ async function releaseStaleReviewDrafts(drafts, resetDraftToDraft, logger2) {
+ // scripts/unified-worker/index.ts
+ var log36 = createLogger({ service: "unified-worker" });
+ var WORKER_ID = `unified-${process.pid}`;
++var WORKER_HEARTBEAT_ENABLED = process.env.WORKER_HEARTBEAT_ENABLED !== "false";
++var WORKER_HEARTBEAT_URL = process.env.WORKER_HEARTBEAT_URL ?? "http://subcorp-app:3000/api/ops/heartbeat";
++var WORKER_HEARTBEAT_INTERVAL_MS = Number.parseInt(
++  process.env.WORKER_HEARTBEAT_INTERVAL_MS ?? "300000",
++  10
++);
++var WORKER_HEARTBEAT_TIMEOUT_MS = Number.parseInt(
++  process.env.WORKER_HEARTBEAT_TIMEOUT_MS ?? "120000",
++  10
++);
++var lastWorkerHeartbeatAttemptAt = 0;
+ if (!process.env.DATABASE_URL) {
+   log36.fatal("Missing DATABASE_URL");
+   process.exit(1);
+@@ -11302,6 +11418,53 @@ if (!process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_ENABLED !== "false
+   log36.fatal("Missing OPENROUTER_API_KEY (set OPENROUTER_ENABLED=false to run without OpenRouter)");
+   process.exit(1);
+ }
++async function triggerHeartbeatIfDue() {
++  if (!WORKER_HEARTBEAT_ENABLED) return false;
++  if (!process.env.CRON_SECRET) {
++    log36.warn("Worker-managed heartbeat skipped: missing CRON_SECRET");
++    return false;
++  }
++  const now = Date.now();
++  if (now - lastWorkerHeartbeatAttemptAt < WORKER_HEARTBEAT_INTERVAL_MS) {
++    return false;
++  }
++  lastWorkerHeartbeatAttemptAt = now;
++  const startedAt = Date.now();
++  try {
++    const response = await fetch(WORKER_HEARTBEAT_URL, {
++      headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
++      signal: AbortSignal.timeout(WORKER_HEARTBEAT_TIMEOUT_MS)
++    });
++    const body = await response.text();
++    const durationMs = Date.now() - startedAt;
++    if (!response.ok) {
++      log36.warn("Worker-managed heartbeat failed", {
++        status: response.status,
++        durationMs,
++        body: body.slice(0, 500)
++      });
++      return false;
++    }
++    let summary = body.slice(0, 500);
++    try {
++      const parsed = JSON.parse(body);
++      summary = {
++        status: parsed.status,
++        triggers: parsed.triggers,
++        roundtable: parsed.roundtable,
++        cron: parsed.cron
++      };
++    } catch {
++    }
++    log36.info("Worker-managed heartbeat completed", { durationMs, summary });
++    return true;
++  } catch (err) {
++    log36.warn("Worker-managed heartbeat exception", {
++      error: err.message
++    });
++    return false;
++  }
++}
+ var sql2 = (0, import_postgres2.default)(process.env.DATABASE_URL, {
+   max: 5,
+   idle_timeout: 20,
+@@ -12345,6 +12508,31 @@ async function sweepStaleAgentSessions() {
+   }
+   return stale.length > 0;
+ }
++async function sweepStaleRoundtables() {
++  const stale = await sql2`
++        UPDATE ops_roundtable_sessions
++        SET status = 'failed',
++            completed_at = NOW(),
++            metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
++                'sweptReason', 'Swept by worker — roundtable exceeded running timeout',
++                'sweptAt', NOW()
++            )
++        WHERE status = 'running'
++          AND started_at < NOW() - INTERVAL '4 hours'
++        RETURNING id, format, topic
++    `;
++  if (stale.length > 0) {
++    log36.warn("Swept stale roundtables", {
++      count: stale.length,
++      sessions: stale.map((s) => ({
++        id: s.id,
++        format: s.format,
++        topic: s.topic.slice(0, 120)
++      }))
++    });
++  }
++  return stale.length > 0;
++}
+ async function sweepOrphanedMissionSteps() {
+   const orphaned = await sql2`
+         UPDATE ops_mission_steps
+@@ -12381,6 +12569,12 @@ async function sweepOrphanedMissionSteps() {
+   }
+   return orphaned.length > 0;
+ }
++async function runMaintenanceTasks() {
++  await sweepStaleAgentSessions();
++  await sweepStaleRoundtables();
++  await sweepOrphanedMissionSteps();
++  await triggerHeartbeatIfDue();
++}
+ async function finalizeMissionIfComplete(missionId) {
+   const [counts] = await sql2`
+         SELECT
+@@ -12512,6 +12706,10 @@ async function catchUpOrphanedMissions() {
+ }
+ async function pollLoop() {
+   await waitForDb();
++  const toolbox = await checkToolboxAvailable();
++  if (!toolbox.ok) {
++    disableDockerBackedTools(toolbox.reason);
++  }
+   await catchUpStuckReviews();
+   await catchUpOrphanedReviewDrafts();
+   await catchUpOrphanedMissions();
+@@ -12541,11 +12739,15 @@ async function pollLoop() {
+       failed: startupGovernanceBackfill.failed
+     });
+   }
++  await runMaintenanceTasks();
+   while (running) {
+     try {
+       await pollRoundtables();
+       const hadSession = await pollAgentSessions();
+-      if (hadSession) continue;
++      if (hadSession) {
++        await runMaintenanceTasks();
++        continue;
++      }
+       await pollMissionSteps();
+       await finalizeMissionSteps();
+       const publishResult = await publishApprovedDrafts();
+@@ -12574,8 +12776,7 @@ async function pollLoop() {
+           failed: governanceBackfill.failed
+         });
+       }
+-      await sweepStaleAgentSessions();
+-      await sweepOrphanedMissionSteps();
++      await runMaintenanceTasks();
+       await pollInitiatives();
+     } catch (err) {
+       log36.error("Poll loop error", { error: err });
+diff --git a/scripts/unified-worker/index.ts b/scripts/unified-worker/index.ts
+index 66b1255..dcd406a 100644
+--- a/scripts/unified-worker/index.ts
++++ b/scripts/unified-worker/index.ts
+@@ -12,6 +12,10 @@ import fs from 'fs/promises';
+ import path from 'path';
+ import { orchestrateConversation } from '../../src/lib/roundtable/orchestrator';
+ import { executeAgentSession } from '../../src/lib/tools/agent-session';
++import {
++    checkToolboxAvailable,
++    disableDockerBackedTools,
++} from '../../src/lib/tools/executor';
+ import { createLogger } from '../../src/lib/logger';
+ import { FORMATS } from '../../src/lib/roundtable/formats';
+ import {
+@@ -33,6 +37,19 @@ const log = createLogger({ service: 'unified-worker' });
+ // ─── Config ───
+ 
+ const WORKER_ID = `unified-${process.pid}`;
++const WORKER_HEARTBEAT_ENABLED = process.env.WORKER_HEARTBEAT_ENABLED !== 'false';
++const WORKER_HEARTBEAT_URL =
++    process.env.WORKER_HEARTBEAT_URL ??
++    'http://subcorp-app:3000/api/ops/heartbeat';
++const WORKER_HEARTBEAT_INTERVAL_MS = Number.parseInt(
++    process.env.WORKER_HEARTBEAT_INTERVAL_MS ?? '300000',
++    10,
++);
++const WORKER_HEARTBEAT_TIMEOUT_MS = Number.parseInt(
++    process.env.WORKER_HEARTBEAT_TIMEOUT_MS ?? '120000',
++    10,
++);
++let lastWorkerHeartbeatAttemptAt = 0;
+ 
+ if (!process.env.DATABASE_URL) {
+     log.fatal('Missing DATABASE_URL');
+@@ -44,6 +61,65 @@ if (!process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_ENABLED !== 'false
+     process.exit(1);
+ }
+ 
++async function triggerHeartbeatIfDue(): Promise<boolean> {
++    if (!WORKER_HEARTBEAT_ENABLED) return false;
++    if (!process.env.CRON_SECRET) {
++        log.warn('Worker-managed heartbeat skipped: missing CRON_SECRET');
++        return false;
++    }
++
++    const now = Date.now();
++    if (now - lastWorkerHeartbeatAttemptAt < WORKER_HEARTBEAT_INTERVAL_MS) {
++        return false;
++    }
++    lastWorkerHeartbeatAttemptAt = now;
++
++    const startedAt = Date.now();
++    try {
++        const response = await fetch(WORKER_HEARTBEAT_URL, {
++            headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
++            signal: AbortSignal.timeout(WORKER_HEARTBEAT_TIMEOUT_MS),
++        });
++        const body = await response.text();
++        const durationMs = Date.now() - startedAt;
++
++        if (!response.ok) {
++            log.warn('Worker-managed heartbeat failed', {
++                status: response.status,
++                durationMs,
++                body: body.slice(0, 500),
++            });
++            return false;
++        }
++
++        let summary: unknown = body.slice(0, 500);
++        try {
++            const parsed = JSON.parse(body) as {
++                status?: string;
++                triggers?: { fired?: number; evaluated?: number };
++                roundtable?: { enqueued?: string | null };
++                cron?: { fired?: number; evaluated?: number };
++            };
++            summary = {
++                status: parsed.status,
++                triggers: parsed.triggers,
++                roundtable: parsed.roundtable,
++                cron: parsed.cron,
++            };
++        } catch {
++            // Keep text preview.
++        }
++
++        log.info('Worker-managed heartbeat completed', { durationMs, summary });
++        return true;
++    } catch (err) {
++        log.warn('Worker-managed heartbeat exception', {
++            error: (err as Error).message,
++        });
++        return false;
++    }
++}
++
+ // Direct DB connection for queue polling (separate from the app's pool)
+ const sql = postgres(process.env.DATABASE_URL, {
+     max: 5,
+@@ -1353,6 +1429,35 @@ async function sweepStaleAgentSessions(): Promise<boolean> {
+     return stale.length > 0;
+ }
+ 
++/** Sweep roundtables stuck in 'running' after worker/app restarts or abandoned voice chats */
++async function sweepStaleRoundtables(): Promise<boolean> {
++    const stale = await sql<{ id: string; format: string; topic: string }[]>`
++        UPDATE ops_roundtable_sessions
++        SET status = 'failed',
++            completed_at = NOW(),
++            metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
++                'sweptReason', 'Swept by worker — roundtable exceeded running timeout',
++                'sweptAt', NOW()
++            )
++        WHERE status = 'running'
++          AND started_at < NOW() - INTERVAL '4 hours'
++        RETURNING id, format, topic
++    `;
++
++    if (stale.length > 0) {
++        log.warn('Swept stale roundtables', {
++            count: stale.length,
++            sessions: stale.map(s => ({
++                id: s.id,
++                format: s.format,
++                topic: s.topic.slice(0, 120),
++            })),
++        });
++    }
++
++    return stale.length > 0;
++}
++
+ /** Sweep mission steps stuck in 'running' with no active agent session (e.g. after worker restart) */
+ async function sweepOrphanedMissionSteps(): Promise<boolean> {
+     const orphaned = await sql<
+@@ -1397,6 +1502,20 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
+     return orphaned.length > 0;
+ }
+ 
++async function runMaintenanceTasks(): Promise<void> {
++    // Sweep stale agent sessions stuck in 'running' past their timeout
++    await sweepStaleAgentSessions();
++
++    // Sweep roundtables stuck in 'running' after restarts/timeouts
++    await sweepStaleRoundtables();
++
++    // Sweep orphaned mission steps (no active session, e.g. after worker restart)
++    await sweepOrphanedMissionSteps();
++
++    // Keep autonomous output moving even when host cron/timers are absent.
++    await triggerHeartbeatIfDue();
++}
++
+ /** Check if all steps in a mission are done, finalize if so */
+ async function finalizeMissionIfComplete(missionId: string): Promise<void> {
+     const [counts] = await sql<
+@@ -1581,6 +1700,11 @@ async function catchUpOrphanedMissions(): Promise<void> {
+ async function pollLoop(): Promise<void> {
+     await waitForDb();
+ 
++    const toolbox = await checkToolboxAvailable();
++    if (!toolbox.ok) {
++        disableDockerBackedTools(toolbox.reason);
++    }
++
+     // Catch up on any stuck reviews from before the fix
+     await catchUpStuckReviews();
+ 
+@@ -1622,6 +1746,9 @@ async function pollLoop(): Promise<void> {
+         });
+     }
+ 
++    // Run maintenance once before any queue backlog can starve it.
++    await runMaintenanceTasks();
++
+     while (running) {
+         try {
+             // Roundtables first — user questions should not be starved by agent sessions
+@@ -1629,7 +1756,11 @@ async function pollLoop(): Promise<void> {
+ 
+             // Agent sessions — high priority, check every loop
+             const hadSession = await pollAgentSessions();
+-            if (hadSession) continue; // Process back-to-back sessions
++            if (hadSession) {
++                // Do not let a long agent-session backlog starve sweep/heartbeat work.
++                await runMaintenanceTasks();
++                continue; // Process back-to-back sessions
++            }
+ 
+             // Mission steps — check every other loop
+             await pollMissionSteps();
+@@ -1669,11 +1800,7 @@ async function pollLoop(): Promise<void> {
+                 });
+             }
+ 
+-            // Sweep stale agent sessions stuck in 'running' past their timeout
+-            await sweepStaleAgentSessions();
+-
+-            // Sweep orphaned mission steps (no active session, e.g. after worker restart)
+-            await sweepOrphanedMissionSteps();
++            await runMaintenanceTasks();
+ 
+             // Initiatives — check every other loop
+             await pollInitiatives();
+diff --git a/src/app/api/ops/memory/route.ts b/src/app/api/ops/memory/route.ts
+index 74bee1c..4319b1a 100644
+--- a/src/app/api/ops/memory/route.ts
++++ b/src/app/api/ops/memory/route.ts
+@@ -16,6 +16,9 @@ const VALID_TYPES = new Set<MemoryType>([
+     'lesson',
+ ]);
+ 
++const MEMORY_API_DEFAULT_LIMIT = 250;
++const MEMORY_API_MAX_LIMIT = 5000;
++
+ export async function GET(req: NextRequest) {
+     try {
+         const { searchParams } = req.nextUrl;
+@@ -27,14 +30,14 @@ export async function GET(req: NextRequest) {
+         const activeOnly = searchParams.get('active_only') !== 'false'; // default true
+ 
+         const limitParam = searchParams.get('limit');
+-        let limit = 100;
++        let limit = MEMORY_API_DEFAULT_LIMIT;
+         if (limitParam !== null) {
+             const parsedLimit = parseInt(limitParam, 10);
+             if (!Number.isNaN(parsedLimit) && parsedLimit > 0) {
+                 limit = parsedLimit;
+             }
+         }
+-        limit = Math.min(limit, 500);
++        limit = Math.min(limit, MEMORY_API_MAX_LIMIT);
+ 
+         const offsetParam = searchParams.get('offset');
+         let offset = 0;
+diff --git a/src/app/api/ops/missions/route.ts b/src/app/api/ops/missions/route.ts
+index eb86bb8..30d6a1f 100644
+--- a/src/app/api/ops/missions/route.ts
++++ b/src/app/api/ops/missions/route.ts
+@@ -35,7 +35,12 @@ export async function GET(req: NextRequest) {
+             FROM ops_missions m
+             LEFT JOIN ops_mission_steps s ON s.mission_id = m.id
+             WHERE 1=1
+-            ${status ? sql`AND m.status = ${status}` : sql``}
++            ${
++                status === 'active' ?
++                    sql`AND m.status IN ('approved', 'running')`
++                : status ? sql`AND m.status = ${status}`
++                : sql``
++            }
+             ${createdBy ? sql`AND m.created_by = ${createdBy}` : sql``}
+             GROUP BY m.id
+             ORDER BY m.created_at DESC
+diff --git a/src/app/api/ops/subscribe/route.ts b/src/app/api/ops/subscribe/route.ts
+index a607509..1f154c6 100644
+--- a/src/app/api/ops/subscribe/route.ts
++++ b/src/app/api/ops/subscribe/route.ts
+@@ -2,11 +2,13 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { subscribe } from '@/lib/ops/subscribers';
+ import { withRequestContext } from '@/lib/with-request-context';
++import { logger } from '@/lib/logger';
+ 
+ export const dynamic = 'force-dynamic';
+ 
+ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+ const VALID_PLANS = new Set(['daily', 'weekly', 'both']);
++const log = logger.child({ route: 'ops/subscribe' });
+ 
+ export async function POST(req: NextRequest) {
+     return withRequestContext(req, async () => {
+@@ -36,7 +38,7 @@ export async function POST(req: NextRequest) {
+ 
+             return NextResponse.json({ ok: true, isNew: result.isNew });
+         } catch (err) {
+-            console.error('[subscribe] error:', err);
++            log.error('Subscribe failed', { error: err });
+             return NextResponse.json(
+                 { error: 'Something went wrong' },
+                 { status: 500 },
+diff --git a/src/app/api/tts/session/[sessionId]/route.ts b/src/app/api/tts/session/[sessionId]/route.ts
+index 80d07ec..16596f4 100644
+--- a/src/app/api/tts/session/[sessionId]/route.ts
++++ b/src/app/api/tts/session/[sessionId]/route.ts
+@@ -7,9 +7,11 @@ import { NextRequest, NextResponse } from 'next/server';
+ import { readFile, writeFile, unlink, mkdir } from 'fs/promises';
+ import { existsSync } from 'fs';
+ import path from 'path';
++import { logger } from '@/lib/logger';
+ 
+ const AUDIO_DIR = '/workspace/audio';
+ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
++const log = logger.child({ route: 'tts/session' });
+ 
+ function validateSessionId(sessionId: string): string | null {
+     if (!UUID_RE.test(sessionId)) return null;
+@@ -60,7 +62,7 @@ export async function POST(
+         await writeFile(filePath, buffer);
+         return NextResponse.json({ ok: true });
+     } catch (err) {
+-        console.error('[TTS Cache] Write error:', err);
++        log.error('TTS cache write failed', { error: err, sessionId });
+         return NextResponse.json({ error: 'Write failed' }, { status: 500 });
+     }
+ }
+diff --git a/src/app/stage/AskTheRoom.tsx b/src/app/stage/AskTheRoom.tsx
+index 90a6bc6..e6f4511 100644
+--- a/src/app/stage/AskTheRoom.tsx
++++ b/src/app/stage/AskTheRoom.tsx
+@@ -58,6 +58,8 @@ export function AskTheRoom({
+     useEffect(() => {
+         if (stt.transcript && stt.transcript !== prevTranscript.current) {
+             prevTranscript.current = stt.transcript;
++            // Speech recognition is an external browser source; sync final transcript into the editable field.
++            // eslint-disable-next-line react-hooks/set-state-in-effect
+             setQuestion(prev => {
+                 const joined = prev ? `${prev} ${stt.transcript}` : stt.transcript;
+                 return joined.slice(0, MAX_CHARS);
+@@ -71,6 +73,8 @@ export function AskTheRoom({
+ 
+     // Auto-enable voice mode when voice_chat format is selected
+     useEffect(() => {
++        // Keep dependent voice-mode toggle synchronized with format picker.
++        // eslint-disable-next-line react-hooks/set-state-in-effect
+         if (format === 'voice_chat') setVoiceMode(true);
+     }, [format]);
+ 
+@@ -148,6 +152,8 @@ export function AskTheRoom({
+             const pendingQuestion = question.trim();
+             if (pendingQuestion.length >= MIN_CHARS) {
+                 autoSubmitRef.current = true;
++                // Submit in response to the external speech-recognition completion event.
++                // eslint-disable-next-line react-hooks/set-state-in-effect
+                 handleSubmit(true);
+             }
+         }
+diff --git a/src/app/stage/AuthModal.tsx b/src/app/stage/AuthModal.tsx
+index 2f2bff5..fc49e15 100644
+--- a/src/app/stage/AuthModal.tsx
++++ b/src/app/stage/AuthModal.tsx
+@@ -1,6 +1,7 @@
+ 'use client';
+ 
+ import { useState, useEffect, useCallback } from 'react';
++import Link from 'next/link';
+ import { useAuth, useAuthModal } from '@/lib/auth/client';
+ 
+ type ModalState = 'choose' | 'login' | 'signup';
+@@ -91,27 +92,27 @@ export function AuthModal() {
+                     {state === 'choose' && (
+                         <div className='space-y-3'>
+                             {/* OAuth providers */}
+-                            <a
++                            <Link
+                                 href='/api/auth/oauth/github'
+                                 className='w-full rounded-lg bg-[#24292f] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#2f363d] transition-colors flex items-center justify-center gap-2'
+                             >
+                                 <svg className='w-4 h-4' viewBox='0 0 16 16' fill='currentColor'><path d='M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z'/></svg>
+                                 Continue with GitHub
+-                            </a>
+-                            <a
++                            </Link>
++                            <Link
+                                 href='/api/auth/oauth/discord'
+                                 className='w-full rounded-lg bg-[#5865F2] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#4752c4] transition-colors flex items-center justify-center gap-2'
+                             >
+                                 <svg className='w-4 h-4' viewBox='0 0 16 16' fill='currentColor'><path d='M13.55 3.15A13.2 13.2 0 0010.3 2a9.5 9.5 0 00-.42.86 12.3 12.3 0 00-3.76 0A9.3 9.3 0 005.7 2a13.3 13.3 0 00-3.26 1.16C.36 6.77-.22 10.3.07 13.79A13.4 13.4 0 004.12 16a10 10 0 00.87-1.41 8.6 8.6 0 01-1.37-.66l.33-.26a9.5 9.5 0 008.1 0l.33.26c-.44.26-.9.48-1.37.66.25.5.54.97.87 1.41a13.4 13.4 0 004.05-2.21c.39-4.08-.66-7.57-2.78-10.64zM5.35 11.65c-.92 0-1.68-.84-1.68-1.88s.74-1.88 1.68-1.88 1.69.85 1.68 1.88c0 1.04-.74 1.88-1.68 1.88zm6.3 0c-.92 0-1.68-.84-1.68-1.88s.74-1.88 1.68-1.88 1.69.85 1.68 1.88c0 1.04-.74 1.88-1.68 1.88z'/></svg>
+                                 Continue with Discord
+-                            </a>
+-                            <a
++                            </Link>
++                            <Link
+                                 href='/api/auth/oauth/openai'
+                                 className='w-full rounded-lg bg-[#10a37f] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#0d8c6d] transition-colors flex items-center justify-center gap-2'
+                             >
+                                 <svg className='w-4 h-4' viewBox='0 0 24 24' fill='currentColor'><path d='M22.28 9.37a6.04 6.04 0 00-.52-4.93 6.1 6.1 0 00-6.58-2.83A6.04 6.04 0 0010.68 0a6.1 6.1 0 00-5.83 4.25 6.04 6.04 0 00-4.03 2.92 6.1 6.1 0 00.75 7.14 6.04 6.04 0 00.52 4.93 6.1 6.1 0 006.58 2.83A6.04 6.04 0 0013.17 24a6.1 6.1 0 005.83-4.25 6.04 6.04 0 004.03-2.92 6.1 6.1 0 00-.75-7.14v-.32zM13.17 22.7a4.57 4.57 0 01-2.94-1.07l.15-.08 4.88-2.82a.8.8 0 00.4-.69v-6.9l2.06 1.19a.07.07 0 01.04.06v5.7a4.59 4.59 0 01-4.59 4.6zM3.6 18.53a4.56 4.56 0 01-.55-3.07l.15.09 4.88 2.82a.78.78 0 00.78 0l5.96-3.44v2.38a.08.08 0 01-.03.06l-4.94 2.85a4.59 4.59 0 01-6.26-1.69zM2.34 7.9A4.56 4.56 0 014.73 5.9v5.8a.78.78 0 00.39.68l5.96 3.44-2.07 1.19a.08.08 0 01-.07 0L4 14.17a4.59 4.59 0 01-1.66-6.27zm17.05 3.97l-5.96-3.44 2.07-1.2a.07.07 0 01.07 0l4.94 2.86a4.59 4.59 0 01-.71 8.28v-5.81a.79.79 0 00-.4-.69zm2.05-3.1l-.15-.09-4.88-2.82a.78.78 0 00-.78 0L9.67 9.3V6.92a.07.07 0 01.03-.06l4.94-2.85a4.59 4.59 0 016.8 4.76zM8.53 12.7l-2.07-1.2a.07.07 0 01-.04-.05V5.76a4.59 4.59 0 017.53-3.53l-.15.08-4.88 2.82a.8.8 0 00-.4.69l.01 6.88zm1.12-2.42l2.65-1.53 2.65 1.53v3.06l-2.65 1.53-2.65-1.53v-3.06z'/></svg>
+                                 Continue with OpenAI
+-                            </a>
++                            </Link>
+                             <div className='flex items-center gap-3 py-1'>
+                                 <div className='flex-1 h-px bg-zinc-700/50' />
+                                 <span className='text-[10px] text-zinc-500 uppercase tracking-wider'>or</span>
+diff --git a/src/app/stage/FileBrowser.tsx b/src/app/stage/FileBrowser.tsx
+index 559b14f..9d1e4e6 100644
+--- a/src/app/stage/FileBrowser.tsx
++++ b/src/app/stage/FileBrowser.tsx
+@@ -1,7 +1,7 @@
+ // FileBrowser — workspace filesystem browser + content pipeline sub-tabs
+ 'use client';
+ 
+-import { useState, useMemo, useCallback } from 'react';
++import { useState, useCallback } from 'react';
+ import {
+     useWorkspaceDirectory,
+     useWorkspaceFile,
+@@ -53,6 +53,7 @@ function isCodeFile(ext: string): boolean {
+ }
+ 
+ const AGENT_IDS = Object.keys(AGENTS) as AgentId[];
++const LOADING_ROW_WIDTHS = [78, 64, 72, 55, 81, 68];
+ 
+ function getAgentColor(name: string): string | null {
+     const lower = name.toLowerCase();
+@@ -353,7 +354,7 @@ export function FileBrowser() {
+                             {Array.from({ length: 6 }).map((_, i) => (
+                                 <div key={i} className='flex items-center gap-3'>
+                                     <div className='h-3.5 w-3.5 rounded bg-zinc-800' />
+-                                    <div className='h-3 rounded bg-zinc-800 flex-1' style={{ maxWidth: `${50 + Math.random() * 30}%` }} />
++                                    <div className='h-3 rounded bg-zinc-800 flex-1' style={{ maxWidth: `${LOADING_ROW_WIDTHS[i] ?? 70}%` }} />
+                                     <div className='h-3 w-10 rounded bg-zinc-800' />
+                                 </div>
+                             ))}
+diff --git a/src/app/stage/MemoryExplorer.tsx b/src/app/stage/MemoryExplorer.tsx
+index 4a96612..d80e7a2 100644
+--- a/src/app/stage/MemoryExplorer.tsx
++++ b/src/app/stage/MemoryExplorer.tsx
+@@ -908,7 +908,7 @@ export function MemoryExplorer() {
+                 selectedTypes.size > 0 ? Array.from(selectedTypes) : undefined,
+             min_confidence: minConfidence > 0 ? minConfidence : undefined,
+             search: debouncedSearch || undefined,
+-            limit: 200,
++            limit: 1000,
+         }),
+         [selectedAgent, selectedTypes, minConfidence, debouncedSearch],
+     );
+diff --git a/src/app/stage/QuestionsView.tsx b/src/app/stage/QuestionsView.tsx
+index 293fc76..a2d7bd7 100644
+--- a/src/app/stage/QuestionsView.tsx
++++ b/src/app/stage/QuestionsView.tsx
+@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
+ import { useInterval } from './hooks';
+ import { TranscriptViewer } from './TranscriptViewer';
+ import { AgentAvatarStack } from './AgentAvatar';
+-import type { RoundtableSession, RoundtableTurn } from '@/lib/types';
++import type { RoundtableSession } from '@/lib/types';
+ import {
+     MessageCircleIcon,
+     CheckCircleIcon,
+@@ -16,17 +16,6 @@ import {
+ 
+ // ─── Helpers ───
+ 
+-function formatRelativeTime(dateStr: string): string {
+-    const now = Date.now();
+-    const then = new Date(dateStr).getTime();
+-    const diffSec = Math.floor((now - then) / 1000);
+-
+-    if (diffSec < 60) return `${diffSec}s ago`;
+-    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+-    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+-    return `${Math.floor(diffSec / 86400)}d ago`;
+-}
+-
+ function formatDateTime(dateStr: string): string {
+     const d = new Date(dateStr);
+     return d.toLocaleString('en-US', {
+diff --git a/src/app/stage/StageHeader.tsx b/src/app/stage/StageHeader.tsx
+index f0b0ec9..0e2eb3a 100644
+--- a/src/app/stage/StageHeader.tsx
++++ b/src/app/stage/StageHeader.tsx
+@@ -23,6 +23,7 @@ export type ViewMode =
+     | 'memories'
+     | 'relationships'
+     | 'content'
++    | 'artifacts'
+     | 'files'
+     | 'governance'
+     | 'dreams'
+diff --git a/src/app/stage/StageIntro.tsx b/src/app/stage/StageIntro.tsx
+index 66ff0a1..13c62cc 100644
+--- a/src/app/stage/StageIntro.tsx
++++ b/src/app/stage/StageIntro.tsx
+@@ -1,7 +1,7 @@
+ // StageIntro — collapsible intro explaining what SUBCORP is and what you can do
+ 'use client';
+ 
+-import { useState, useEffect } from 'react';
++import { useState } from 'react';
+ import { AGENTS, AGENT_IDS } from '@/lib/agents';
+ import {
+     MicIcon,
+@@ -25,21 +25,19 @@ const CAPABILITIES = [
+ 
+ export function StageIntro() {
+     // Start open on SSR, close after mount if user has seen it before
+-    const [isOpen, setIsOpen] = useState(true);
+-    const [hasSeen, setHasSeen] = useState(false);
+-
+-    useEffect(() => {
+-        if (localStorage.getItem('subcorp-intro-seen') === 'true') {
+-            setIsOpen(false);
+-            setHasSeen(true);
+-        }
+-    }, []);
++    const [hasSeen, setHasSeen] = useState(() =>
++        typeof window !== 'undefined' && localStorage.getItem('subcorp-intro-seen') === 'true',
++    );
++    const [isOpen, setIsOpen] = useState(() =>
++        !(typeof window !== 'undefined' && localStorage.getItem('subcorp-intro-seen') === 'true'),
++    );
+ 
+     const handleToggle = () => {
+         const newState = !isOpen;
+         setIsOpen(newState);
+         if (!newState && !hasSeen) {
+             localStorage.setItem('subcorp-intro-seen', 'true');
++            setHasSeen(true);
+         }
+     };
+ 
+diff --git a/src/app/stage/StageSidebar.tsx b/src/app/stage/StageSidebar.tsx
+index d13ec0d..4929027 100644
+--- a/src/app/stage/StageSidebar.tsx
++++ b/src/app/stage/StageSidebar.tsx
+@@ -1,7 +1,7 @@
+ // StageSidebar — grouped icon sidebar for view navigation
+ 'use client';
+ 
+-import { useEffect, useRef, useCallback } from 'react';
++import { useRef, useCallback } from 'react';
+ import type { ViewMode } from './StageHeader';
+ import {
+     SignalIcon,
+@@ -50,6 +50,7 @@ const NAV_GROUPS: NavGroup[] = [
+         items: [
+             { key: 'newspaper', label: 'Newspaper', icon: <NewspaperIcon size={16} /> },
+             { key: 'newsletter', label: 'Newsletter', icon: <MailIcon size={16} /> },
++            { key: 'artifacts', label: 'Artifacts', icon: <ArchiveIcon size={16} /> },
+             { key: 'content', label: 'Content', icon: <FileTextIcon size={16} /> },
+             { key: 'files', label: 'Files', icon: <FolderIcon size={16} /> },
+             { key: 'governance', label: 'Governance', icon: <ScaleIcon size={16} /> },
+diff --git a/src/app/stage/office3d/AgentSprite.tsx b/src/app/stage/office3d/AgentSprite.tsx
+index 29468c0..24b0953 100644
+--- a/src/app/stage/office3d/AgentSprite.tsx
++++ b/src/app/stage/office3d/AgentSprite.tsx
+@@ -80,7 +80,10 @@ export function AgentSprite({
+     const groupRef = useRef<THREE.Group>(null);
+     const smoothPos = useRef({ x: agent.position[0], z: agent.position[2] });
+     const agentRef = useRef(agent);
+-    agentRef.current = agent;
++
++    useEffect(() => {
++        agentRef.current = agent;
++    }, [agent]);
+ 
+     const texture = useMemo(
+         () => generateAgentTexture(agent.color, agent.skinColor),
+@@ -186,7 +189,7 @@ export function AgentSprite({
+                 )}
+ 
+                 {/* Speech bubble (check timestamp expiry for immediate hide) */}
+-                {agent.speechBubble && Date.now() < agent.speechExpiresAt && (
++                {agent.speechBubble && agent.speechExpiresAt > 0 && (
+                     <SpeechBubble3D
+                         text={agent.speechBubble}
+                         color={agent.color}
+diff --git a/src/app/stage/office3d/Office3DScene.tsx b/src/app/stage/office3d/Office3DScene.tsx
+index 25c599a..9fca631 100644
+--- a/src/app/stage/office3d/Office3DScene.tsx
++++ b/src/app/stage/office3d/Office3DScene.tsx
+@@ -1,7 +1,7 @@
+ // office3d/Office3DScene.tsx — main Three.js scene container with OrbitControls and fullscreen
+ 'use client';
+ 
+-import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
++import { Suspense, useCallback, useRef, useState } from 'react';
+ import * as THREE from 'three';
+ import { Canvas, useThree } from '@react-three/fiber';
+ import { OrbitControls } from '@react-three/drei';
+@@ -38,7 +38,7 @@ function OfficeSceneContent({
+ 
+     const isDragging = useRef(false);
+     const { camera, gl } = useThree();
+-    const controlsRef = useRef<any>(null);
++    const controlsRef = useRef<React.ElementRef<typeof OrbitControls> | null>(null);
+     const dragTools = useRef({
+         plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
+         raycaster: new THREE.Raycaster(),
+@@ -316,8 +316,7 @@ export function Office3DScene({ fullscreen, onToggleFullscreen }: {
+ }) {
+     const period = useTimeOfDay();
+     const state = useOfficeState();
+-    const [webglSupported, setWebglSupported] = useState(false);
+-    useEffect(() => { setWebglSupported(checkWebGL()); }, []);
++    const [webglSupported] = useState(checkWebGL);
+ 
+     const containerClass = fullscreen
+         ? 'fixed inset-0 z-50 bg-[#11111b]'
+diff --git a/src/app/stage/office3d/OfficeEnvironment.tsx b/src/app/stage/office3d/OfficeEnvironment.tsx
+index 87b4456..7df12f0 100644
+--- a/src/app/stage/office3d/OfficeEnvironment.tsx
++++ b/src/app/stage/office3d/OfficeEnvironment.tsx
+@@ -53,7 +53,7 @@ export function OfficeEnvironment({
+     period: 'day' | 'dusk' | 'night';
+ }) {
+     const gl = useThree(s => s.gl);
+-    const scene = useThree(s => s.scene);
++    const { scene } = useThree();
+ 
+     const envMap = useMemo(
+         () => createGradientEnvMap(gl, SKY_COLORS[period].top, SKY_COLORS[period].bottom),
+@@ -62,6 +62,8 @@ export function OfficeEnvironment({
+ 
+     // Apply to scene and cleanup on change/unmount
+     useEffect(() => {
++        // Three.js scene is external mutable renderer state; apply environment imperatively.
++        // eslint-disable-next-line react-hooks/immutability
+         scene.environment = envMap;
+         return () => {
+             scene.environment = null;
+diff --git a/src/app/stage/office3d/useOfficeState.ts b/src/app/stage/office3d/useOfficeState.ts
+index 4cccd93..e0de709 100644
+--- a/src/app/stage/office3d/useOfficeState.ts
++++ b/src/app/stage/office3d/useOfficeState.ts
+@@ -42,6 +42,8 @@ function useDroids(): DroidState[] {
+ 
+     useEffect(() => {
+         mountedRef.current = true;
++        // Initial droid fetch synchronizes external API state on mount.
++        // eslint-disable-next-line react-hooks/set-state-in-effect
+         fetchDroids();
+         return () => { mountedRef.current = false; };
+     }, [fetchDroids]);
+@@ -133,7 +135,7 @@ export function useOfficeState() {
+     useEffect(() => {
+         async function fetchMissions() {
+             try {
+-                const res = await fetch('/api/ops/missions?status=running&limit=20');
++                const res = await fetch('/api/ops/missions?status=active&limit=20');
+                 if (!res.ok) {
+                     log.error('Failed to fetch missions', { status: res.statusText });
+                     return;
+diff --git a/src/app/stage/page.tsx b/src/app/stage/page.tsx
+index e55f321..0feee84 100644
+--- a/src/app/stage/page.tsx
++++ b/src/app/stage/page.tsx
+@@ -18,6 +18,7 @@ import { CostTracker } from './CostTracker';
+ import { MemoryExplorer } from './MemoryExplorer';
+ import { RelationshipGraph } from './RelationshipGraph';
+ import { ContentPipeline } from './ContentPipeline';
++import { ArtifactGallery } from './ArtifactGallery';
+ import { GovernancePanel } from './GovernancePanel';
+ import { DreamLog } from './DreamLog';
+ import { AgentDesigner } from './AgentDesigner';
+@@ -51,6 +52,7 @@ const VALID_VIEWS: ViewMode[] = [
+     'memories',
+     'relationships',
+     'content',
++    'artifacts',
+     'files',
+     'governance',
+     'dreams',
+@@ -372,6 +374,13 @@ function StageContent() {
+                         </SectionErrorBoundary>
+                     )}
+ 
++                    {/* ── Artifacts View ── */}
++                    {view === 'artifacts' && (
++                        <SectionErrorBoundary label='Artifact Gallery'>
++                            <ArtifactGallery />
++                        </SectionErrorBoundary>
++                    )}
++
+                     {/* ── Files View ── */}
+                     {view === 'files' && (
+                         <SectionErrorBoundary label='File Browser'>
+diff --git a/src/app/stage/useSpeechRecognition.ts b/src/app/stage/useSpeechRecognition.ts
+index 26fd6d3..3eb3dab 100644
+--- a/src/app/stage/useSpeechRecognition.ts
++++ b/src/app/stage/useSpeechRecognition.ts
+@@ -48,12 +48,18 @@ interface SpeechRecognitionInstance extends EventTarget {
+ 
+ type SpeechRecognitionCtor = new () => SpeechRecognitionInstance;
+ 
++interface SpeechRecognitionWindow extends Window {
++    SpeechRecognition?: SpeechRecognitionCtor;
++    webkitSpeechRecognition?: SpeechRecognitionCtor;
++}
++
+ // Browser compat — SpeechRecognition is prefixed in most engines
+ function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
+     if (typeof window === 'undefined') return null;
++    const speechWindow = window as SpeechRecognitionWindow;
+     return (
+-        (window as any).SpeechRecognition ??
+-        (window as any).webkitSpeechRecognition ??
++        speechWindow.SpeechRecognition ??
++        speechWindow.webkitSpeechRecognition ??
+         null
+     );
+ }
+@@ -82,18 +88,13 @@ export interface SpeechRecognitionControls {
+ 
+ export function useSpeechRecognition(): [SpeechRecognitionState, SpeechRecognitionControls] {
+     const [isListening, setIsListening] = useState(false);
+-    const [isSupported, setIsSupported] = useState(false);
++    const [isSupported] = useState(() => getSpeechRecognitionCtor() !== null);
+     const [transcript, setTranscript] = useState('');
+     const [interimTranscript, setInterimTranscript] = useState('');
+     const [error, setError] = useState<string | null>(null);
+ 
+     const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+ 
+-    // Detect support on mount
+-    useEffect(() => {
+-        setIsSupported(getSpeechRecognitionCtor() !== null);
+-    }, []);
+-
+     const start = useCallback(() => {
+         const Ctor = getSpeechRecognitionCtor();
+         if (!Ctor) {
+diff --git a/src/app/stage/useTTS.ts b/src/app/stage/useTTS.ts
+index ea38321..4440592 100644
+--- a/src/app/stage/useTTS.ts
++++ b/src/app/stage/useTTS.ts
+@@ -4,6 +4,9 @@
+ 
+ import { useState, useRef, useCallback, useEffect } from 'react';
+ import type { RoundtableTurn } from '@/lib/types';
++import { clientLogger } from '@/lib/client-logger';
++
++const log = clientLogger.child({ component: 'useTTS' });
+ 
+ // Lazy imports — browser TTS modules reference window.speechSynthesis
+ let _providerModule: typeof import('@/lib/tts/provider') | null = null;
+@@ -88,13 +91,13 @@ async function fetchTTSAudio(
+         });
+         if (!res.ok) {
+             const errBody = await res.text().catch(() => '');
+-            console.warn(`[TTS] Synthesis failed (${res.status}):`, errBody);
++            log.warn('TTS synthesis failed', { status: res.status, body: errBody });
+             return null;
+         }
+         return await res.blob();
+     } catch (err) {
+         if ((err as Error).name !== 'AbortError') {
+-            console.warn('[TTS] Fetch error:', (err as Error).message);
++            log.warn('TTS fetch failed', { error: (err as Error).message });
+         }
+         return null;
+     }
+diff --git a/src/components/SubscribeCTA.tsx b/src/components/SubscribeCTA.tsx
+index 79a5fa6..da94fe5 100644
+--- a/src/components/SubscribeCTA.tsx
++++ b/src/components/SubscribeCTA.tsx
+@@ -1,6 +1,6 @@
+ 'use client';
+ 
+-import { useState, useEffect } from 'react';
++import { useState } from 'react';
+ import { CheckCircleIcon, XIcon } from '@/lib/icons';
+ import { XTwitterIcon } from '@/lib/icons';
+ 
+@@ -26,14 +26,11 @@ export function SubscribeCTA({ variant, source = 'website' }: SubscribeCTAProps)
+     const [plan, setPlan] = useState<Plan>('both');
+     const [status, setStatus] = useState<Status>('idle');
+     const [errorMessage, setErrorMessage] = useState('');
+-    const [dismissed, setDismissed] = useState(false);
+-
+-    // Check localStorage dismiss for compact variant
+-    useEffect(() => {
+-        if (variant === 'compact') {
+-            setDismissed(localStorage.getItem(DISMISS_KEY) === '1');
+-        }
+-    }, [variant]);
++    const [dismissed, setDismissed] = useState(() =>
++        variant === 'compact' &&
++        typeof window !== 'undefined' &&
++        localStorage.getItem(DISMISS_KEY) === '1',
++    );
+ 
+     if (variant === 'compact' && dismissed) return null;
+ 
+diff --git a/src/lib/auth/oauth.ts b/src/lib/auth/oauth.ts
+index c1069fd..9e9d802 100644
+--- a/src/lib/auth/oauth.ts
++++ b/src/lib/auth/oauth.ts
+@@ -38,8 +38,6 @@ interface ProviderConfig {
+ }
+ 
+ function getProviderConfig(provider: OAuthProvider): ProviderConfig | null {
+-    const base = process.env.AUTH_REDIRECT_BASE_URL ?? '';
+-
+     switch (provider) {
+         case 'github':
+             return {
+diff --git a/src/lib/llm/client.ts b/src/lib/llm/client.ts
+index df3ae74..77009b4 100644
+--- a/src/lib/llm/client.ts
++++ b/src/lib/llm/client.ts
+@@ -257,12 +257,14 @@ const OLLAMA_LOCAL_URL =
+     OLLAMA_ENABLED ? (process.env.OLLAMA_BASE_URL ?? '') : '';
+ const OLLAMA_CLOUD_URL = 'https://ollama.com';
+ const OLLAMA_API_KEY = OLLAMA_ENABLED ? (process.env.OLLAMA_API_KEY ?? '') : '';
+-const OLLAMA_TEXT_TIMEOUT_MS = 20_000;
+-const OLLAMA_PREFERRED_TEXT_TIMEOUT_MS = 30_000;
+-const OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS = 45_000;
+-const OLLAMA_TOOL_TIMEOUT_MS = 45_000;
+-const OLLAMA_BUDGET_MS = 60_000;
+-const OLLAMA_TAGS_TIMEOUT_MS = 2_500;
++// Timeouts are generous to accommodate llama-line broker queue wait times.
++// The broker serialises requests; a busy queue can add minutes of wait before inference starts.
++const OLLAMA_TEXT_TIMEOUT_MS = 600_000;          // 10 min
++const OLLAMA_PREFERRED_TEXT_TIMEOUT_MS = 600_000; // 10 min
++const OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS = 600_000; // 10 min
++const OLLAMA_TOOL_TIMEOUT_MS = 600_000;           // 10 min
++const OLLAMA_BUDGET_MS = 1_200_000;               // 20 min total budget across all attempts
++const OLLAMA_TAGS_TIMEOUT_MS = 5_000;
+ const OLLAMA_MODEL_CACHE_TTL_MS = 30_000;
+ /** Model override via env — when set, ONLY this model is used for local Ollama. */
+ const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? '';
+@@ -372,7 +374,10 @@ async function getReachableLocalOllamaModels(): Promise<Set<string> | null> {
+     }
+ 
+     try {
++        const tagsHeaders: Record<string, string> = {};
++        if (OLLAMA_API_KEY) tagsHeaders['Authorization'] = `Bearer ${OLLAMA_API_KEY}`;
+         const response = await fetch(`${OLLAMA_LOCAL_URL}/api/tags`, {
++            headers: tagsHeaders,
+             signal: AbortSignal.timeout(OLLAMA_TAGS_TIMEOUT_MS),
+         });
+         if (!response.ok) {
+@@ -496,7 +501,7 @@ function getOllamaModelsWithFallback(preferredModel?: string): OllamaModelSpec[]
+         ];
+ 
+         for (const model of localModelIds) {
+-            localModels.push({ model, baseUrl: OLLAMA_LOCAL_URL });
++            localModels.push({ model, baseUrl: OLLAMA_LOCAL_URL, apiKey: OLLAMA_API_KEY || undefined });
+         }
+     }
+ 
+@@ -850,6 +855,49 @@ interface OllamaChatWithModelInput {
+     isFirstLocalAttempt?: boolean;
+ }
+ 
++/**
++ * Parse a llama-line SSE response from /api/chat.
++ * llama-line always returns text/event-stream even when stream: false is sent.
++ * The stream contains 0+ broker status events followed by the final ollama JSON.
++ */
++async function parseOllamaSseResponse(response: Response): Promise<{
++    message?: {
++        content?: string;
++        thinking?: string;
++        reasoning?: string;
++        tool_calls?: Array<{
++            function: { name: string; arguments: string | Record<string, unknown> };
++        }>;
++    };
++    done?: boolean;
++    done_reason?: string;
++    prompt_eval_count?: number;
++    eval_count?: number;
++}> {
++    const text = await response.text();
++    const lines = text.split('\n');
++    for (const line of lines) {
++        if (!line.startsWith('data: ')) continue;
++        const payload = line.slice(6).trim();
++        if (!payload || payload === '[DONE]') continue;
++        let parsed: Record<string, unknown>;
++        try {
++            parsed = JSON.parse(payload) as Record<string, unknown>;
++        } catch {
++            continue;
++        }
++        // Broker error events
++        if (parsed['status'] === 'ollama_unavailable' || parsed['status'] === 'dropped_by_admin') {
++            throw new Error(`llama-line broker error: ${parsed['status']}`);
++        }
++        // Skip broker status events (queued, processing, etc.)
++        if (typeof parsed['status'] === 'string') continue;
++        // This is the actual ollama response payload
++        return parsed as ReturnType<typeof parseOllamaSseResponse> extends Promise<infer T> ? T : never;
++    }
++    throw new Error('No valid response found in llama-line SSE stream');
++}
++
+ /** Try a single Ollama model. Returns result or null on failure. */
+ async function ollamaChatWithModel(
+     input: OllamaChatWithModelInput,
+@@ -958,21 +1006,9 @@ async function ollamaChatWithModel(
+                 return { result: null };
+             }
+ 
+-            // Native /api/chat response format
+-            const rawData = (await response.json()) as {
+-                message?: {
+-                    content?: string;
+-                    thinking?: string;
+-                    reasoning?: string;
+-                    tool_calls?: Array<{
+-                        function: { name: string; arguments: string | Record<string, unknown> };
+-                    }>;
+-                };
+-                done?: boolean;
+-                done_reason?: string;
+-                prompt_eval_count?: number;
+-                eval_count?: number;
+-            };
++            // Native /api/chat response format — parse SSE envelope from llama-line broker.
++            // llama-line always returns text/event-stream even when stream: false is sent.
++            const rawData = await parseOllamaSseResponse(response);
+ 
+             // Map native format to our internal expectations
+             const msg = rawData.message;
+diff --git a/src/lib/llm/embeddings.ts b/src/lib/llm/embeddings.ts
+index 1289598..432f39d 100644
+--- a/src/lib/llm/embeddings.ts
++++ b/src/lib/llm/embeddings.ts
+@@ -15,13 +15,20 @@ const EMBEDDING_PROVIDER = process.env.EMBEDDING_PROVIDER ?? 'ollama';
+ // ─── Ollama (local on almaz) ───────────────────────────────
+ const EMBEDDING_OLLAMA_URL = process.env.EMBEDDING_OLLAMA_URL ?? 'http://localhost:11434';
+ const OLLAMA_EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? 'bge-m3';
++// llama-line broker requires Bearer auth on all inference endpoints (including /v1/embeddings)
++const EMBEDDING_OLLAMA_API_KEY = process.env.OLLAMA_API_KEY ?? process.env.EMBEDDING_OLLAMA_API_KEY ?? '';
+ 
+ // ─── OpenRouter (cloud fallback) ───────────────────────────
+ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
+ const OPENROUTER_EMBEDDING_MODEL = 'openai/text-embedding-3-small';
+ const OPENROUTER_EMBEDDING_DIMENSIONS = 1024;
+ 
+-const EMBEDDING_TIMEOUT_MS = 15_000;
++// llama-line queues embedding requests too; allow queue wait + inference time.
++const EMBEDDING_TIMEOUT_MS = 120_000;
++const LLAMA_LINE_TERMINAL_STATUSES = new Set([
++    'ollama_unavailable',
++    'dropped_by_admin',
++]);
+ 
+ /**
+  * Get embedding vector via the configured provider.
+@@ -39,11 +46,13 @@ async function getEmbeddingOllama(text: string): Promise<number[] | null> {
+     if (!EMBEDDING_OLLAMA_URL) return null;
+ 
+     try {
++        const embeddingHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
++        if (EMBEDDING_OLLAMA_API_KEY) embeddingHeaders['Authorization'] = `Bearer ${EMBEDDING_OLLAMA_API_KEY}`;
+         const response = await fetch(
+             `${EMBEDDING_OLLAMA_URL}/v1/embeddings`,
+             {
+                 method: 'POST',
+-                headers: { 'Content-Type': 'application/json' },
++                headers: embeddingHeaders,
+                 body: JSON.stringify({
+                     model: OLLAMA_EMBEDDING_MODEL,
+                     input: text,
+@@ -61,9 +70,7 @@ async function getEmbeddingOllama(text: string): Promise<number[] | null> {
+             return null;
+         }
+ 
+-        const data = (await response.json()) as {
+-            data?: Array<{ embedding: number[] }>;
+-        };
++        const data = await readEmbeddingResponse(response);
+         return data.data?.[0]?.embedding ?? null;
+     } catch {
+         log.debug('Ollama embedding error (host unreachable?)', {
+@@ -74,6 +81,35 @@ async function getEmbeddingOllama(text: string): Promise<number[] | null> {
+     }
+ }
+ 
++async function readEmbeddingResponse(
++    response: Response,
++): Promise<{ data?: Array<{ embedding: number[] }> }> {
++    const contentType = response.headers.get('content-type') ?? '';
++    if (!contentType.includes('text/event-stream')) {
++        return (await response.json()) as { data?: Array<{ embedding: number[] }> };
++    }
++
++    const text = await response.text();
++    for (const line of text.split(/\r?\n/)) {
++        if (!line.startsWith('data: ')) continue;
++        const raw = line.slice('data: '.length).trim();
++        if (!raw || raw === '[DONE]') continue;
++
++        const payload = JSON.parse(raw) as {
++            status?: string;
++            message?: string;
++            data?: Array<{ embedding: number[] }>;
++        };
++        if (payload.status === 'queued') continue;
++        if (payload.status && LLAMA_LINE_TERMINAL_STATUSES.has(payload.status)) {
++            throw new Error(payload.message ?? payload.status);
++        }
++        if (payload.data?.[0]?.embedding) return payload;
++    }
++
++    return {};
++}
++
+ /** Embedding via OpenRouter (cloud). */
+ async function getEmbeddingOpenRouter(text: string): Promise<number[] | null> {
+     if (!OPENROUTER_API_KEY) return null;
+diff --git a/src/lib/ops/agent-proposal-voting.ts b/src/lib/ops/agent-proposal-voting.ts
+index 4d2e9a1..12a1617 100644
+--- a/src/lib/ops/agent-proposal-voting.ts
++++ b/src/lib/ops/agent-proposal-voting.ts
+@@ -2,7 +2,6 @@
+ // Integrates with roundtable sessions for structured voting debates.
+ import { sql, jsonb } from '@/lib/db';
+ import { emitEventAndCheckReactions } from './events';
+-import { getVoice } from '@/lib/roundtable/voices';
+ import { logger } from '@/lib/logger';
+ import type {
+     AgentProposal,
+diff --git a/src/lib/ops/digest.ts b/src/lib/ops/digest.ts
+index 490da05..4b5d937 100644
+--- a/src/lib/ops/digest.ts
++++ b/src/lib/ops/digest.ts
+@@ -235,35 +235,6 @@ export async function generateDailyDigest(date?: Date): Promise<string | null> {
+         costs: Math.round(data.totalCost * 10000) / 10000,
+     };
+ 
+-    // Build prompt for Mux
+-    const dataSummary = [
+-        `Date: ${dateStr}`,
+-        `Total events: ${totalEvents} (${Object.entries(data.eventCounts)
+-            .map(([k, v]) => `${k}: ${v}`)
+-            .join(', ')})`,
+-        `Conversations completed: ${data.sessions.length}`,
+-        ...(data.sessions.length > 0 ?
+-            data.sessions
+-                .slice(0, 5)
+-                .map(
+-                    s =>
+-                        `  - "${s.topic}" (${s.participants.join(', ')}, ${s.turns} turns)`,
+-                )
+-        :   []),
+-        `Missions: ${data.missionOutcomes.succeeded} succeeded, ${data.missionOutcomes.failed} failed`,
+-        `New memories: ${totalMemories} (${Object.entries(data.memoriesByAgent)
+-            .map(([a, c]) => `${a}: ${c}`)
+-            .join(', ')})`,
+-        `LLM costs: $${stats.costs}`,
+-        '',
+-        'Notable events:',
+-        ...(data.topEvents.length > 0 ?
+-            data.topEvents
+-                .slice(0, 10)
+-                .map(e => `  - [${e.agent_id}/${e.kind}] ${e.title}`)
+-        :   ['  (none)']),
+-    ].join('\n');
+-
+     // Generate summary via template (Mux voice, dry and direct)
+     const summary = buildDigestSummary(dateStr, stats, data);
+ 
+diff --git a/src/lib/ops/governance.ts b/src/lib/ops/governance.ts
+index 4849aed..fa3b72f 100644
+--- a/src/lib/ops/governance.ts
++++ b/src/lib/ops/governance.ts
+@@ -38,6 +38,80 @@ type GovernanceVoteChoice = 'approve' | 'reject';
+ 
+ const PROTECTED_POLICIES = new Set(['system_enabled', 'veto_authority']);
+ 
++const AUTO_APPROVE_ALLOWED_STEP_KINDS = [
++    'research_topic',
++    'scan_signals',
++    'draft_essay',
++    'draft_thread',
++    'audit_system',
++    'patch_code',
++    'distill_insight',
++    'document_lesson',
++    'critique_content',
++    'consolidate_memory',
++    'memory_archaeology',
++    'draft_product_spec',
++    'log_event',
++    'convene_roundtable',
++    'identify_assumption',
++    'review_policy',
++    'map_dependency',
++    'classify_pattern',
++    'trace_incentive',
++    'tag_memory',
++    'refine_narrative',
++    'propose_workflow',
++    'content_revision',
++    'write_issue',
++    'prepare_statement',
++    'escalate_risk',
++    'analyze_discourse',
++    'self_evolution',
++    'github_issue',
++    'github_pr',
++    'explore_repo',
++    'publish_blog',
++    'notify_human',
++    'create_pull_request',
++] as const;
++
++const POLICY_VALIDATORS: Record<string, (value: Record<string, unknown>) => string | null> = {
++    auto_approve(value) {
++        if (typeof value.enabled !== 'boolean') {
++            return 'auto_approve.enabled must be a boolean';
++        }
++
++        if (!Array.isArray(value.allowed_step_kinds)) {
++            return 'auto_approve.allowed_step_kinds must be an array';
++        }
++
++        const invalid = value.allowed_step_kinds.filter(
++            stepKind =>
++                typeof stepKind !== 'string' ||
++                !AUTO_APPROVE_ALLOWED_STEP_KINDS.includes(
++                    stepKind as (typeof AUTO_APPROVE_ALLOWED_STEP_KINDS)[number],
++                ),
++        );
++
++        if (invalid.length > 0) {
++            return `auto_approve.allowed_step_kinds contains invalid step kind(s): ${invalid.join(', ')}`;
++        }
++
++        return null;
++    },
++};
++
++function validatePolicyValue(
++    policyKey: string,
++    proposedValue: Record<string, unknown>,
++): void {
++    const validate = POLICY_VALIDATORS[policyKey];
++    const error = validate?.(proposedValue);
++    if (error) {
++        throw new Error(`Invalid value for policy "${policyKey}": ${error}`);
++    }
++}
++
+ // ─── Create proposal ───
+ 
+ export async function proposeGovernanceChange(
+@@ -53,6 +127,8 @@ export async function proposeGovernanceChange(
+         );
+     }
+ 
++    validatePolicyValue(policyKey, proposedValue);
++
+     // Check for duplicate active proposals on same policy
+     const [existing] = await sql<[{ id: string }?]>`
+         SELECT id FROM ops_governance_proposals
+diff --git a/src/lib/ops/memory.ts b/src/lib/ops/memory.ts
+index 8bd1f8b..0c153fe 100644
+--- a/src/lib/ops/memory.ts
++++ b/src/lib/ops/memory.ts
+@@ -11,7 +11,14 @@ import { getEmbedding } from '@/lib/llm/embeddings';
+ 
+ const log = logger.child({ module: 'memory' });
+ 
+-const MAX_MEMORIES_PER_AGENT = 200;
++const configuredMemoryCap = Number.parseInt(
++    process.env.MEMORY_MAX_PER_AGENT ?? '',
++    10,
++);
++const MAX_MEMORIES_PER_AGENT =
++    Number.isFinite(configuredMemoryCap) && configuredMemoryCap > 0 ?
++        configuredMemoryCap
++    :   null;
+ 
+ export async function queryAgentMemories(
+     query: MemoryQuery,
+@@ -152,6 +159,8 @@ export async function writeMemory(input: MemoryInput): Promise<string | null> {
+ }
+ 
+ export async function enforceMemoryCap(agentId: string): Promise<void> {
++    if (MAX_MEMORIES_PER_AGENT === null) return;
++
+     const [{ count }] = await sql<[{ count: number }]>`
+         SELECT COUNT(*)::int as count FROM ops_agent_memory
+         WHERE agent_id = ${agentId} AND superseded_by IS NULL
+diff --git a/src/lib/ops/newsletter.ts b/src/lib/ops/newsletter.ts
+index 41bfa3d..b713a2a 100644
+--- a/src/lib/ops/newsletter.ts
++++ b/src/lib/ops/newsletter.ts
+@@ -191,7 +191,6 @@ interface WeekData {
+ async function gatherWeekData(
+     weekStart: Date,
+     weekEnd: Date,
+-    spotlightAgent: AgentId,
+ ): Promise<WeekData> {
+     const start = weekStart.toISOString();
+     const end = weekEnd.toISOString();
+@@ -653,7 +652,7 @@ export async function generateWeeklyNewsletter(): Promise<string | null> {
+         week: weekString,
+         spotlight: spotlightAgent,
+     });
+-    const data = await gatherWeekData(weekStart, weekEnd, spotlightAgent);
++    const data = await gatherWeekData(weekStart, weekEnd);
+ 
+     // Check if there's enough data to warrant a newsletter
+     const stats = buildStats(data);
+diff --git a/src/lib/ops/newspaper-pdf.tsx b/src/lib/ops/newspaper-pdf.tsx
+index 45b3632..850e874 100644
+--- a/src/lib/ops/newspaper-pdf.tsx
++++ b/src/lib/ops/newspaper-pdf.tsx
+@@ -146,6 +146,7 @@ function ArticleBlock({ article }: { article: NewspaperArticle }) {
+     return (
+         <View style={styles.article}>
+             {article.ogImage && (
++                // eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image has no alt prop.
+                 <Image src={article.ogImage} style={styles.articleImage} />
+             )}
+             <Text style={styles.articleTitle}>{article.title}</Text>
+diff --git a/src/lib/ops/step-prompts.ts b/src/lib/ops/step-prompts.ts
+index 4c53b90..601f6b4 100644
+--- a/src/lib/ops/step-prompts.ts
++++ b/src/lib/ops/step-prompts.ts
+@@ -304,7 +304,7 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
+         `7. Write a summary to ${outputDir}/${today}__evolution__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md\n` +
+         `\nYour output is a MERGED PULL REQUEST with real code changes. Do not just describe what you would change.\n`,
+ 
+-    github_issue: (ctx, _today, _outputDir) =>
++    github_issue: (ctx) =>
+         `You are managing the subculture-collective GitHub organization.\n` +
+         `Org: https://github.com/subculture-collective\n` +
+         `Platform repo: https://github.com/subculture-collective/subcorp\n` +
+@@ -317,7 +317,7 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
+         `  gh label create --repo subculture-collective/subcorp "feature" --color 0075ca\n` +
+         `\nCreate well-structured issues with clear titles, descriptions, acceptance criteria, and appropriate labels.\n`,
+ 
+-    github_pr: (ctx, _today, _outputDir) =>
++    github_pr: (ctx) =>
+         `You are managing code in the subculture-collective GitHub organization.\n` +
+         `Org: https://github.com/subculture-collective\n` +
+         `Platform repo: https://github.com/subculture-collective/subcorp\n` +
+@@ -348,7 +348,7 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
+         `5. If you find improvements to make, create detailed PRs with clear descriptions of what you changed and why.\n` +
+         `6. Write findings to ${outputDir}/\n`,
+ 
+-    publish_blog: (ctx, _today, _outputDir) =>
++    publish_blog: (ctx) =>
+         `You are publishing content to the SUBCULT blog at https://blog.subcult.tv (Ghost CMS).\n` +
+         `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
+         `\nINSTRUCTIONS:\n` +
+@@ -359,7 +359,7 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
+         `4. Blog posts should be polished, on-brand, and provide genuine value to readers.\n` +
+         `5. Topics: technology, AI, autonomy, open source, creative tools, underground culture.\n`,
+ 
+-    notify_human: (ctx, _today, _outputDir) =>
++    notify_human: (ctx) =>
+         `You need human assistance for a task you cannot complete autonomously.\n` +
+         `\nRequest: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
+         `\nINSTRUCTIONS:\n` +
+diff --git a/src/lib/ops/triggers.ts b/src/lib/ops/triggers.ts
+index cf76939..5137a83 100644
+--- a/src/lib/ops/triggers.ts
++++ b/src/lib/ops/triggers.ts
+@@ -15,8 +15,6 @@ import { createVotingRoundtablePrompt } from './agent-proposal-voting';
+ 
+ const log = logger.child({ module: 'triggers' });
+ 
+-// Truncation limits for debate topics
+-const RATIONALE_PREVIEW_LENGTH = 200;
+ const TOPIC_MAX_LENGTH = 1000;
+ 
+ /** Default thresholds loaded from ops_policy once per evaluation cycle */
+@@ -1284,35 +1282,3 @@ async function checkProactiveBuild(
+ }
+ 
+ // ─── Proactive Org Exploration ───
+-
+-async function checkProactiveExploreOrg(
+-    conditions: Record<string, unknown>,
+-    targetAgent: string,
+-): Promise<TriggerCheckResult> {
+-    const skipProb = (conditions.skip_probability as number) ?? 0.15;
+-    if (Math.random() < skipProb)
+-        return { fired: false, reason: 'skipped by probability' };
+-
+-    const exploreTasks = [
+-        'List all repos in subculture-collective org (gh repo list). Pick one you haven\'t explored. Read its README, issues, and recent PRs. Look for ways to contribute.',
+-        'Check open issues across all subculture-collective repos (gh search issues --owner subculture-collective --state open). Pick one you can help with and either fix it or comment with a plan.',
+-        'Review the subcults repo (subculture-collective/subcults). Read its development docs and issues. Propose or implement an improvement.',
+-        'Explore the vod-tender repo. Read its README and source code. Look for bugs, missing features, or documentation gaps. Create an issue or PR.',
+-        'Scan all org repos for stale PRs, missing documentation, or broken CI. Create issues for anything you find.',
+-    ];
+-    const task = exploreTasks[Math.floor(Math.random() * exploreTasks.length)];
+-
+-    return {
+-        fired: true,
+-        reason: 'Org exploration: contribute to subculture-collective repos',
+-        proposal: {
+-            agent_id: targetAgent,
+-            title: 'Explore and contribute to org repos',
+-            description: task,
+-            proposed_steps: [
+-                { kind: 'explore_repo' as const, assigned_agent: targetAgent, payload: { description: task } },
+-            ],
+-            source: 'trigger',
+-        },
+-    };
+-}
+diff --git a/src/lib/ops/veto.ts b/src/lib/ops/veto.ts
+index a778c36..6137b3c 100644
+--- a/src/lib/ops/veto.ts
++++ b/src/lib/ops/veto.ts
+@@ -2,7 +2,7 @@
+ // Subrosa: binding vetoes (immediate halt)
+ // Other agents: soft vetoes (trigger review hold)
+ // Primus/human: can override any veto
+-import { sql, jsonb } from '@/lib/db';
++import { sql } from '@/lib/db';
+ import { getPolicy } from './policy';
+ import { emitEvent } from './events';
+ import { logger } from '@/lib/logger';
+diff --git a/src/lib/roundtable/orchestrator.ts b/src/lib/roundtable/orchestrator.ts
+index 334bffb..eed97de 100644
+--- a/src/lib/roundtable/orchestrator.ts
++++ b/src/lib/roundtable/orchestrator.ts
+@@ -1016,9 +1016,6 @@ async function orchestrateVoiceChat(
+         speaker: string,
+         turnNumber: number,
+     ): Promise<ConversationTurnEntry | null> {
+-        const voice = getVoice(speaker);
+-        const speakerName = voice?.displayName ?? speaker;
+-
+         let interactionType: string | undefined;
+         if (history.length > 0) {
+             const lastSpeaker = history[history.length - 1].speaker;
+diff --git a/src/lib/tools/executor.ts b/src/lib/tools/executor.ts
+index 908dbbc..79a7ff5 100644
+--- a/src/lib/tools/executor.ts
++++ b/src/lib/tools/executor.ts
+@@ -10,6 +10,50 @@ const MAX_STDOUT = 50 * 1024; // 50KB cap
+ const MAX_STDERR = 10 * 1024; // 10KB cap
+ const DEFAULT_TIMEOUT_MS = 30_000;
+ 
++export const DOCKER_BACKED_TOOL_NAMES = new Set([
++    'bash',
++    'file_read',
++    'file_write',
++    'web_fetch',
++    'send_to_agent',
++    'spawn_droid',
++    'check_droid',
++]);
++
++export function dockerBackedToolsEnabled(): boolean {
++    return (
++        process.env.DOCKER_BACKED_TOOLS_ENABLED !== 'false' &&
++        process.env.TOOLBOX_TOOLS_ENABLED !== 'false'
++    );
++}
++
++export function disableDockerBackedTools(reason: string): void {
++    process.env.DOCKER_BACKED_TOOLS_ENABLED = 'false';
++    log.warn('Docker-backed tools disabled', { reason });
++}
++
++export async function checkToolboxAvailable(): Promise<{ ok: true } | { ok: false; reason: string }> {
++    if (!dockerBackedToolsEnabled()) {
++        return { ok: false, reason: 'Docker-backed tools disabled by environment' };
++    }
++
++    return new Promise(resolve => {
++        execFile('docker', ['exec', TOOLBOX_CONTAINER, 'true'], {
++            timeout: 5_000,
++            encoding: 'utf8',
++        }, (error, _stdout, stderr) => {
++            if (!error) {
++                resolve({ ok: true });
++                return;
++            }
++            resolve({
++                ok: false,
++                reason: (stderr || error.message || 'docker exec failed').trim(),
++            });
++        });
++    });
++}
++
+ /** Extract the exit code from a child_process error. Defaults to 1 for unknown errors. */
+ function getExitCode(error: Error): number {
+     const err = error as unknown as Record<string, unknown>;
+@@ -28,6 +72,15 @@ export async function execInToolbox(
+     command: string,
+     timeoutMs: number = DEFAULT_TIMEOUT_MS,
+ ): Promise<ExecResult> {
++    if (!dockerBackedToolsEnabled()) {
++        return {
++            stdout: '',
++            stderr: 'Docker-backed tools are disabled for this executor runtime.',
++            exitCode: 126,
++            timedOut: false,
++        };
++    }
++
+     return new Promise(resolve => {
+         const args = [
+             'exec',
+@@ -50,6 +103,13 @@ export async function execInToolbox(
+                     timedOut = true;
+                 }
+                 exitCode = getExitCode(error);
++                const message = `${stderr}\n${error.message}`;
++                if (message.includes('permission denied') || message.includes('Cannot connect to the Docker daemon')) {
++                    log.error('Docker-backed executor cannot reach Docker', {
++                        command: command.slice(0, 200),
++                        stderr: stderr.slice(0, 500),
++                    });
++                }
+             }
+ 
+             // Cap output
+diff --git a/src/lib/tools/registry.ts b/src/lib/tools/registry.ts
+index b142fd3..76c8c6f 100644
+--- a/src/lib/tools/registry.ts
++++ b/src/lib/tools/registry.ts
+@@ -32,6 +32,10 @@ import {
+     castVetoTool,
+     createCastVetoExecute,
+ } from './tools/cast-veto';
++import {
++    DOCKER_BACKED_TOOL_NAMES,
++    dockerBackedToolsEnabled,
++} from './executor';
+ 
+ /** All registered native tools */
+ const ALL_TOOLS: NativeTool[] = [
+@@ -61,6 +65,7 @@ const ALL_TOOLS: NativeTool[] = [
+ export function getAgentTools(agentId: AgentId, sessionId?: string): ToolDefinition[] {
+     return ALL_TOOLS
+         .filter(tool => tool.agents.includes(agentId))
++        .filter(tool => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name))
+         // eslint-disable-next-line @typescript-eslint/no-unused-vars
+         .map(({ agents: _agents, ...tool }) => {
+             // Bind agentId into file_write's execute for path ACL enforcement
+@@ -110,6 +115,7 @@ export function getDroidTools(droidId: string): ToolDefinition[] {
+     const droidToolNames = ['file_read', 'file_write', 'bash', 'web_search', 'web_fetch'];
+     return ALL_TOOLS
+         .filter(tool => droidToolNames.includes(tool.name))
++        .filter(tool => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name))
+         // eslint-disable-next-line @typescript-eslint/no-unused-vars
+         .map(({ agents: _agents, ...tool }) => {
+             if (tool.name === 'file_write') {
+@@ -125,6 +131,7 @@ export function getDroidTools(droidId: string): ToolDefinition[] {
+ export function getAgentToolNames(agentId: AgentId): string[] {
+     return ALL_TOOLS
+         .filter(tool => tool.agents.includes(agentId))
++        .filter(tool => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name))
+         .map(tool => tool.name);
+ }
+ 
+@@ -132,6 +139,7 @@ export function getAgentToolNames(agentId: AgentId): string[] {
+  * Get write-path prefixes for an agent, or empty array if file_write is not available.
+  */
+ export function getAgentWritePaths(agentId: AgentId): string[] {
++    if (!dockerBackedToolsEnabled()) return [];
+     if (!fileWriteTool.agents.includes(agentId)) return [];
+     return WRITE_ACLS[agentId] ?? [];
+ }
+@@ -140,5 +148,7 @@ export function getAgentWritePaths(agentId: AgentId): string[] {
+  * List all registered tools.
+  */
+ export function listAllTools(): NativeTool[] {
+-    return [...ALL_TOOLS];
++    return ALL_TOOLS.filter(tool =>
++        dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name),
++    );
+ }
+diff --git a/src/lib/tools/tools/memory-search.ts b/src/lib/tools/tools/memory-search.ts
+index 76863c7..5c1bec7 100644
+--- a/src/lib/tools/tools/memory-search.ts
++++ b/src/lib/tools/tools/memory-search.ts
+@@ -23,7 +23,7 @@ export const memorySearchTool: NativeTool = {
+             },
+             limit: {
+                 type: 'number',
+-                description: 'Maximum results (default 10)',
++                description: 'Maximum results (default 25, max 250)',
+             },
+         },
+         required: ['query'],
+@@ -31,7 +31,8 @@ export const memorySearchTool: NativeTool = {
+     execute: async (params) => {
+         const query = params.query as string;
+         const agentId = params.agent_id as string | undefined;
+-        const limit = Math.min((params.limit as number) || 10, 25);
++        const requestedLimit = Number(params.limit) || 25;
++        const limit = Math.min(Math.max(requestedLimit, 1), 250);
+ 
+         // Try vector search first
+         const embedding = await getEmbedding(query);
+diff --git a/types/bun-test.d.ts b/types/bun-test.d.ts
+index 534adca..bf4bd2d 100644
+--- a/types/bun-test.d.ts
++++ b/types/bun-test.d.ts
+@@ -1,7 +1,19 @@
+ declare module 'bun:test' {
++    interface Expectation {
++        toBe(expected: unknown): void;
++        toEqual(expected: unknown): void;
++        toContain(expected: unknown): void;
++        toMatch(expected: RegExp | string): void;
++        toHaveLength(expected: number): void;
++        toBeTruthy(): void;
++        toBeFalsy(): void;
++        toBeNull(): void;
++        toBeDefined(): void;
++    }
++
+     export function describe(name: string, fn: () => void | Promise<void>): void;
+     export function test(name: string, fn: () => void | Promise<void>): void;
+     export function beforeEach(fn: () => void | Promise<void>): void;
+     export function afterEach(fn: () => void | Promise<void>): void;
+-    export function expect(actual: unknown): any;
++    export function expect(actual: unknown): Expectation;
+ }

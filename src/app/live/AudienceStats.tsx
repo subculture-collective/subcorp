@@ -32,7 +32,7 @@ export function AudienceStats() {
 
         async function fetchStats() {
             try {
-                const res = await fetch('/api/ops/stats');
+                const res = await fetch('/api/public/stats');
                 if (!res.ok || cancelled) return;
                 const data = (await res.json()) as PublicStats;
                 if (!cancelled) setStats(data);

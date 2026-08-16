@@ -4,6 +4,7 @@ import { sql } from '@/lib/db';
 import { renderTranscriptPdf } from '@/lib/roundtable/transcript-pdf';
 import { getVoice } from '@/lib/roundtable/voices';
 import type { Debrief } from '@/lib/roundtable/debrief';
+import { requireOpsRead } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,6 +12,9 @@ export async function GET(
     _req: NextRequest,
     { params }: { params: Promise<{ sessionId: string }> },
 ) {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     const { sessionId } = await params;
 
     // Load session

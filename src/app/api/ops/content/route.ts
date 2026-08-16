@@ -1,7 +1,7 @@
 // /api/ops/content — List and manage content drafts
 import { NextRequest, NextResponse } from 'next/server';
 import { sql, jsonb } from '@/lib/db';
-import { requireAuthOrCron } from '@/lib/auth/middleware';
+import { requireAuthOrCron, requireOpsRead } from '@/lib/auth/middleware';
 import { retryGhostMirrorForDraft } from '@/lib/ops/content-publication';
 import {
     createOrUpdateReviewPacket,
@@ -26,6 +26,9 @@ function toReviewPacketStatus(status: string): ReviewPacketStatus {
 }
 
 export async function GET(req: NextRequest) {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
     const author = searchParams.get('author');

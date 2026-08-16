@@ -1,9 +1,11 @@
 // /api/ops/artifacts — unified read-only artifact gallery data
 import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { sql } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { execInToolbox } from '@/lib/tools/executor';
+import { requireOpsRead } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +45,27 @@ interface WorkspaceFileRow {
     size: number;
     modifiedEpoch: number;
     preview: string;
+    sha256: string | null;
+}
+
+interface TrustedManifestEntry {
+    artifact_id?: string;
+    path?: string;
+    agent_id?: string;
+    type?: string;
+    session_id?: string;
+    session_status?: string;
+    trusted?: boolean;
+    published_at?: string;
+    sha256?: string;
+    verified_preview?: string;
+}
+
+interface TrustedSessionRow {
+    id: string;
+    agent_id: string;
+    status: string;
+    tool_calls: Array<Record<string, unknown>> | null;
 }
 
 const WORKSPACE_ROOT = '/workspace';
@@ -51,6 +74,8 @@ const CONTENT_PREVIEW_BYTES = 2 * 1024;
 const WORKSPACE_PREVIEW_BYTES = 128;
 const MAX_WORKSPACE_FILES = 500;
 const FIND_DELIMITER = '__SUBCORP_ARTIFACT__';
+const TRUSTED_MANIFEST_PATH = '/workspace/shared/manifests/index.jsonl';
+const STRICT_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const log = logger.child({ module: 'ops-artifacts-route' });
 
 function clampLimit(raw: string | null): number {
@@ -157,7 +182,7 @@ async function listWorkspaceOutputFiles(limit: number): Promise<WorkspaceFileRow
     const result = await execInToolbox(command, 10_000);
     if (result.exitCode !== 0 || !result.stdout.trim()) return [];
 
-    const files = result.stdout.trim().split('\n').flatMap(line => {
+    const files: WorkspaceFileRow[] = result.stdout.trim().split('\n').flatMap(line => {
         const [modifiedRaw, sizeRaw, absolutePath] = line.split('\t');
         if (!absolutePath?.startsWith(`${WORKSPACE_ROOT}/`)) return [];
 
@@ -172,6 +197,7 @@ async function listWorkspaceOutputFiles(limit: number): Promise<WorkspaceFileRow
             size: parseInt(sizeRaw, 10) || 0,
             modifiedEpoch: Math.floor(parseFloat(modifiedRaw) || 0),
             preview: '',
+            sha256: null,
         }];
     });
 
@@ -197,33 +223,135 @@ async function listWorkspaceOutputFiles(limit: number): Promise<WorkspaceFileRow
         files[index].preview = chunk.slice(markerMatch[0].length);
     }
 
+    const hashCommand = files.map((file, index) => {
+        const absolute = path.join(WORKSPACE_ROOT, file.relativePath);
+        if (!absolute.startsWith(`${OUTPUT_ROOT}/`)) return '';
+
+        return `printf '\n${FIND_DELIMITER}HASH${index}\n'; sha256sum ${shellEscape(absolute)} 2>/dev/null | cut -d ' ' -f 1 || true`;
+    }).filter(Boolean).join('; ');
+    const hashResult = await execInToolbox(hashCommand, 10_000);
+    if (hashResult.exitCode === 0 && hashResult.stdout) {
+        for (const chunk of hashResult.stdout.split(`\n${FIND_DELIMITER}HASH`)) {
+            const markerMatch = chunk.match(/^(\d+)\n/);
+            if (!markerMatch) continue;
+            const index = parseInt(markerMatch[1], 10);
+            const hash = chunk.slice(markerMatch[0].length).trim().split('\n')[0] ?? '';
+            if (/^[a-f0-9]{64}$/i.test(hash) && files[index]) {
+                files[index].sha256 = hash.toLowerCase();
+            }
+        }
+    }
+
     return files;
 }
 
+async function loadTrustedManifestEntries(): Promise<Map<string, TrustedManifestEntry>> {
+    const result = await execInToolbox(
+        `tail -n 2000 ${shellEscape(TRUSTED_MANIFEST_PATH)} 2>/dev/null || true`,
+        10_000,
+    );
+    const entries = new Map<string, TrustedManifestEntry>();
+    if (result.exitCode !== 0 || !result.stdout.trim()) return entries;
+    const candidates: TrustedManifestEntry[] = [];
+
+    for (const line of result.stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+            const parsed = JSON.parse(trimmed) as TrustedManifestEntry;
+            if (parsed.trusted !== true || parsed.session_status !== 'succeeded') continue;
+            if (typeof parsed.path !== 'string' || !parsed.path.startsWith('output/')) continue;
+            if (typeof parsed.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(parsed.sha256)) continue;
+            if (typeof parsed.session_id !== 'string' || !STRICT_UUID_PATTERN.test(parsed.session_id)) continue;
+            candidates.push(parsed);
+        } catch {
+            // Ignore corrupt manifest rows; raw filesystem artifacts remain untrusted.
+        }
+    }
+
+    const sessionIds = [...new Set(candidates.map(entry => entry.session_id).filter((id): id is string => !!id))];
+    if (sessionIds.length === 0) return entries;
+
+    const rows = await sql<TrustedSessionRow[]>`
+        SELECT id, agent_id, status, tool_calls
+        FROM ops_agent_sessions
+        WHERE id = ANY(${sessionIds}::uuid[])
+    `;
+    const sessions = new Map(rows.map(row => [row.id, row]));
+
+    for (const entry of candidates) {
+        const session = entry.session_id ? sessions.get(entry.session_id) : undefined;
+        if (!session || session.status !== 'succeeded') continue;
+        if (!entry.agent_id || entry.agent_id !== session.agent_id) continue;
+        const verifiedPreview = trustedFileWriteContentPreview(session.tool_calls, entry.path, entry.sha256);
+        if (verifiedPreview === null) continue;
+        entry.verified_preview = verifiedPreview;
+        entries.set(entry.path!, entry);
+    }
+
+    return entries;
+}
+
+function trustedFileWriteContentPreview(toolCalls: Array<Record<string, unknown>> | null, relativePath: string | undefined, sha256: string | undefined): string | null {
+    if (!relativePath || !Array.isArray(toolCalls)) return null;
+    if (!sha256 || !/^[a-f0-9]{64}$/i.test(sha256)) return null;
+    for (const toolCall of toolCalls) {
+        if (toolCall?.name !== 'file_write') continue;
+        const result = toolCall.result as Record<string, unknown> | undefined;
+        const args = toolCall.arguments as Record<string, unknown> | undefined;
+        if (result && typeof result.error === 'string') continue;
+        if (args?.append === true) continue;
+        if (typeof args?.content !== 'string') continue;
+        const rawPath = typeof args?.path === 'string' ? args.path : '';
+        const normalized = rawPath.startsWith('/workspace/') ? rawPath.slice('/workspace/'.length) : rawPath.replace(/^\/+/, '');
+        const toolCallSha = createHash('sha256').update(args.content).digest('hex');
+        if (normalized === relativePath && toolCallSha === sha256.toLowerCase()) {
+            return args.content.slice(0, WORKSPACE_PREVIEW_BYTES);
+        }
+    }
+    return null;
+}
+
 async function loadWorkspaceArtifacts(limit: number): Promise<ArtifactItem[]> {
-    const files = await listWorkspaceOutputFiles(limit);
+    const [files, trustedManifestEntries] = await Promise.all([
+        listWorkspaceOutputFiles(limit),
+        loadTrustedManifestEntries(),
+    ]);
 
     return files.map(file => {
         const modified = new Date(file.modifiedEpoch * 1000).toISOString();
+        const manifestEntry = trustedManifestEntries.get(file.relativePath);
+        const trusted = manifestEntry?.trusted === true && manifestEntry.session_status === 'succeeded' && file.sha256 !== null && manifestEntry.sha256?.toLowerCase() === file.sha256;
 
         return {
-            id: `workspace:${file.relativePath}`,
+            id: manifestEntry?.artifact_id ? `workspace:${manifestEntry.artifact_id}` : `workspace:${file.relativePath}`,
             source: 'workspace' as const,
-            type: inferTypeFromPath(file.relativePath),
+            type: manifestEntry?.type ?? inferTypeFromPath(file.relativePath),
             title: inferTitleFromPath(file.relativePath),
-            body_preview: file.preview,
+            body_preview: trusted && manifestEntry?.verified_preview ? manifestEntry.verified_preview : file.preview,
             path: `/${file.relativePath}`,
-            agent_id: null,
-            status: null,
+            agent_id: manifestEntry?.agent_id ?? null,
+            status: trusted ? 'trusted' : 'untrusted',
             created_at: modified,
             updated_at: modified,
             size_bytes: file.size,
-            metadata: {},
+            metadata: {
+                trusted,
+                trust_source: trusted ? 'trusted_manifest' : 'raw_workspace_file',
+                session_id: manifestEntry?.session_id ?? null,
+                session_status: manifestEntry?.session_status ?? null,
+                published_at: manifestEntry?.published_at ?? null,
+                sha256: file.sha256,
+                manifest_sha256: manifestEntry?.sha256 ?? null,
+            },
         };
     });
 }
 
 export async function GET(req: NextRequest) {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     const { searchParams } = new URL(req.url);
     const limit = clampLimit(searchParams.get('limit'));
     const q = searchParams.get('q')?.trim() ?? '';

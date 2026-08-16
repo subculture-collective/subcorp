@@ -17,6 +17,7 @@ import { validateContentReviewPacket } from './content-review-gate';
 const log = logger.child({ module: 'triggers' });
 
 const TOPIC_MAX_LENGTH = 1000;
+const MIN_REVIEWABLE_DRAFT_BODY_CHARS = 500;
 
 /** Default thresholds loaded from ops_policy once per evaluation cycle */
 interface TriggerDefaults {
@@ -191,7 +192,7 @@ async function checkTrigger(
         case 'proactive_build':
             return checkProactiveBuild(conditions, targetAgent);
         case 'proactive_explore_org':
-            return checkProactiveBuild(conditions, targetAgent);
+            return checkProactiveExploreOrg(conditions, targetAgent);
         case 'proactive_content_plan': {
             const conditions = rule.conditions as Record<string, unknown>;
             const skipProb = (conditions.skip_probability as number) ?? 0.1;
@@ -346,6 +347,50 @@ async function checkContentDraftCreated(
         };
     }
 
+    const validation = validateDraftReviewPacket(draft);
+    if (!validation.ok) {
+        await sql`
+            UPDATE ops_content_drafts
+            SET status = 'needs_revision',
+                reviewer_notes = ${sql.json(validation.reasons)}::jsonb,
+                metadata = COALESCE(metadata, '{}'::jsonb) || ${sql.json({ invalid_review_packet: true, review_preflight_reasons: validation.reasons })}::jsonb,
+                updated_at = NOW()
+            WHERE id = ${draft.id}
+              AND review_session_id IS NULL
+        `;
+
+        await emitEvent({
+            agent_id: draft.author_agent,
+            kind: 'invalid_review_packet',
+            title: `Draft review packet invalid: ${draft.title}`,
+            summary: validation.reasons.join('; '),
+            tags: ['content_review', 'invalid_review_packet'],
+            metadata: {
+                draftId: draft.id,
+                draftTitle: draft.title,
+                reasons: validation.reasons,
+            },
+        });
+
+        log.warn('Content draft failed review preflight', {
+            draftId: draft.id,
+            title: draft.title,
+            reasons: validation.reasons,
+        });
+
+        return {
+            fired: true,
+            reason: `Content draft "${draft.title}" needs revision before review`,
+            proposal: {
+                agent_id: targetAgent,
+                title: `Review preflight failed: ${draft.title}`,
+                description: validation.reasons.join('; '),
+                proposed_steps: [{ kind: 'log_event' }],
+                source: 'trigger',
+            },
+        };
+    }
+
     // Enqueue a content_review roundtable session
     const topic = `Review content draft: "${draft.title}" by ${draft.author_agent}`;
     const [session] = await sql<[{ id: string }]>`
@@ -399,6 +444,34 @@ async function checkContentDraftCreated(
             source: 'trigger',
         },
     };
+}
+
+function validateDraftReviewPacket(draft: {
+    id: string;
+    title: string;
+    author_agent: string;
+    body: string | null;
+}): { ok: true; reasons: [] } | { ok: false; reasons: string[] } {
+    const body = draft.body?.trim() ?? '';
+    const reasons: string[] = [];
+
+    if (body.length < MIN_REVIEWABLE_DRAFT_BODY_CHARS) {
+        reasons.push(
+            `draft body must be at least ${MIN_REVIEWABLE_DRAFT_BODY_CHARS} characters before review; got ${body.length}`,
+        );
+    }
+
+    const firstLines = body.split('\n').slice(0, 8).join('\n').toLowerCase();
+    const hasMetadata =
+        /artifact[_ -]?id|artifact path|source session|created_at|version|audience|publish/.test(firstLines);
+    if (!hasMetadata) {
+        reasons.push('draft metadata missing from opening lines: include artifact path/id, version/audience/publish target, and reviewer ask');
+    }
+
+    if (reasons.length > 0) {
+        return { ok: false, reasons };
+    }
+    return { ok: true, reasons: [] };
 }
 
 async function checkContentPublished(

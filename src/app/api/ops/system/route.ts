@@ -1,10 +1,14 @@
 // /api/ops/system — System health & activity data for the logs dashboard
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
+import { requireOpsRead } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     try {
         const [
             recentEvents,

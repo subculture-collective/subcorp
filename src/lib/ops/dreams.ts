@@ -280,7 +280,7 @@ export async function getDreamWithSources(dreamId: string): Promise<{
     const sourceMemories = dream.source_memories.length > 0
         ? await sql<MemoryEntry[]>`
             SELECT * FROM ops_agent_memory
-            WHERE id = ANY(${dream.source_memories})
+            WHERE id = ANY(${sql.array(dream.source_memories)}::uuid[])
             ORDER BY created_at DESC
         `
         : [];

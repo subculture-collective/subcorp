@@ -5,16 +5,127 @@
 // Falls back to the hardcoded STEP_INSTRUCTIONS map if no DB template exists.
 
 import { sql } from '@/lib/db';
+import { tenantCacheKey } from '@/lib/tenant/cache-key';
 import { getVoice } from '../roundtable/voices';
 import type { StepKind } from '../types';
+import { canUseShell, canWriteWorkspace } from '../tools/capabilities';
 
 const WORKSPACE_ROOT =
     process.env.WORKSPACE_ROOT ?? '/workspace/projects/subcorp';
+const GITEA_BASE_URL = process.env.GITEA_BASE_URL ?? 'https://git.subcult.tv';
+const GITEA_ORG = process.env.GITEA_ORG ?? 'subculture-collective';
+const GITEA_PROJECT_ORG =
+    process.env.GITEA_PROJECT_ORG ??
+    process.env.GITEA_WORKSPACE_ORG ??
+    GITEA_ORG;
+
+const WORKSPACE_PATH_GUIDANCE =
+    `Workspace paths: /workspace/projects is the product workspace root; ` +
+    `/workspace/output is the artifact output root; ` +
+    `/workspace/agents is the agent state root. ` +
+    `/workspace/projects/subcorp is the Subcorp source checkout. ` +
+    `Do not use bare /output, /agents, or /projects paths. ` +
+    `Do not assume /workspace/src exists. Verify paths with bash or file_read before making claims.\n`;
+
+const AUDIT_EVIDENCE_GUIDANCE =
+    `Audit evidence contract: include an evidence table with claim, command_or_source, observed_output, severity. ` +
+    `Commands must inspect real /workspace/... paths or explicitly cited hostAudit snapshots. ` +
+    `Do not use bare /output, /agents, or /projects paths in audit commands or evidence. ` +
+    `If a command targets a missing path, first verify the corresponding /workspace path before claiming missing artifacts. ` +
+    `Do not claim exposed ports, services, files, artifacts, or permissions without command output from bash or a cited hostAudit snapshot.\n`;
+
+const FILE_READ_GUIDANCE =
+    `File read rule: file_read accepts concrete files only, not directories. ` +
+    `Use bash to list a directory and choose specific file paths before calling file_read. ` +
+    `Never pass directories such as /workspace/output/, output/, /workspace/agents/<agent>/notes/, or agents/<agent>/notes/ to file_read.\n`;
+
+const ARTIFACT_GROUNDING_GUIDANCE =
+    `Artifact grounding rule: do not claim code changes, schema changes, metrics, coverage, compliance, operational outcomes, or completed work unless you verified them with bash, file_read, web_fetch, or an explicitly cited source artifact. ` +
+    `Include a "Grounding" section listing the exact files, commands, DB rows, URLs, or source artifacts used. ` +
+    `Do not cite example.com/placeholder URLs or files marked missing/not found as evidence. ` +
+    `If a claim is not verified, label it as a proposal, assumption, or next step instead of stating it as fact.\n`;
+
+const FINAL_EVIDENCE_CHECKLIST =
+    `Before final answer: reread the Completion contract and verify every required tool call and evidence section exists. ` +
+    `If any required evidence is missing, do not claim success; write a blocked/partial result that names the missing tool, source, or artifact.\n`;
+
+const STEP_COMPLETION_CONTRACTS: Partial<Record<StepKind, string>> = {
+    research_topic:
+        `Completion contract: you MUST call web_search successfully and write notes with file_write. Prefer web_fetch for the strongest URLs when useful. Include a Sources section listing query strings, URLs, fetched pages, and any failed searches/fetches.\n`,
+    scan_signals:
+        `Completion contract: you MUST call web_search successfully and write a signal report with file_write. Prefer web_fetch for the strongest URLs when useful. Include a Sources section listing query strings, URLs, fetched pages, and any failed searches/fetches.\n`,
+    audit_system:
+        `Completion contract: you MUST call bash successfully and write an audit artifact with file_write. The artifact MUST include the command(s) run, observed output excerpts, and an evidence table with columns: claim | command_or_source | observed_output | severity.\n`,
+    patch_code:
+        `Completion contract: you MUST create or modify at least one source/config file with file_write and write a changelog artifact. The changelog MUST include a Grounding section with exact written files and verification commands.\n`,
+    draft_product_spec:
+        `Completion contract: you MUST write the spec with file_write. The spec MUST include a Grounding section naming source artifacts, notes, searches, or explicit assumptions. Success metrics must be labelled as targets/proposed metrics unless backed by verified evidence.\n`,
+    document_lesson:
+        `Completion contract: you MUST write documentation with file_write. The document MUST include a Grounding section naming the source event/artifact/command/DB row used.\n`,
+    distill_insight:
+        `Completion contract: you MUST write the digest with file_write. The digest MUST include a Grounding section naming the exact source artifacts or memories used.\n`,
+    log_event:
+        `Completion contract: you MUST write an event note with file_write. The note MUST include a Grounding section naming the event, source session, artifact, command, or DB row being logged.\n`,
+    critique_content:
+        `Completion contract: you MUST read or cite the reviewed artifact and write the critique with file_write. Include a Grounding section naming the exact artifact reviewed.\n`,
+    content_revision:
+        `Completion contract: you MUST read or cite the original artifact/reviewer notes and write the revision with file_write. Include a Grounding section naming the original artifact and feedback addressed.\n`,
+    draft_essay:
+        `Completion contract: you MUST write the draft with file_write. Include a Grounding section naming source notes, URLs, or assumptions used.\n`,
+    draft_thread:
+        `Completion contract: you MUST write the thread with file_write. Include a Grounding section naming source notes, URLs, or assumptions used.\n`,
+    self_evolution:
+        `Completion contract: you MUST inspect the repo with bash, change files with file_write, and write a grounded summary artifact. If repo mutation is blocked, write a human-action-needed artifact instead of claiming success.\n`,
+};
+
+function agentCanWrite(agentId: string): boolean {
+    return canWriteWorkspace(agentId);
+}
+
+function agentCanUseShell(agentId: string): boolean {
+    return canUseShell(agentId);
+}
+
+function completionContract(kind: StepKind, agentId: string): string {
+    if (!agentCanWrite(agentId) && needsArtifactGrounding(kind)) {
+        return `Completion contract: this agent cannot publish workspace artifacts directly. You MUST use send_to_agent with target_agent "praxis" to hand off a complete artifact draft, sources, and requested output path; optionally use memory_write for a short durable summary. Do not claim publication yourself.\n`;
+    }
+    if (kind === 'audit_system' && !agentCanUseShell(agentId)) {
+        return `Completion contract: this agent cannot run shell checks directly. You MUST use send_to_agent with target_agent "praxis" to request an evidence-bearing audit, including claims to verify and any source paths already inspected. Do not claim audit completion yourself.\n`;
+    }
+    if (!agentCanWrite(agentId) && (kind === 'research_topic' || kind === 'scan_signals')) {
+        return `Completion contract: you MUST call web_search successfully, use web_fetch for the strongest sources when URLs are available, and use send_to_agent with target_agent "praxis" to hand off findings, source URLs, and a requested report path; optionally use memory_write for a short durable summary.\n`;
+    }
+    return STEP_COMPLETION_CONTRACTS[kind] ?? '';
+}
+
+function adaptBodyForAgentTools(kind: StepKind, agentId: string, body: string): string {
+    let adapted = body;
+
+    if (!agentCanWrite(agentId)) {
+        adapted = adapted
+            .split('\n')
+            .filter(line => !/file_write|Write .*\bto\b|write .*\bto\b|Include YAML front matter/i.test(line))
+            .join('\n');
+        if (kind === 'research_topic' || kind === 'scan_signals') {
+            adapted += `Use send_to_agent to send Praxis a concise handoff with findings, source URLs, quotes, and recommended report path.\n`;
+        } else if (needsArtifactGrounding(kind)) {
+            adapted += `Use send_to_agent to send Praxis the complete draft/revision/critique plus its sources and requested output path.\n`;
+        }
+    }
+
+    if (kind === 'audit_system' && !agentCanUseShell(agentId)) {
+        adapted = WORKSPACE_PATH_GUIDANCE +
+            `Inspect only sources available through file_read, web_search, and web_fetch. Then use send_to_agent to ask Praxis to run the shell audit and publish the evidence table. Do not invent command output.\n`;
+    }
+
+    return adapted;
+}
 
 const SELF_EVOLUTION_REPO_SETUP = [
     `REPO_DIR=${WORKSPACE_ROOT}`,
     `if [ ! -d "$REPO_DIR/.git" ]; then for CANDIDATE in /workspace/projects/subcorp /home/onnwee/projects/subcorp /home/onnwee/workspace/projects/subcorp; do if [ -d "$CANDIDATE/.git" ]; then REPO_DIR="$CANDIDATE"; break; fi; done; fi`,
-    `if [ ! -d "$REPO_DIR/.git" ]; then mkdir -p /home/onnwee/projects && git clone https://git.subcult.tv/subculture-collective/subcorp.git /home/onnwee/projects/subcorp && REPO_DIR=/home/onnwee/projects/subcorp; fi`,
+    `if [ ! -d "$REPO_DIR/.git" ]; then mkdir -p /home/onnwee/projects && git clone ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp.git /home/onnwee/projects/subcorp && REPO_DIR=/home/onnwee/projects/subcorp; fi`,
     `cd "$REPO_DIR"`,
 ].join('; ');
 
@@ -44,7 +155,8 @@ const templateCache = new Map<
 export async function loadStepTemplate(
     kind: string,
 ): Promise<StepTemplate | null> {
-    const cached = templateCache.get(kind);
+    const cacheKey = tenantCacheKey('step-template', kind);
+    const cached = templateCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < TEMPLATE_CACHE_TTL_MS) {
         return cached.template;
     }
@@ -55,7 +167,7 @@ export async function loadStepTemplate(
     `;
 
     const template = row ?? null;
-    templateCache.set(kind, { template, ts: Date.now() });
+    templateCache.set(cacheKey, { template, ts: Date.now() });
     return template;
 }
 
@@ -68,6 +180,43 @@ function renderTemplate(
         /\{\{(\w+)\}\}/g,
         (_, key: string) => vars[key] ?? `{{${key}}}`,
     );
+}
+
+function decorateRenderedTemplate(kind: StepKind, agentId: string, rendered: string): string {
+    const fileReadGuidance = rendered.includes('file_read') ? FILE_READ_GUIDANCE : '';
+    const groundingGuidance = needsArtifactGrounding(kind) ? ARTIFACT_GROUNDING_GUIDANCE : '';
+    const contract = completionContract(kind, agentId);
+    const body = adaptBodyForAgentTools(kind, agentId, rendered);
+    if (kind === 'audit_system') {
+        return (
+            WORKSPACE_PATH_GUIDANCE +
+            AUDIT_EVIDENCE_GUIDANCE +
+            fileReadGuidance +
+            groundingGuidance +
+            FINAL_EVIDENCE_CHECKLIST +
+            contract +
+            body
+        );
+    }
+    if (kind === 'patch_code' || kind === 'self_evolution') {
+        return WORKSPACE_PATH_GUIDANCE + fileReadGuidance + groundingGuidance + FINAL_EVIDENCE_CHECKLIST + contract + body;
+    }
+    return fileReadGuidance + groundingGuidance + FINAL_EVIDENCE_CHECKLIST + contract + body;
+}
+
+function needsArtifactGrounding(kind: StepKind): boolean {
+    return [
+        'document_lesson',
+        'draft_product_spec',
+        'distill_insight',
+        'draft_essay',
+        'draft_thread',
+        'critique_content',
+        'patch_code',
+        'content_revision',
+        'self_evolution',
+        'log_event',
+    ].includes(kind);
 }
 
 /**
@@ -119,7 +268,11 @@ export async function buildStepPrompt(
             outputDir,
             payload: payloadStr,
         };
-        const rendered = renderTemplate(dbTemplate.template, vars);
+        const rendered = decorateRenderedTemplate(
+            kind,
+            ctx.agentId,
+            renderTemplate(dbTemplate.template, vars),
+        );
         const prompt = header + rendered;
         return opts?.withVersion ?
                 { prompt, templateVersion: dbTemplate.version }
@@ -131,12 +284,20 @@ export async function buildStepPrompt(
     const stepInstructions = STEP_INSTRUCTIONS[kind];
     if (stepInstructions) {
         body = stepInstructions(ctx, today, outputDir);
+        if (needsArtifactGrounding(kind)) {
+            body = ARTIFACT_GROUNDING_GUIDANCE + body;
+        }
     } else {
         body = `Execute this step thoroughly. Write your results to ${outputDir}/ using file_write.\n`;
         body += `Provide a detailed summary of what you accomplished.\n`;
+        if (needsArtifactGrounding(kind)) {
+            body = ARTIFACT_GROUNDING_GUIDANCE + body;
+        }
     }
 
-    const prompt = header + body;
+    body = adaptBodyForAgentTools(kind, ctx.agentId, body);
+
+    const prompt = header + FINAL_EVIDENCE_CHECKLIST + completionContract(kind, ctx.agentId) + body;
     return opts?.withVersion ? { prompt, templateVersion: null } : prompt;
 }
 
@@ -182,33 +343,47 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "critique_content", status: "complete".\n`,
 
     audit_system: (ctx, today) =>
+        WORKSPACE_PATH_GUIDANCE +
+        AUDIT_EVIDENCE_GUIDANCE +
         `Use bash to run system checks relevant to the payload.\n` +
+        `If evidence is unavailable, write status: "blocked" with the missing command/source instead of inventing findings.\n` +
         `Check file permissions, exposed ports, running services, or whatever the payload specifies.\n` +
         `Write findings to output/reviews/${today}__audit__security__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
         `Rate findings by severity: critical, high, medium, low, info.\n` +
         `Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "audit_system", status: "complete".\n`,
 
     patch_code: (ctx, today, outputDir) => {
-        const projectDir = (ctx.payload.project_dir as string) || '/workspace/projects';
+        const requestedProjectDir = ctx.payload.project_dir as string | undefined;
+        const projectDir = requestedProjectDir || `/workspace/projects/${slugify(ctx.missionTitle)}`;
         return `You are a software engineer. Your job is to write code.\n` +
+        WORKSPACE_PATH_GUIDANCE +
+        FILE_READ_GUIDANCE +
+        ARTIFACT_GROUNDING_GUIDANCE +
         `\nProject directory: ${projectDir}\n` +
+        `Do not write product files directly into /workspace/projects root. If no project_dir is supplied, use the mission-specific project directory above.\n` +
         `Task: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
         `\nINSTRUCTIONS:\n` +
         `1. If the project directory doesn't exist yet, create it. Use file_write to create package.json, tsconfig.json, README.md, and source files.\n` +
         `2. If the project exists, use file_read to read the existing source files first.\n` +
         `3. Use file_write to create or modify source files. Write real, working code — not pseudocode or descriptions.\n` +
-        `4. Write a brief changelog to ${outputDir}/${today}__patch__code__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md\n` +
+        `4. Run package-manager or scaffold commands only inside the project directory (for example: cd ${projectDir} && npm init -y). Never run npm init from /workspace or /workspace/projects root.\n` +
+        `5. After writing source files, use bash to verify they exist (for example: find ${projectDir} -maxdepth 3 -type f).\n` +
+        `6. Write a brief changelog to ${outputDir}/${today}__patch__code__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
+        `7. If GITEA_WORKSPACE_TOKEN or GITEA_TOKEN is available and the code is ready, use bash to run sync-workspace-to-gitea.sh projects so individual project repos are pushed to ${GITEA_BASE_URL}/${GITEA_PROJECT_ORG}.\n` +
         `\nYour primary output is SOURCE CODE files written via file_write. Do NOT just describe what you would build — actually build it.\n`;
     },
 
     distill_insight: (ctx, today) =>
+        ARTIFACT_GROUNDING_GUIDANCE +
         `Read recent outputs from output/ and agents/${ctx.agentId}/notes/ using file_read.\n` +
         `Synthesize into a concise digest of key insights.\n` +
         `Write to output/digests/${today}__distill__insight__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
         `Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "distill_insight", status: "complete".\n`,
 
     document_lesson: (ctx, today) =>
+        ARTIFACT_GROUNDING_GUIDANCE +
         `Document the lesson or knowledge described in the payload.\n` +
+        `Do not invent inventories, system names, record counts, costs, dates, percentages, or operational metrics. If source inventory/evidence is missing, state that explicitly and frame any examples as illustrative assumptions or open questions.\n` +
         `Write clear, reusable documentation to the appropriate projects/ docs/ directory.\n` +
         `If no specific project, write to output/reports/${today}__docs__lesson__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md.\n` +
         `Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "document_lesson", status: "complete".\n`,
@@ -237,6 +412,9 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "propose_workflow", status: "proposed".\n`,
 
     draft_product_spec: (ctx, today) =>
+        ARTIFACT_GROUNDING_GUIDANCE +
+        `Product identity rule: the product name, audience, and core purpose come from the mission title and payload. Preserve them exactly. Do NOT replace the requested product with an unrelated governance, audit, or operations concept just because recent audit artifacts are available.\n` +
+        `Use unrelated audit/process artifacts only as constraints, risks, or compliance requirements, not as the product concept. If the source context conflicts, state the conflict in Open questions instead of silently changing the product.\n` +
         `Read recent research notes and roundtable artifacts from agents/ and output/ using file_read.\n` +
         `Look for brainstorm sessions, strategy discussions, and signal reports.\n` +
         `Draft a structured product specification document with:\n` +
@@ -281,80 +459,76 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `Use bash to check the diff:\n` +
         `  cd ${WORKSPACE_ROOT} && git diff --stat HEAD~5\n` +
         `  cd ${WORKSPACE_ROOT} && git log --oneline -10\n` +
-        `If GITEA_TOKEN is set, push and create a PR on git.subcult.tv:\n` +
-        `  cd ${WORKSPACE_ROOT} && git push -u origin agents/workspace 2>&1\n` +
-        `  Open the pull request in the Gitea UI at https://git.subcult.tv/subculture-collective/subcorp/pulls/new\n` +
-        `If GITEA_TOKEN is NOT set or push fails, write a PR summary to ${outputDir}/${today}__pr__summary__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
+        `Do not commit, push, or create a live PR from an autonomous session. Prepare a PR-ready summary artifact instead.\n` +
+        `Write the PR summary to ${outputDir}/${today}__pr__summary__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
         `The summary should include: branch name, commit list, diff stats, and a description of all changes.\n` +
         `Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "create_pull_request", status: "complete".\n`,
 
     self_evolution: (ctx, today, outputDir) =>
         `You are improving your own system. You are an AI agent in the SUBCORP collective.\n` +
+        ARTIFACT_GROUNDING_GUIDANCE +
         `Your source code is at ${WORKSPACE_ROOT}/.\n` +
         `\n═══ CONTEXT ═══\n` +
-        `You belong to the subculture-collective Gitea organization (https://git.subcult.tv/subculture-collective).\n` +
-        `Your platform repo is https://git.subcult.tv/subculture-collective/subcorp.git.\n` +
-        `You have FULL ACCESS to the org — you can create repos, issues, PRs, manage projects, everything.\n` +
-        `The org is yours to run like a business. Any action available to you is authorized.\n` +
+        `You belong to the ${GITEA_ORG} Gitea organization (${GITEA_BASE_URL}/${GITEA_ORG}).\n` +
+        `Your platform repo is ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp.git.\n` +
+        `You may inspect and prepare changes, but autonomous sessions MUST NOT commit, push, or create live PRs.\n` +
+        `Prepare operator-reviewable artifacts instead of publishing changes directly.\n` +
         `═══ END CONTEXT ═══\n` +
         `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
         `\nINSTRUCTIONS:\n` +
         `1. Use file_read to read the relevant source files described in the payload.\n` +
         `2. Identify a specific, concrete improvement (not vague "make it better").\n` +
-        `3. Use bash to locate or clone the repo, then create a feature branch:\n` +
-        `   ${SELF_EVOLUTION_REPO_SETUP} && git checkout -b evolution/${ctx.agentId}/${today}/${slugify(ctx.missionTitle).slice(0, 30)}\n` +
+        `3. Use bash to inspect status/diff and identify the intended branch name, but do not create/publish a live branch.\n` +
         `4. Use file_write to make your changes.\n` +
-        `5. Use bash to commit and push:\n` +
-        `   ${SELF_EVOLUTION_REPO_SETUP} && git add -A && git commit -m "${ctx.missionTitle}" && git push -u origin HEAD\n` +
-        `6. Open a PR in Gitea on https://git.subcult.tv/subculture-collective/subcorp.\n` +
-        `7. Write a summary to ${outputDir}/${today}__evolution__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md\n` +
-        `\nYour output is a MERGED PULL REQUEST with real code changes. Do not just describe what you would change.\n`,
+        `5. Do not run git commit, git push, gh/tea PR creation, or direct PR creation API calls.\n` +
+        `6. Write a PR-ready summary to ${outputDir}/${today}__evolution__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md with changed files, diff summary, validation, and exact operator next steps.\n` +
+        `\nYour output is local code changes plus a PR-ready artifact for operator review, not a merged or pushed pull request.\n`,
 
-    github_issue: (ctx, _today, _outputDir) =>
+    github_issue: (ctx) =>
         `You are managing the subculture-collective Gitea organization.\n` +
-        `Org: https://git.subcult.tv/subculture-collective\n` +
-        `Platform repo: https://git.subcult.tv/subculture-collective/subcorp.git\n` +
+        `Org: ${GITEA_BASE_URL}/${GITEA_ORG}\n` +
+        `Platform repo: ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp.git\n` +
         `You have FULL ACCESS — create repos, issues, PRs, labels, projects, anything.\n` +
         `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
         `\nUse bash and the Gitea web UI/API. Examples:\n` +
-        `  Open issues at https://git.subcult.tv/subculture-collective/subcorp/issues/new\n` +
-        `  Browse issues at https://git.subcult.tv/subculture-collective/subcorp/issues\n` +
-        `  Create repos under https://git.subcult.tv/subculture-collective\n` +
+        `  Open issues at ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp/issues/new\n` +
+        `  Browse issues at ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp/issues\n` +
+        `  Create repos under ${GITEA_BASE_URL}/${GITEA_ORG}\n` +
         `  Manage labels in the repo settings on git.subcult.tv\n` +
         `\nCreate well-structured issues with clear titles, descriptions, acceptance criteria, and appropriate labels.\n`,
 
-    github_pr: (ctx, _today, _outputDir) =>
+    github_pr: (ctx) =>
         `You are managing code in the subculture-collective Gitea organization.\n` +
-        `Org: https://git.subcult.tv/subculture-collective\n` +
-        `Platform repo: https://git.subcult.tv/subculture-collective/subcorp.git\n` +
-        `You have FULL ACCESS.\n` +
+        `Org: ${GITEA_BASE_URL}/${GITEA_ORG}\n` +
+        `Platform repo: ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp.git\n` +
+        `You may inspect and prepare changes, but autonomous sessions MUST NOT commit, push, or create live PRs.\n` +
         `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
         `\nINSTRUCTIONS:\n` +
         `1. Use bash to check current branch and status: cd ${WORKSPACE_ROOT} && git status\n` +
-        `2. Create a branch, make changes via file_write, commit, push, and open a PR in Gitea.\n` +
+        `2. Make changes via file_write when requested, but do not commit, push, or open a live PR.\n` +
         `3. PR should have a clear title, description of changes, and context for reviewers.\n` +
-        `4. Use the pull request page on https://git.subcult.tv/subculture-collective/subcorp.\n`,
+        `4. Write a PR-ready summary artifact with changed files, validation, and exact operator next steps.\n`,
 
 
     explore_repo: (ctx, _today, outputDir) =>
         `You are exploring repositories in the subculture-collective Gitea organization.\n` +
-        `Org: https://git.subcult.tv/subculture-collective\n` +
+        `Org: ${GITEA_BASE_URL}/${GITEA_ORG}\n` +
         `You have FULL ACCESS to all repos.\n` +
         `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
         `\nINSTRUCTIONS:\n` +
-        `1. Use bash to browse the Gitea org page or API: https://git.subcult.tv/subculture-collective\n` +
+        `1. Use bash to browse the Gitea org page or API: ${GITEA_BASE_URL}/${GITEA_ORG}\n` +
         `2. For a specific repo, explore it:\n` +
-        `   https://git.subcult.tv/subculture-collective/[repo-name]\n` +
-        `   https://git.subcult.tv/subculture-collective/[repo-name]/issues\n` +
-        `   https://git.subcult.tv/subculture-collective/[repo-name]/pulls\n` +
+        `   ${GITEA_BASE_URL}/${GITEA_ORG}/[repo-name]\n` +
+        `   ${GITEA_BASE_URL}/${GITEA_ORG}/[repo-name]/issues\n` +
+        `   ${GITEA_BASE_URL}/${GITEA_ORG}/[repo-name]/pulls\n` +
         `3. Clone and read source code if needed:\n` +
-        `   cd /workspace/projects && git clone https://git.subcult.tv/subculture-collective/[repo-name].git 2>/dev/null || true\n` +
+        `   cd /workspace/projects && git clone ${GITEA_BASE_URL}/${GITEA_ORG}/[repo-name].git 2>/dev/null || true\n` +
         `   Then use file_read to read files.\n` +
         `4. IMPORTANT: Check for existing Gitea issues, README, and docs — respect the existing development plan.\n` +
         `5. If you find improvements to make, create detailed PRs with clear descriptions of what you changed and why.\n` +
         `6. Write findings to ${outputDir}/\n`,
 
-    publish_blog: (ctx, _today, _outputDir) =>
+    publish_blog: (ctx) =>
         `You are publishing content to the SUBCORP blog at https://blog.subcult.tv (Ghost CMS).\n` +
         `\nTask: ${(ctx.payload.description as string) || ctx.missionTitle}\n` +
         `\nINSTRUCTIONS:\n` +
@@ -387,6 +561,7 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
 
     content_revision: (ctx, today, outputDir) =>
         `You are revising a previously reviewed piece of content based on reviewer feedback.\n` +
+        ARTIFACT_GROUNDING_GUIDANCE +
         `The payload contains the original draft and the reviewer notes explaining what needs to change.\n` +
         `Read the original artifact referenced in the payload using file_read.\n` +
         `Apply every piece of reviewer feedback. Do not ignore or soften critical notes — address each one directly.\n` +

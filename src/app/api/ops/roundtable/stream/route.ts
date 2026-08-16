@@ -7,6 +7,7 @@ import {
     keepAlive,
     createSSEResponse,
 } from '@/lib/sse';
+import { requireOpsRead } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,9 @@ const POLL_INTERVAL_MS = 2000;
 const KEEPALIVE_INTERVAL_MS = 15000;
 
 export async function GET(req: NextRequest) {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     const { searchParams } = new URL(req.url);
     const sessionId = searchParams.get('session_id');
 

@@ -1,10 +1,14 @@
 // /api/ops/stats — System statistics for the stage dashboard
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
+import { requireOpsRead } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     try {
         const [events, missions, sessions, memories, epoch] = await Promise.all([
             sql<

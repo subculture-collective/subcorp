@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
                     created_at > ${cursorCreatedAt}
                     ${cursorId ? sql`OR (created_at = ${cursorCreatedAt} AND id > ${cursorId})` : sql``}
                 )
-                AND kind = ANY(${PUBLIC_SAFE_KINDS as unknown as string[]})
+                AND kind = ANY(${sql.array(PUBLIC_SAFE_KINDS as unknown as string[])}::text[])
                 ORDER BY created_at ASC, id ASC
                 LIMIT 50
             `;

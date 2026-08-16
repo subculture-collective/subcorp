@@ -111,7 +111,7 @@ async function main() {
         FROM ops_roundtable_sessions
         WHERE status = 'completed'
           AND completed_at >= CURRENT_DATE
-          AND format = ANY(${eligibleFormats})
+          AND format = ANY(${sql.array(eligibleFormats)}::text[])
           AND id NOT IN (
               SELECT source_id FROM ops_agent_sessions
               WHERE source = 'conversation'

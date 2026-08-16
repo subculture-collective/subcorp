@@ -9,6 +9,7 @@ export interface User {
     role: UserRole;
     created_at: string;
     updated_at: string;
+    tenant_id?: string | null;
 }
 
 export interface Session {
@@ -19,6 +20,8 @@ export interface Session {
     ip_address: string | null;
     user_agent: string | null;
     created_at: string;
+    tenant_id?: string | null;
+    workspace_id?: string | null;
 }
 
 /** User + session data returned by auth checks */

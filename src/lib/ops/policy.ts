@@ -1,6 +1,7 @@
 // Policy store with 30-second TTL cache
 import { createHash } from 'crypto';
 import { sql, jsonb } from '@/lib/db';
+import { tenantCacheKey } from '@/lib/tenant/cache-key';
 
 const CACHE_TTL_MS = 30_000;
 const policyCache = new Map<
@@ -65,7 +66,8 @@ export async function getPolicyRecord(key: string): Promise<PolicyRecord> {
 }
 
 export async function getPolicy(key: string): Promise<Record<string, unknown>> {
-    const cached = policyCache.get(key);
+    const cacheKey = tenantCacheKey('policy', key);
+    const cached = policyCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
         return cached.value;
     }
@@ -75,7 +77,7 @@ export async function getPolicy(key: string): Promise<Record<string, unknown>> {
     `;
 
     const value = row?.value ?? { enabled: false };
-    policyCache.set(key, { value, ts: Date.now() });
+    policyCache.set(cacheKey, { value, ts: Date.now() });
     return value;
 }
 
@@ -93,7 +95,7 @@ export async function setPolicy(
             updated_at = NOW()
     `;
 
-    policyCache.delete(key);
+    policyCache.delete(tenantCacheKey('policy', key));
 }
 
 export function clearPolicyCache(): void {

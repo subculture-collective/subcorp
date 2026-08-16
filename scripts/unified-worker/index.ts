@@ -53,6 +53,30 @@ const WORKER_HEARTBEAT_TIMEOUT_MS = Number.parseInt(
 );
 let lastWorkerHeartbeatAttemptAt = 0;
 
+function buildReviewReadyDraftBody(args: {
+    body: string;
+    draftId: string;
+    sourceSessionId: string;
+    contentType: string;
+    title: string;
+}): string {
+    const header = [
+        '---',
+        `artifact_id: content-draft-${args.draftId}`,
+        `source_session: ${args.sourceSessionId}`,
+        'version: v01',
+        'audience: review board',
+        'publish_target: content pipeline',
+        `content_type: ${args.contentType}`,
+        `title: ${JSON.stringify(args.title)}`,
+        'reviewer_ask: Review for factual grounding, usefulness, publication readiness, and required revisions.',
+        '---',
+        '',
+    ].join('\n');
+
+    return `${header}${args.body}`.slice(0, 50000);
+}
+
 if (!process.env.DATABASE_URL) {
     log.fatal('Missing DATABASE_URL');
     process.exit(1);
@@ -143,6 +167,24 @@ interface AgentSessionPollOptions {
     throttleInternalWork?: boolean;
 }
 
+const ROUNDTABLE_CONCURRENCY = Math.max(
+    1,
+    Number.parseInt(process.env.WORKER_ROUNDTABLE_CONCURRENCY ?? '1', 10) || 1,
+);
+
+const PENDING_SESSION_WARN_SECONDS = Math.max(
+    60,
+    Number.parseInt(process.env.WORKER_PENDING_SESSION_WARN_SECONDS ?? '1800', 10) || 1800,
+);
+
+const PENDING_SESSION_WARN_INTERVAL_MS = Math.max(
+    60_000,
+    (Number.parseInt(process.env.WORKER_PENDING_SESSION_WARN_INTERVAL_SECONDS ?? '900', 10) || 900) * 1000,
+);
+
+const activeRoundtableIds = new Set<string>();
+let lastPendingSessionWarningAt = 0;
+
 /** Poll and process pending agent sessions (highest priority) */
 async function pollAgentSessions(options: AgentSessionPollOptions = {}): Promise<boolean> {
     const sessions = await sql<AgentSession[]>`
@@ -173,6 +215,27 @@ async function pollAgentSessions(options: AgentSessionPollOptions = {}): Promise
 
     await Promise.allSettled(sessions.map(session => processAgentSession(session)));
     return true;
+}
+
+async function reapExpiredRunningAgentSessions(): Promise<void> {
+    const expired = await sql<Array<{ id: string; agent_id: string; source: string }>>`
+        UPDATE ops_agent_sessions
+        SET status = 'timed_out',
+            completed_at = NOW(),
+            error = concat_ws(E'\n', nullif(error, ''), 'worker cleanup: running session exceeded timeout_seconds')
+        WHERE status = 'running'
+          AND started_at IS NOT NULL
+          AND timeout_seconds IS NOT NULL
+          AND NOW() - started_at > make_interval(secs => timeout_seconds)
+        RETURNING id, agent_id, source
+    `;
+
+    if (expired.length > 0) {
+        log.warn('Reaped expired running agent sessions', {
+            count: expired.length,
+            sessionIds: expired.map(row => row.id),
+        });
+    }
 }
 
 async function processAgentSession(session: AgentSession): Promise<void> {
@@ -400,7 +463,7 @@ async function processAgentSession(session: AgentSession): Promise<void> {
                                     ${session.agent_id},
                                     ${contentType},
                                     ${title.slice(0, 500)},
-                                    ${artifactText.slice(0, 50000)},
+                                    '',
                                     'draft',
                                     ${session.source_id},
                                     ${sql.json({
@@ -411,6 +474,20 @@ async function processAgentSession(session: AgentSession): Promise<void> {
                                     })}
                                 )
                                 RETURNING id
+                            `;
+
+                            const reviewReadyBody = buildReviewReadyDraftBody({
+                                body: artifactText,
+                                draftId: draft.id,
+                                sourceSessionId: session.source_id,
+                                contentType,
+                                title: title.slice(0, 500),
+                            });
+
+                            await sql`
+                                UPDATE ops_content_drafts
+                                SET body = ${reviewReadyBody}
+                                WHERE id = ${draft.id}
                             `;
 
                             log.info('Content draft created from synthesis', {
@@ -472,34 +549,7 @@ async function processAgentSession(session: AgentSession): Promise<void> {
     }
 }
 
-/** Poll and process pending roundtable conversations */
-async function pollRoundtables(): Promise<boolean> {
-    const rows = await sql<RoundtableSession[]>`
-        UPDATE ops_roundtable_sessions
-        SET status = 'running'
-        WHERE id = (
-            SELECT id FROM ops_roundtable_sessions
-            WHERE status = 'pending'
-            AND scheduled_for <= NOW()
-            ORDER BY
-                CASE WHEN source = 'user_question' THEN 0 ELSE 1 END,
-                created_at ASC
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED
-        )
-        RETURNING *
-    `;
-
-    const session = rows[0];
-    if (!session) return false;
-
-    // Reset to pending so orchestrateConversation can set it properly
-    await sql`
-        UPDATE ops_roundtable_sessions
-        SET status = 'pending'
-        WHERE id = ${session.id}
-    `;
-
+async function processRoundtableSession(session: RoundtableSession): Promise<void> {
     log.info('Processing roundtable', {
         sessionId: session.id,
         format: session.format,
@@ -564,7 +614,62 @@ async function pollRoundtables(): Promise<boolean> {
             error: err,
             sessionId: session.id,
         });
+        await sql`
+            UPDATE ops_roundtable_sessions
+            SET status = 'failed',
+                completed_at = NOW(),
+                metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                    'failureReason', ${(err as Error).message},
+                    'failedAt', NOW()
+                )
+            WHERE id = ${session.id}
+              AND status = 'running'
+        `;
     }
+}
+
+/** Poll and launch pending roundtable conversations without blocking queue drains. */
+async function pollRoundtables(): Promise<boolean> {
+    if (activeRoundtableIds.size >= ROUNDTABLE_CONCURRENCY) return false;
+
+    const rows = await sql<RoundtableSession[]>`
+        UPDATE ops_roundtable_sessions
+        SET status = 'running', started_at = NOW()
+        WHERE id = (
+            SELECT id FROM ops_roundtable_sessions
+            WHERE status = 'pending'
+            AND scheduled_for <= NOW()
+            ORDER BY
+                CASE WHEN source = 'user_question' THEN 0 ELSE 1 END,
+                created_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
+    `;
+
+    const session = rows[0];
+    if (!session) return false;
+
+    activeRoundtableIds.add(session.id);
+    log.info('Launched roundtable processing', {
+        sessionId: session.id,
+        format: session.format,
+        topic: session.topic.slice(0, 80),
+        activeRoundtables: activeRoundtableIds.size,
+        roundtableConcurrency: ROUNDTABLE_CONCURRENCY,
+    });
+
+    void processRoundtableSession(session)
+        .catch(err => {
+            log.error('Unhandled roundtable processing error', {
+                error: err,
+                sessionId: session.id,
+            });
+        })
+        .finally(() => {
+            activeRoundtableIds.delete(session.id);
+        });
 
     return true;
 }
@@ -1033,7 +1138,7 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
         const [session] = await sql`
             INSERT INTO ops_agent_sessions (
                 agent_id, prompt, source, source_id,
-                timeout_seconds, max_tool_rounds, status
+                timeout_seconds, max_tool_rounds, status, result
             ) VALUES (
                 ${agentId},
                 ${prompt},
@@ -1041,7 +1146,8 @@ async function dispatchMissionStep(step: MissionStepRow): Promise<void> {
                 ${step.mission_id},
                 1800,
                 30,
-                'pending'
+                'pending',
+                ${sql.json({ mission_step_id: step.id })}::jsonb
             )
             RETURNING id
         `;
@@ -1159,6 +1265,7 @@ async function finalizeMissionSteps(): Promise<boolean> {
             assigned_agent: string | null;
             session_agent_id: string | null;
             session_status: string | null;
+            session_id: string | null;
             session_error: string | null;
             session_blocked_reason: string | null;
             session_summary: string | null;
@@ -1172,6 +1279,7 @@ async function finalizeMissionSteps(): Promise<boolean> {
             s.output_path,
             s.status as step_status,
             s.assigned_agent,
+            sess.id as session_id,
             sess.agent_id as session_agent_id,
             sess.status as session_status,
             sess.error as session_error,
@@ -1184,7 +1292,69 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 ELSE NULL
             END as session_summary
         FROM ops_mission_steps s
-        LEFT JOIN ops_agent_sessions sess ON sess.id = (s.result->>'agent_session_id')::uuid
+        LEFT JOIN LATERAL (
+            SELECT candidate.*
+            FROM ops_agent_sessions candidate
+            WHERE (
+                s.result->>'agent_session_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                AND candidate.id::text = s.result->>'agent_session_id'
+            )
+            OR (
+                candidate.source = 'mission'
+                AND candidate.result->>'mission_step_id' = s.id::text
+                AND candidate.status IN ('succeeded', 'blocked', 'failed', 'timed_out')
+                AND candidate.completed_at > s.started_at
+            )
+            OR (
+                s.result->>'agent_session_id' IS NULL
+                AND candidate.source = 'mission'
+                AND candidate.source_id = s.mission_id::text
+                AND candidate.agent_id = s.assigned_agent
+                AND candidate.status IN ('succeeded', 'blocked', 'failed', 'timed_out')
+                AND candidate.completed_at > s.started_at
+                AND (
+                    SELECT COUNT(*) FROM ops_agent_sessions terminal
+                    WHERE terminal.source = 'mission'
+                      AND terminal.source_id = s.mission_id::text
+                      AND terminal.agent_id = s.assigned_agent
+                      AND terminal.status IN ('succeeded', 'blocked', 'failed', 'timed_out')
+                      AND terminal.completed_at > s.started_at
+                ) = 1
+                AND (
+                    SELECT COUNT(*) FROM ops_mission_steps unmatched
+                    WHERE unmatched.mission_id = s.mission_id
+                      AND unmatched.assigned_agent = s.assigned_agent
+                      AND (
+                        unmatched.status = 'running'
+                        OR (
+                            unmatched.status = 'failed'
+                            AND unmatched.failure_reason LIKE 'Swept — step running with no %agent session'
+                        )
+                      )
+                      AND unmatched.result->>'agent_session_id' IS NULL
+                      AND unmatched.started_at <= candidate.completed_at
+                ) = 1
+                AND NOT EXISTS (
+                    SELECT 1 FROM ops_agent_sessions live
+                    WHERE live.source = 'mission'
+                      AND live.source_id = s.mission_id::text
+                      AND live.agent_id = s.assigned_agent
+                      AND live.status IN ('pending', 'running')
+                      AND live.created_at >= s.started_at
+                )
+            )
+            ORDER BY
+                CASE
+                    WHEN s.result->>'agent_session_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                     AND candidate.id::text = s.result->>'agent_session_id'
+                    THEN 0
+                    WHEN candidate.result->>'mission_step_id' = s.id::text
+                    THEN 1
+                    ELSE 2
+                END,
+                candidate.completed_at DESC NULLS LAST
+            LIMIT 1
+        ) sess ON TRUE
         WHERE (
             s.status = 'running'
             OR (
@@ -1192,7 +1362,6 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 AND s.failure_reason LIKE 'Swept — step running with no %agent session'
             )
         )
-        AND s.result->>'agent_session_id' IS NOT NULL
     `;
 
     if (steps.length === 0) return false;
@@ -1208,7 +1377,12 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 SET status = 'succeeded',
                     failure_reason = NULL,
                     completed_at = NOW(),
-                    updated_at = NOW()
+                    updated_at = NOW(),
+                    result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
+                        'agent_session_id', ${step.session_id}::text,
+                        'reconciledBy', 'worker-finalizer',
+                        'reconciledAt', NOW()
+                    )
                 WHERE id = ${step.id}
                   AND (
                     status = 'running'
@@ -1234,7 +1408,7 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 outcome: 'succeeded',
                 recordedBy: step.assigned_agent ?? step.session_agent_id,
                 evidence: {
-                    agentSessionId: undefined,
+                    agentSessionId: step.session_id ?? undefined,
                     sessionStatus: step.session_status,
                     sessionSummary: step.session_summary ?? undefined,
                     recoveredSweptFailure: step.step_status === 'failed',
@@ -1292,9 +1466,20 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 SET status = 'blocked',
                     failure_reason = ${step.session_blocked_reason ?? 'Agent session blocked'},
                     completed_at = NOW(),
-                    updated_at = NOW()
+                    updated_at = NOW(),
+                    result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
+                        'agent_session_id', ${step.session_id}::text,
+                        'reconciledBy', 'worker-finalizer',
+                        'reconciledAt', NOW()
+                    )
                 WHERE id = ${step.id}
-                  AND status = 'running'
+                  AND (
+                    status = 'running'
+                    OR (
+                        status = 'failed'
+                        AND failure_reason LIKE 'Swept — step running with no %agent session'
+                    )
+                  )
                 RETURNING id
             `;
             if (updated.length === 0) continue;
@@ -1312,11 +1497,14 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 reason: step.session_blocked_reason ?? 'Agent session blocked',
                 recordedBy: step.assigned_agent ?? step.session_agent_id,
                 evidence: {
+                    agentSessionId: step.session_id ?? undefined,
                     sessionStatus: step.session_status,
                     sessionSummary: step.session_summary ?? undefined,
                 },
             });
-            await finalizeMissionIfComplete(step.mission_id);
+            await finalizeMissionIfComplete(step.mission_id, {
+                recoverSweptFailure: step.step_status === 'failed',
+            });
         } else if (
             step.session_status === 'failed' ||
             step.session_status === 'timed_out'
@@ -1326,9 +1514,20 @@ async function finalizeMissionSteps(): Promise<boolean> {
                 SET status = 'failed',
                     failure_reason = ${step.session_error ?? (step.session_status === 'timed_out' ? 'Agent session timed out' : 'Agent session failed')},
                     completed_at = NOW(),
-                    updated_at = NOW()
+                    updated_at = NOW(),
+                    result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
+                        'agent_session_id', ${step.session_id}::text,
+                        'reconciledBy', 'worker-finalizer',
+                        'reconciledAt', NOW()
+                    )
                 WHERE id = ${step.id}
-                  AND status = 'running'
+                  AND (
+                    status = 'running'
+                    OR (
+                        status = 'failed'
+                        AND failure_reason LIKE 'Swept — step running with no %agent session'
+                    )
+                  )
                 RETURNING id
             `;
             if (updated.length === 0) continue;
@@ -1349,9 +1548,14 @@ async function finalizeMissionSteps(): Promise<boolean> {
                         'Agent session timed out'
                     :   'Agent session failed'),
                 recordedBy: step.assigned_agent ?? step.session_agent_id,
-                evidence: { sessionStatus: step.session_status },
+                evidence: {
+                    agentSessionId: step.session_id ?? undefined,
+                    sessionStatus: step.session_status,
+                },
             });
-            await finalizeMissionIfComplete(step.mission_id);
+            await finalizeMissionIfComplete(step.mission_id, {
+                recoverSweptFailure: step.step_status === 'failed',
+            });
         }
         // If still running/pending, leave it alone
     }
@@ -1760,6 +1964,60 @@ async function sweepStaleAgentSessions(): Promise<boolean> {
     return stale.length > 0;
 }
 
+/** Warn when pending agent sessions are old enough to indicate queue pressure. */
+async function warnOnPendingAgentSessionBacklog(): Promise<boolean> {
+    const now = Date.now();
+    if (now - lastPendingSessionWarningAt < PENDING_SESSION_WARN_INTERVAL_MS) {
+        return false;
+    }
+
+    const [summary] = await sql<[
+        {
+            total: number;
+            oldest_id: string | null;
+            oldest_source: string | null;
+            oldest_agent: string | null;
+            oldest_age_seconds: number | null;
+        }
+    ]>`
+        SELECT
+            COUNT(*)::int AS total,
+            (array_agg(id ORDER BY created_at ASC))[1]::text AS oldest_id,
+            (array_agg(source ORDER BY created_at ASC))[1] AS oldest_source,
+            (array_agg(agent_id ORDER BY created_at ASC))[1] AS oldest_agent,
+            EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_age_seconds
+        FROM ops_agent_sessions
+        WHERE status = 'pending'
+    `;
+
+    if (!summary?.oldest_age_seconds || summary.oldest_age_seconds < PENDING_SESSION_WARN_SECONDS) {
+        return false;
+    }
+
+    const bySource = await sql<{ source: string; count: number; oldest_age_seconds: number }[]>`
+        SELECT source,
+               COUNT(*)::int AS count,
+               EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_age_seconds
+        FROM ops_agent_sessions
+        WHERE status = 'pending'
+        GROUP BY source
+        ORDER BY count DESC, source ASC
+    `;
+
+    lastPendingSessionWarningAt = now;
+    log.warn('Pending agent session backlog age threshold exceeded', {
+        total: summary.total,
+        thresholdSeconds: PENDING_SESSION_WARN_SECONDS,
+        oldestSessionId: summary.oldest_id,
+        oldestSource: summary.oldest_source,
+        oldestAgent: summary.oldest_agent,
+        oldestAgeSeconds: summary.oldest_age_seconds,
+        bySource,
+    });
+
+    return true;
+}
+
 /** Sweep roundtables stuck in 'running' after worker/app restarts or abandoned voice chats */
 async function sweepStaleRoundtables(): Promise<boolean> {
     const stale = await sql<{ id: string; format: string; topic: string }[]>`
@@ -1807,8 +2065,8 @@ async function recoverSweptLiveMissionSteps(): Promise<boolean> {
         FROM ops_agent_sessions session
         WHERE step.status = 'failed'
           AND step.failure_reason = 'Swept — step running with no live agent session'
-          AND step.result->>'agent_session_id' IS NOT NULL
-          AND session.id = (step.result->>'agent_session_id')::uuid
+          AND step.result->>'agent_session_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          AND session.id::text = step.result->>'agent_session_id'
           AND session.status IN ('pending', 'running')
         RETURNING step.id, step.mission_id, step.kind, step.assigned_agent, session.status AS session_status
     `;
@@ -1845,7 +2103,13 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
                 'requeuedAt', NOW()
             )
         WHERE status = 'running'
-          AND started_at < NOW() - INTERVAL '2 hours'
+          AND (
+              started_at < NOW() - INTERVAL '2 hours'
+              OR (
+                  kind IN ('memory_archaeology', 'convene_roundtable')
+                  AND started_at < NOW() - INTERVAL '15 minutes'
+              )
+          )
           AND result->>'agent_session_id' IS NULL
         RETURNING id, mission_id, kind, assigned_agent
     `;
@@ -1863,7 +2127,8 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
           AND step.result->>'agent_session_id' IS NOT NULL
           AND NOT EXISTS (
               SELECT 1 FROM ops_agent_sessions s
-              WHERE s.id = (step.result->>'agent_session_id')::uuid
+              WHERE step.result->>'agent_session_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                AND s.id::text = step.result->>'agent_session_id'
           )
         RETURNING step.id, step.mission_id, step.kind, step.assigned_agent
     `;
@@ -1901,25 +2166,30 @@ async function sweepOrphanedMissionSteps(): Promise<boolean> {
     return requeued.length > 0 || orphaned.length > 0;
 }
 
-async function runMaintenanceTasks(): Promise<void> {
+async function runMaintenanceTasks(options: { triggerHeartbeat?: boolean } = {}): Promise<void> {
     // Sweep stale agent sessions stuck in 'running' past their timeout
-    await sweepStaleAgentSessions();
+    await runWorkerStage('maintenance.sweep_stale_agent_sessions', sweepStaleAgentSessions);
+
+    // Surface queue pressure without failing valid pending backlog.
+    await runWorkerStage('maintenance.warn_pending_agent_session_backlog', warnOnPendingAgentSessionBacklog);
 
     // Sweep roundtables stuck in 'running' after restarts/timeouts
-    await sweepStaleRoundtables();
+    await runWorkerStage('maintenance.sweep_stale_roundtables', sweepStaleRoundtables);
 
     // Finalize terminal session-backed mission steps before orphan sweeping.
-    await finalizeMissionSteps();
+    await runWorkerStage('maintenance.finalize_mission_steps', finalizeMissionSteps);
 
     // Undo any historical/previous-worker false sweeps where the linked agent
     // session is still pending or running.
-    await recoverSweptLiveMissionSteps();
+    await runWorkerStage('maintenance.recover_swept_live_mission_steps', recoverSweptLiveMissionSteps);
 
     // Sweep genuinely orphaned mission steps only after a generous grace window.
-    await sweepOrphanedMissionSteps();
+    await runWorkerStage('maintenance.sweep_orphaned_mission_steps', sweepOrphanedMissionSteps);
 
     // Keep autonomous output moving even when host cron/timers are absent.
-    await triggerHeartbeatIfDue();
+    if (options.triggerHeartbeat ?? true) {
+        await runWorkerStage('maintenance.trigger_heartbeat_if_due', triggerHeartbeatIfDue);
+    }
 }
 
 /** Check if all steps in a mission are done, finalize if so */
@@ -1927,33 +2197,45 @@ async function finalizeMissionIfComplete(
     missionId: string,
     options?: { recoverSweptFailure?: boolean },
 ): Promise<void> {
+    await blockQueuedStepsWithTerminalDependencies(missionId);
+
     const [counts] = await sql<
-        [{ total: number; succeeded: number; blocked: number; failed: number }]
+        [{
+            total: number;
+            succeeded: number;
+            blocked: number;
+            failed: number;
+            skipped: number;
+        }]
     >`
         SELECT
             COUNT(*)::int as total,
             COUNT(*) FILTER (WHERE status = 'succeeded')::int as succeeded,
             COUNT(*) FILTER (WHERE status = 'blocked')::int as blocked,
-            COUNT(*) FILTER (WHERE status = 'failed')::int as failed
+            COUNT(*) FILTER (WHERE status = 'failed')::int as failed,
+            COUNT(*) FILTER (WHERE status = 'skipped')::int as skipped
         FROM ops_mission_steps
         WHERE mission_id = ${missionId}
     `;
 
     if (!counts || counts.total === 0) return;
 
-    const allDone = counts.succeeded + counts.blocked + counts.failed === counts.total;
+    const allDone =
+        counts.succeeded + counts.blocked + counts.failed + counts.skipped ===
+        counts.total;
     if (!allDone) return;
 
     const finalStatus =
         counts.failed > 0 ? 'failed'
-        : counts.blocked > 0 ? 'blocked'
+        : counts.blocked > 0 || counts.skipped > 0 ? 'blocked'
         : 'succeeded';
     const failReason =
         counts.failed > 0 ? `${counts.failed} of ${counts.total} steps failed`
         : counts.blocked > 0 ? `${counts.blocked} of ${counts.total} steps blocked`
+        : counts.skipped > 0 ? `${counts.skipped} of ${counts.total} steps skipped`
         : null;
 
-    await sql`
+    const finalized = await sql<Array<{ created_by: string; title: string }>>`
         UPDATE ops_missions
         SET status = ${finalStatus},
             failure_reason = ${failReason},
@@ -1968,7 +2250,98 @@ async function finalizeMissionIfComplete(
                 AND failure_reason LIKE '%step%failed'
             )
         )
+        RETURNING created_by, title
     `;
+
+    const [mission] = finalized;
+    if (!mission) return;
+
+    try {
+        const { emitEvent } = await import('../../src/lib/ops/events');
+        await emitEvent({
+            agent_id: mission.created_by,
+            kind:
+                finalStatus === 'failed' ? 'mission_failed'
+                : finalStatus === 'blocked' ? 'mission_blocked'
+                : 'mission_succeeded',
+            title:
+                finalStatus === 'failed' ? `Mission failed: ${mission.title}`
+                : finalStatus === 'blocked' ? `Mission blocked: ${mission.title}`
+                : `Mission completed: ${mission.title}`,
+            tags: ['mission', finalStatus],
+            metadata: {
+                missionId,
+                totalSteps: counts.total,
+                succeededSteps: counts.succeeded,
+                blockedSteps: counts.blocked,
+                failedSteps: counts.failed,
+                skippedSteps: counts.skipped,
+            },
+        });
+    } catch (emitErr) {
+        log.warn('Mission finalization event failed (non-fatal)', {
+            error: emitErr,
+            missionId,
+            status: finalStatus,
+        });
+    }
+}
+
+async function blockQueuedStepsWithTerminalDependencies(
+    missionId: string,
+): Promise<number> {
+    const reason = 'Blocked because one or more dependency steps did not succeed';
+    const blockedSteps = await sql<Array<MissionStepRow>>`
+        WITH RECURSIVE blocked_steps AS (
+            SELECT s.id
+            FROM ops_mission_steps s
+            WHERE s.mission_id = ${missionId}
+              AND s.status = 'queued'
+              AND EXISTS (
+                  SELECT 1
+                  FROM ops_mission_steps dep
+                  WHERE dep.mission_id = s.mission_id
+                    AND dep.id = ANY(s.depends_on)
+                    AND dep.status IN ('failed', 'blocked', 'skipped')
+              )
+
+            UNION
+
+            SELECT child.id
+            FROM ops_mission_steps child
+            JOIN blocked_steps blocked_dep ON blocked_dep.id = ANY(child.depends_on)
+            WHERE child.mission_id = ${missionId}
+              AND child.status = 'queued'
+        )
+        UPDATE ops_mission_steps s
+        SET status = 'blocked',
+            failure_reason = ${reason},
+            completed_at = NOW(),
+            updated_at = NOW()
+        FROM blocked_steps bs
+        WHERE s.id = bs.id
+          AND s.status = 'queued'
+        RETURNING s.*
+    `;
+
+    for (const step of blockedSteps) {
+        await appendStepExecutionEvidence({
+            step,
+            outcome: 'blocked',
+            reason,
+            evidence: { blockedByDependency: true },
+        });
+    }
+
+    if (blockedSteps.length > 0) {
+        log.info('Blocked queued mission steps with terminal dependencies', {
+            missionId,
+            count: blockedSteps.length,
+            stepIds: blockedSteps.map(step => step.id),
+        });
+    }
+
+    return blockedSteps.length;
 }
 
 // ─── DB readiness check ───
@@ -1999,6 +2372,19 @@ async function waitForDb(maxRetries = 30, intervalMs = 2000): Promise<void> {
 // ─── Main poll loop ───
 
 let running = true;
+
+async function runWorkerStage<T>(stage: string, fn: () => Promise<T>): Promise<T> {
+    try {
+        return await fn();
+    } catch (err) {
+        log.error('Worker stage failed', {
+            stage,
+            error: err,
+            stack: err instanceof Error ? err.stack : undefined,
+        });
+        throw err;
+    }
+}
 
 /** One-time: process content_review sessions that completed but were never processed */
 async function catchUpStuckReviews(): Promise<void> {
@@ -2057,9 +2443,9 @@ async function catchUpOrphanedReviewDrafts(): Promise<void> {
     );
 }
 
-/** One-time: finalize missions stuck in 'approved' with all steps completed */
+/** One-time: finalize missions stuck active with all steps completed */
 async function catchUpOrphanedMissions(): Promise<void> {
-    // Find missions in 'approved' where all steps are terminal (none queued/running)
+    // Find active missions where all steps are terminal (none queued/running)
     const orphaned = await sql<
         {
             id: string;
@@ -2068,19 +2454,21 @@ async function catchUpOrphanedMissions(): Promise<void> {
             succeeded: number;
             blocked: number;
             failed: number;
+            skipped: number;
         }[]
     >`
         SELECT m.id, m.title,
             COUNT(s.id)::int as total,
             COUNT(s.id) FILTER (WHERE s.status = 'succeeded')::int as succeeded,
             COUNT(s.id) FILTER (WHERE s.status = 'blocked')::int as blocked,
-            COUNT(s.id) FILTER (WHERE s.status = 'failed')::int as failed
+            COUNT(s.id) FILTER (WHERE s.status = 'failed')::int as failed,
+            COUNT(s.id) FILTER (WHERE s.status = 'skipped')::int as skipped
         FROM ops_missions m
         LEFT JOIN ops_mission_steps s ON s.mission_id = m.id
-        WHERE m.status = 'approved'
+        WHERE m.status IN ('approved', 'running')
         GROUP BY m.id
         HAVING COUNT(s.id) > 0
-           AND COUNT(s.id) = COUNT(s.id) FILTER (WHERE s.status IN ('succeeded', 'blocked', 'failed'))
+           AND COUNT(s.id) = COUNT(s.id) FILTER (WHERE s.status IN ('succeeded', 'blocked', 'failed', 'skipped'))
     `;
 
     if (orphaned.length === 0) return;
@@ -2090,11 +2478,12 @@ async function catchUpOrphanedMissions(): Promise<void> {
     for (const mission of orphaned) {
         const finalStatus =
             mission.failed > 0 ? 'failed'
-            : mission.blocked > 0 ? 'blocked'
+            : mission.blocked > 0 || mission.skipped > 0 ? 'blocked'
             : 'succeeded';
         const failReason =
             mission.failed > 0 ? `${mission.failed} of ${mission.total} step(s) failed`
             : mission.blocked > 0 ? `${mission.blocked} of ${mission.total} step(s) blocked`
+            : mission.skipped > 0 ? `${mission.skipped} of ${mission.total} step(s) skipped`
             : null;
         await sql`
             UPDATE ops_missions
@@ -2103,7 +2492,7 @@ async function catchUpOrphanedMissions(): Promise<void> {
                 completed_at = NOW(),
                 updated_at = NOW()
             WHERE id = ${mission.id}
-            AND status = 'approved'
+            AND status IN ('approved', 'running')
         `;
         log.info('Orphaned mission finalized', {
             missionId: mission.id,
@@ -2202,22 +2591,22 @@ async function sweepOutputObligations(reason: string): Promise<void> {
 async function pollLoop(): Promise<void> {
     await waitForDb();
 
-    const toolbox = await checkToolboxAvailable();
+    const toolbox = await runWorkerStage('startup.check_toolbox', checkToolboxAvailable);
     if (!toolbox.ok) {
         disableDockerBackedTools(toolbox.reason);
     }
 
     // Catch up on any stuck reviews from before the fix
-    await catchUpStuckReviews();
+    await runWorkerStage('startup.catch_up_stuck_reviews', catchUpStuckReviews);
 
     // Release review drafts that lost their path and have sat in limbo too long
-    await catchUpOrphanedReviewDrafts();
+    await runWorkerStage('startup.catch_up_orphaned_review_drafts', catchUpOrphanedReviewDrafts);
 
     // Finalize any orphaned missions stuck in 'approved' with all steps done
-    await catchUpOrphanedMissions();
+    await runWorkerStage('startup.catch_up_orphaned_missions', catchUpOrphanedMissions);
 
     // Publish any existing approved content drafts on startup
-    const startupPublish = await publishApprovedDrafts();
+    const startupPublish = await runWorkerStage('startup.publish_approved_drafts', publishApprovedDrafts);
     if (startupPublish.published > 0 || startupPublish.failed > 0) {
         log.info('Startup content publish sweep complete', {
             published: startupPublish.published,
@@ -2226,7 +2615,7 @@ async function pollLoop(): Promise<void> {
     }
 
     // Attempt Ghost backfill mirrors on startup
-    const startupGhostBackfill = await mirrorPublishedDraftBackfill();
+    const startupGhostBackfill = await runWorkerStage('startup.ghost_backfill', mirrorPublishedDraftBackfill);
     if (!startupGhostBackfill.skipped && startupGhostBackfill.processed > 0) {
         log.info('Startup Ghost backfill sweep complete', {
             processed: startupGhostBackfill.processed,
@@ -2237,7 +2626,7 @@ async function pollLoop(): Promise<void> {
     }
 
     // Backfill governance votes for completed debates still stuck in voting
-    const startupGovernanceBackfill = await backfillGovernanceVotes();
+    const startupGovernanceBackfill = await runWorkerStage('startup.governance_backfill', backfillGovernanceVotes);
     if (startupGovernanceBackfill.processed > 0) {
         log.info('Startup governance vote backfill complete', {
             processed: startupGovernanceBackfill.processed,
@@ -2249,7 +2638,7 @@ async function pollLoop(): Promise<void> {
     }
 
     // Run maintenance once before any queue backlog can starve it.
-    await runMaintenanceTasks();
+    await runWorkerStage('startup.maintenance', () => runMaintenanceTasks({ triggerHeartbeat: false }));
 
     while (running) {
         try {
@@ -2274,6 +2663,10 @@ async function pollLoop(): Promise<void> {
             // are never starved by conversation/workflow backlogs.
             await pollMissionSteps();
             await finalizeMissionSteps();
+
+            // Roundtables are long-running; run them after queue claims so they
+            // cannot prevent pending mission sessions from starting.
+            await pollRoundtables();
 
             if (hadSession) {
                 await runMaintenanceTasks();

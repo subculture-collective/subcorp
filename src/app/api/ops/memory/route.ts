@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import type { MemoryEntry, MemoryType } from '@/lib/types';
 import { logger } from '@/lib/logger';
+import { requireOpsRead } from '@/lib/auth/middleware';
 
 const log = logger.child({ module: 'api:memory' });
 
@@ -20,6 +21,9 @@ const MEMORY_API_DEFAULT_LIMIT = 250;
 const MEMORY_API_MAX_LIMIT = 5000;
 
 export async function GET(req: NextRequest) {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     try {
         const { searchParams } = req.nextUrl;
         const agentId = searchParams.get('agent_id');
@@ -60,7 +64,7 @@ export async function GET(req: NextRequest) {
                 .split(',')
                 .filter(t => VALID_TYPES.has(t as MemoryType)) as MemoryType[];
             if (types.length > 0) {
-                conditions.push(sql`type = ANY(${types})`);
+                conditions.push(sql`type = ANY(${sql.array(types)}::text[])`);
             }
         }
 

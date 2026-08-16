@@ -8,6 +8,9 @@ var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __esm = (fn, res) => function __init() {
   return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
 };
+var __commonJS = (cb, mod) => function __require() {
+  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+};
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
@@ -28,6 +31,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/lib/db.ts
 var db_exports = {};
@@ -583,8 +587,8 @@ function selectFirstSpeaker(participants, format) {
   }
   return participants[Math.floor(Math.random() * participants.length)];
 }
-function selectNextSpeaker(context) {
-  const { participants, lastSpeaker, history, affinityMap } = context;
+function selectNextSpeaker(context2) {
+  const { participants, lastSpeaker, history, affinityMap } = context2;
   const speakCounts = {};
   for (const turn of history) {
     speakCounts[turn.speaker] = (speakCounts[turn.speaker] ?? 0) + 1;
@@ -595,8 +599,8 @@ function selectNextSpeaker(context) {
     const affinity = affinityMap ? getAffinityFromMap(affinityMap, agent, lastSpeaker) : 0.5;
     w += affinity * 0.6;
     w -= recencyPenalty(agent, speakCounts, history.length) * 0.4;
-    if (context.format) {
-      const boosts = FORMAT_ROLE_BOOSTS[context.format];
+    if (context2.format) {
+      const boosts = FORMAT_ROLE_BOOSTS[context2.format];
       if (boosts?.[agent]) {
         w += boosts[agent];
       }
@@ -799,9 +803,4906 @@ var init_logger = __esm({
   }
 });
 
+// node_modules/prom-client/lib/util.js
+var require_util = __commonJS({
+  "node_modules/prom-client/lib/util.js"(exports2) {
+    "use strict";
+    exports2.getValueAsString = function getValueString(value) {
+      if (Number.isNaN(value)) {
+        return "Nan";
+      } else if (!Number.isFinite(value)) {
+        if (value < 0) {
+          return "-Inf";
+        } else {
+          return "+Inf";
+        }
+      } else {
+        return `${value}`;
+      }
+    };
+    exports2.removeLabels = function removeLabels(hashMap, labels, sortedLabelNames) {
+      const hash = hashObject(labels, sortedLabelNames);
+      delete hashMap[hash];
+    };
+    exports2.setValue = function setValue(hashMap, value, labels) {
+      const hash = hashObject(labels);
+      hashMap[hash] = {
+        value: typeof value === "number" ? value : 0,
+        labels: labels || {}
+      };
+      return hashMap;
+    };
+    exports2.setValueDelta = function setValueDelta(hashMap, deltaValue, labels, hash = "") {
+      const value = typeof deltaValue === "number" ? deltaValue : 0;
+      if (hashMap[hash]) {
+        hashMap[hash].value += value;
+      } else {
+        hashMap[hash] = { value, labels };
+      }
+      return hashMap;
+    };
+    exports2.getLabels = function(labelNames, args) {
+      if (typeof args[0] === "object") {
+        return args[0];
+      }
+      if (labelNames.length !== args.length) {
+        throw new Error(
+          `Invalid number of arguments (${args.length}): "${args.join(
+            ", "
+          )}" for label names (${labelNames.length}): "${labelNames.join(", ")}".`
+        );
+      }
+      const acc = {};
+      for (let i = 0; i < labelNames.length; i++) {
+        acc[labelNames[i]] = args[i];
+      }
+      return acc;
+    };
+    function fastHashObject(keys, labels) {
+      if (keys.length === 0) {
+        return "";
+      }
+      let hash = "";
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        const value = labels[key];
+        if (value === void 0) continue;
+        hash += `${key}:${value},`;
+      }
+      return hash;
+    }
+    function hashObject(labels, labelNames) {
+      if (labelNames) {
+        return fastHashObject(labelNames, labels);
+      }
+      const keys = Object.keys(labels);
+      if (keys.length > 1) {
+        keys.sort();
+      }
+      return fastHashObject(keys, labels);
+    }
+    exports2.hashObject = hashObject;
+    exports2.isObject = function isObject(obj) {
+      return obj !== null && typeof obj === "object";
+    };
+    exports2.nowTimestamp = function nowTimestamp() {
+      return Date.now() / 1e3;
+    };
+    var Grouper = class extends Map {
+      /**
+       * Adds the `value` to the `key`'s array of values.
+       * @param {*} key Key to set.
+       * @param {*} value Value to add to `key`'s array.
+       * @returns {undefined} undefined.
+       */
+      add(key, value) {
+        if (this.has(key)) {
+          this.get(key).push(value);
+        } else {
+          this.set(key, [value]);
+        }
+      }
+    };
+    exports2.Grouper = Grouper;
+  }
+});
+
+// node_modules/prom-client/lib/registry.js
+var require_registry = __commonJS({
+  "node_modules/prom-client/lib/registry.js"(exports2, module2) {
+    "use strict";
+    var { getValueAsString } = require_util();
+    var Registry = class _Registry {
+      static get PROMETHEUS_CONTENT_TYPE() {
+        return "text/plain; version=0.0.4; charset=utf-8";
+      }
+      static get OPENMETRICS_CONTENT_TYPE() {
+        return "application/openmetrics-text; version=1.0.0; charset=utf-8";
+      }
+      constructor(regContentType = _Registry.PROMETHEUS_CONTENT_TYPE) {
+        this._metrics = {};
+        this._collectors = [];
+        this._defaultLabels = {};
+        if (regContentType !== _Registry.PROMETHEUS_CONTENT_TYPE && regContentType !== _Registry.OPENMETRICS_CONTENT_TYPE) {
+          throw new TypeError(`Content type ${regContentType} is unsupported`);
+        }
+        this._contentType = regContentType;
+      }
+      getMetricsAsArray() {
+        return Object.values(this._metrics);
+      }
+      async getMetricsAsString(metrics2) {
+        const metric = typeof metrics2.getForPromString === "function" ? await metrics2.getForPromString() : await metrics2.get();
+        const name = escapeString(metric.name);
+        const help = `# HELP ${name} ${escapeString(metric.help)}`;
+        const type = `# TYPE ${name} ${metric.type}`;
+        const values = [help, type];
+        const defaultLabels = Object.keys(this._defaultLabels).length > 0 ? this._defaultLabels : null;
+        const isOpenMetrics = this.contentType === _Registry.OPENMETRICS_CONTENT_TYPE;
+        for (const val of metric.values || []) {
+          let { metricName = name, labels = {} } = val;
+          const { sharedLabels = {} } = val;
+          if (isOpenMetrics && metric.type === "counter") {
+            metricName = `${metricName}_total`;
+          }
+          if (defaultLabels) {
+            labels = { ...labels, ...defaultLabels, ...labels };
+          }
+          const formattedLabels = formatLabels(labels, sharedLabels);
+          const flattenedShared = flattenSharedLabels(sharedLabels);
+          const labelParts = [...formattedLabels, flattenedShared].filter(Boolean);
+          const labelsString = labelParts.length ? `{${labelParts.join(",")}}` : "";
+          let fullMetricLine = `${metricName}${labelsString} ${getValueAsString(
+            val.value
+          )}`;
+          const { exemplar } = val;
+          if (exemplar && isOpenMetrics) {
+            const formattedExemplars = formatLabels(exemplar.labelSet);
+            fullMetricLine += ` # {${formattedExemplars.join(
+              ","
+            )}} ${getValueAsString(exemplar.value)} ${exemplar.timestamp}`;
+          }
+          values.push(fullMetricLine);
+        }
+        return values.join("\n");
+      }
+      async metrics() {
+        const isOpenMetrics = this.contentType === _Registry.OPENMETRICS_CONTENT_TYPE;
+        const promises = this.getMetricsAsArray().map((metric) => {
+          if (isOpenMetrics && metric.type === "counter") {
+            metric.name = standardizeCounterName(metric.name);
+          }
+          return this.getMetricsAsString(metric);
+        });
+        const resolves = await Promise.all(promises);
+        return isOpenMetrics ? `${resolves.join("\n")}
+# EOF
+` : `${resolves.join("\n\n")}
+`;
+      }
+      registerMetric(metric) {
+        if (this._metrics[metric.name] && this._metrics[metric.name] !== metric) {
+          throw new Error(
+            `A metric with the name ${metric.name} has already been registered.`
+          );
+        }
+        this._metrics[metric.name] = metric;
+      }
+      clear() {
+        this._metrics = {};
+        this._defaultLabels = {};
+      }
+      async getMetricsAsJSON() {
+        const metrics2 = [];
+        const defaultLabelNames = Object.keys(this._defaultLabels);
+        const promises = [];
+        for (const metric of this.getMetricsAsArray()) {
+          promises.push(metric.get());
+        }
+        const resolves = await Promise.all(promises);
+        for (const item of resolves) {
+          if (item.values && defaultLabelNames.length > 0) {
+            for (const val of item.values) {
+              val.labels = Object.assign({}, val.labels);
+              for (const labelName of defaultLabelNames) {
+                val.labels[labelName] = val.labels[labelName] || this._defaultLabels[labelName];
+              }
+            }
+          }
+          metrics2.push(item);
+        }
+        return metrics2;
+      }
+      removeSingleMetric(name) {
+        delete this._metrics[name];
+      }
+      getSingleMetricAsString(name) {
+        return this.getMetricsAsString(this._metrics[name]);
+      }
+      getSingleMetric(name) {
+        return this._metrics[name];
+      }
+      setDefaultLabels(labels) {
+        this._defaultLabels = labels;
+      }
+      resetMetrics() {
+        for (const metric in this._metrics) {
+          this._metrics[metric].reset();
+        }
+      }
+      get contentType() {
+        return this._contentType;
+      }
+      setContentType(metricsContentType) {
+        if (metricsContentType === _Registry.OPENMETRICS_CONTENT_TYPE || metricsContentType === _Registry.PROMETHEUS_CONTENT_TYPE) {
+          this._contentType = metricsContentType;
+        } else {
+          throw new Error(`Content type ${metricsContentType} is unsupported`);
+        }
+      }
+      static merge(registers) {
+        const regType = registers[0].contentType;
+        for (const reg of registers) {
+          if (reg.contentType !== regType) {
+            throw new Error(
+              "Registers can only be merged if they have the same content type"
+            );
+          }
+        }
+        const mergedRegistry = new _Registry(regType);
+        const metricsToMerge = registers.reduce(
+          (acc, reg) => acc.concat(reg.getMetricsAsArray()),
+          []
+        );
+        metricsToMerge.forEach(mergedRegistry.registerMetric, mergedRegistry);
+        return mergedRegistry;
+      }
+    };
+    function formatLabels(labels, exclude) {
+      const { hasOwnProperty } = Object.prototype;
+      const formatted = [];
+      for (const [name, value] of Object.entries(labels)) {
+        if (!exclude || !hasOwnProperty.call(exclude, name)) {
+          formatted.push(`${name}="${escapeLabelValue(value)}"`);
+        }
+      }
+      return formatted;
+    }
+    var sharedLabelCache = /* @__PURE__ */ new WeakMap();
+    function flattenSharedLabels(labels) {
+      const cached = sharedLabelCache.get(labels);
+      if (cached) {
+        return cached;
+      }
+      const formattedLabels = formatLabels(labels);
+      const flattened = formattedLabels.join(",");
+      sharedLabelCache.set(labels, flattened);
+      return flattened;
+    }
+    function escapeLabelValue(str) {
+      if (typeof str !== "string") {
+        return str;
+      }
+      return escapeString(str).replace(/"/g, '\\"');
+    }
+    function escapeString(str) {
+      return str.replace(/\\/g, "\\\\").replace(/\n/g, "\\n");
+    }
+    function standardizeCounterName(name) {
+      return name.replace(/_total$/, "");
+    }
+    module2.exports = Registry;
+    module2.exports.globalRegistry = new Registry();
+  }
+});
+
+// node_modules/prom-client/lib/validation.js
+var require_validation = __commonJS({
+  "node_modules/prom-client/lib/validation.js"(exports2) {
+    "use strict";
+    var util = require("util");
+    var metricRegexp = /^[a-zA-Z_:][a-zA-Z0-9_:]*$/;
+    var labelRegexp = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+    exports2.validateMetricName = function(name) {
+      return metricRegexp.test(name);
+    };
+    exports2.validateLabelName = function(names = []) {
+      return names.every((name) => labelRegexp.test(name));
+    };
+    exports2.validateLabel = function validateLabel(savedLabels, labels) {
+      for (const label in labels) {
+        if (!savedLabels.includes(label)) {
+          throw new Error(
+            `Added label "${label}" is not included in initial labelset: ${util.inspect(
+              savedLabels
+            )}`
+          );
+        }
+      }
+    };
+  }
+});
+
+// node_modules/prom-client/lib/metric.js
+var require_metric = __commonJS({
+  "node_modules/prom-client/lib/metric.js"(exports2, module2) {
+    "use strict";
+    var Registry = require_registry();
+    var { isObject } = require_util();
+    var { validateMetricName, validateLabelName } = require_validation();
+    var Metric = class {
+      constructor(config, defaults = {}) {
+        if (!isObject(config)) {
+          throw new TypeError("constructor expected a config object");
+        }
+        Object.assign(
+          this,
+          {
+            labelNames: [],
+            registers: [Registry.globalRegistry],
+            aggregator: "sum",
+            enableExemplars: false
+          },
+          defaults,
+          config
+        );
+        if (!this.registers) {
+          this.registers = [Registry.globalRegistry];
+        }
+        if (!this.help) {
+          throw new Error("Missing mandatory help parameter");
+        }
+        if (!this.name) {
+          throw new Error("Missing mandatory name parameter");
+        }
+        if (!validateMetricName(this.name)) {
+          throw new Error("Invalid metric name");
+        }
+        if (!validateLabelName(this.labelNames)) {
+          throw new Error("Invalid label name");
+        }
+        if (this.collect && typeof this.collect !== "function") {
+          throw new Error('Optional "collect" parameter must be a function');
+        }
+        if (this.labelNames) {
+          this.sortedLabelNames = [...this.labelNames].sort();
+        } else {
+          this.sortedLabelNames = [];
+        }
+        this.reset();
+        for (const register2 of this.registers) {
+          if (this.enableExemplars && register2.contentType === Registry.PROMETHEUS_CONTENT_TYPE) {
+            throw new TypeError(
+              "Exemplars are supported only on OpenMetrics registries"
+            );
+          }
+          register2.registerMetric(this);
+        }
+      }
+      reset() {
+      }
+    };
+    module2.exports = { Metric };
+  }
+});
+
+// node_modules/prom-client/lib/exemplar.js
+var require_exemplar = __commonJS({
+  "node_modules/prom-client/lib/exemplar.js"(exports2, module2) {
+    "use strict";
+    var Exemplar = class {
+      constructor(labelSet = {}, value = null) {
+        this.labelSet = labelSet;
+        this.value = value;
+      }
+      /**
+       * Validation for the label set format.
+       * https://github.com/OpenObservability/OpenMetrics/blob/d99b705f611b75fec8f450b05e344e02eea6921d/specification/OpenMetrics.md#exemplars
+       *
+       * @param {object} labelSet - Exemplar labels.
+       * @throws {RangeError}
+       * @return {void}
+       */
+      validateExemplarLabelSet(labelSet) {
+        let res = "";
+        for (const [labelName, labelValue] of Object.entries(labelSet)) {
+          res += `${labelName}${labelValue}`;
+        }
+        if (res.length > 128) {
+          throw new RangeError(
+            "Label set size must be smaller than 128 UTF-8 chars"
+          );
+        }
+      }
+    };
+    module2.exports = Exemplar;
+  }
+});
+
+// node_modules/prom-client/lib/counter.js
+var require_counter = __commonJS({
+  "node_modules/prom-client/lib/counter.js"(exports2, module2) {
+    "use strict";
+    var util = require("util");
+    var {
+      hashObject,
+      isObject,
+      getLabels,
+      removeLabels,
+      nowTimestamp
+    } = require_util();
+    var { validateLabel } = require_validation();
+    var { Metric } = require_metric();
+    var Exemplar = require_exemplar();
+    var Counter2 = class extends Metric {
+      constructor(config) {
+        super(config);
+        this.type = "counter";
+        this.defaultLabels = {};
+        this.defaultValue = 1;
+        this.defaultExemplarLabelSet = {};
+        if (config.enableExemplars) {
+          this.enableExemplars = true;
+          this.inc = this.incWithExemplar;
+        } else {
+          this.inc = this.incWithoutExemplar;
+        }
+      }
+      /**
+       * Increment counter
+       * @param {object} labels - What label you want to be incremented
+       * @param {Number} value - Value to increment, if omitted increment with 1
+       * @returns {object} results - object with information about the inc operation
+       * @returns {string} results.labelHash - hash representation of the labels
+       */
+      incWithoutExemplar(labels, value) {
+        let hash = "";
+        if (isObject(labels)) {
+          hash = hashObject(labels, this.sortedLabelNames);
+          validateLabel(this.labelNames, labels);
+        } else {
+          value = labels;
+          labels = {};
+        }
+        if (value && !Number.isFinite(value)) {
+          throw new TypeError(`Value is not a valid number: ${util.format(value)}`);
+        }
+        if (value < 0) {
+          throw new Error("It is not possible to decrease a counter");
+        }
+        if (value === null || value === void 0) value = 1;
+        setValue(this.hashMap, value, labels, hash);
+        return { labelHash: hash };
+      }
+      /**
+       * Increment counter with exemplar, same as inc but accepts labels for an
+       * exemplar.
+       * If no label is provided the current exemplar labels are kept unchanged
+       * (defaults to empty set).
+       *
+       * @param {object} incOpts - Object with options about what metric to increase
+       * @param {object} incOpts.labels - What label you want to be incremented,
+       *                                  defaults to null (metric with no labels)
+       * @param {Number} incOpts.value - Value to increment, defaults to 1
+       * @param {object} incOpts.exemplarLabels - Key-value  labels for the
+       *                                          exemplar, defaults to empty set {}
+       * @returns {void}
+       */
+      incWithExemplar({
+        labels = this.defaultLabels,
+        value = this.defaultValue,
+        exemplarLabels = this.defaultExemplarLabelSet
+      } = {}) {
+        const res = this.incWithoutExemplar(labels, value);
+        this.updateExemplar(exemplarLabels, value, res.labelHash);
+      }
+      updateExemplar(exemplarLabels, value, hash) {
+        if (exemplarLabels === this.defaultExemplarLabelSet) return;
+        if (!isObject(this.hashMap[hash].exemplar)) {
+          this.hashMap[hash].exemplar = new Exemplar();
+        }
+        this.hashMap[hash].exemplar.validateExemplarLabelSet(exemplarLabels);
+        this.hashMap[hash].exemplar.labelSet = exemplarLabels;
+        this.hashMap[hash].exemplar.value = value ? value : 1;
+        this.hashMap[hash].exemplar.timestamp = nowTimestamp();
+      }
+      /**
+       * Reset counter
+       * @returns {void}
+       */
+      reset() {
+        this.hashMap = {};
+        if (this.labelNames.length === 0) {
+          setValue(this.hashMap, 0);
+        }
+      }
+      async get() {
+        if (this.collect) {
+          const v = this.collect();
+          if (v instanceof Promise) await v;
+        }
+        return {
+          help: this.help,
+          name: this.name,
+          type: this.type,
+          values: Object.values(this.hashMap),
+          aggregator: this.aggregator
+        };
+      }
+      labels(...args) {
+        const labels = getLabels(this.labelNames, args) || {};
+        return {
+          inc: this.inc.bind(this, labels)
+        };
+      }
+      remove(...args) {
+        const labels = getLabels(this.labelNames, args) || {};
+        validateLabel(this.labelNames, labels);
+        return removeLabels.call(this, this.hashMap, labels, this.sortedLabelNames);
+      }
+    };
+    function setValue(hashMap, value, labels = {}, hash = "") {
+      if (hashMap[hash]) {
+        hashMap[hash].value += value;
+      } else {
+        hashMap[hash] = { value, labels };
+      }
+      return hashMap;
+    }
+    module2.exports = Counter2;
+  }
+});
+
+// node_modules/prom-client/lib/gauge.js
+var require_gauge = __commonJS({
+  "node_modules/prom-client/lib/gauge.js"(exports2, module2) {
+    "use strict";
+    var util = require("util");
+    var {
+      setValue,
+      setValueDelta,
+      getLabels,
+      hashObject,
+      isObject,
+      removeLabels
+    } = require_util();
+    var { validateLabel } = require_validation();
+    var { Metric } = require_metric();
+    var Gauge = class extends Metric {
+      constructor(config) {
+        super(config);
+        this.type = "gauge";
+      }
+      /**
+       * Set a gauge to a value
+       * @param {object} labels - Object with labels and their values
+       * @param {Number} value - Value to set the gauge to, must be positive
+       * @returns {void}
+       */
+      set(labels, value) {
+        value = getValueArg(labels, value);
+        labels = getLabelArg(labels);
+        set(this, labels, value);
+      }
+      /**
+       * Reset gauge
+       * @returns {void}
+       */
+      reset() {
+        this.hashMap = {};
+        if (this.labelNames.length === 0) {
+          setValue(this.hashMap, 0, {});
+        }
+      }
+      /**
+       * Increment a gauge value
+       * @param {object} labels - Object with labels where key is the label key and value is label value. Can only be one level deep
+       * @param {Number} value - Value to increment - if omitted, increment with 1
+       * @returns {void}
+       */
+      inc(labels, value) {
+        value = getValueArg(labels, value);
+        labels = getLabelArg(labels);
+        if (value === void 0) value = 1;
+        setDelta(this, labels, value);
+      }
+      /**
+       * Decrement a gauge value
+       * @param {object} labels - Object with labels where key is the label key and value is label value. Can only be one level deep
+       * @param {Number} value - Value to decrement - if omitted, decrement with 1
+       * @returns {void}
+       */
+      dec(labels, value) {
+        value = getValueArg(labels, value);
+        labels = getLabelArg(labels);
+        if (value === void 0) value = 1;
+        setDelta(this, labels, -value);
+      }
+      /**
+       * Set the gauge to current unix epoch
+       * @param {object} labels - Object with labels where key is the label key and value is label value. Can only be one level deep
+       * @returns {void}
+       */
+      setToCurrentTime(labels) {
+        const now = Date.now() / 1e3;
+        if (labels === void 0) {
+          this.set(now);
+        } else {
+          this.set(labels, now);
+        }
+      }
+      /**
+       * Start a timer
+       * @param {object} labels - Object with labels where key is the label key and value is label value. Can only be one level deep
+       * @returns {function} - Invoke this function to set the duration in seconds since you started the timer.
+       * @example
+       * var done = gauge.startTimer();
+       * makeXHRRequest(function(err, response) {
+       *	done(); //Duration of the request will be saved
+       * });
+       */
+      startTimer(labels) {
+        const start = process.hrtime();
+        return (endLabels) => {
+          const delta = process.hrtime(start);
+          const value = delta[0] + delta[1] / 1e9;
+          this.set(Object.assign({}, labels, endLabels), value);
+          return value;
+        };
+      }
+      async get() {
+        if (this.collect) {
+          const v = this.collect();
+          if (v instanceof Promise) await v;
+        }
+        return {
+          help: this.help,
+          name: this.name,
+          type: this.type,
+          values: Object.values(this.hashMap),
+          aggregator: this.aggregator
+        };
+      }
+      _getValue(labels) {
+        const hash = hashObject(labels || {}, this.sortedLabelNames);
+        return this.hashMap[hash] ? this.hashMap[hash].value : 0;
+      }
+      labels(...args) {
+        const labels = getLabels(this.labelNames, args);
+        validateLabel(this.labelNames, labels);
+        return {
+          inc: this.inc.bind(this, labels),
+          dec: this.dec.bind(this, labels),
+          set: this.set.bind(this, labels),
+          setToCurrentTime: this.setToCurrentTime.bind(this, labels),
+          startTimer: this.startTimer.bind(this, labels)
+        };
+      }
+      remove(...args) {
+        const labels = getLabels(this.labelNames, args);
+        validateLabel(this.labelNames, labels);
+        removeLabels.call(this, this.hashMap, labels, this.sortedLabelNames);
+      }
+    };
+    function set(gauge, labels, value) {
+      if (typeof value !== "number") {
+        throw new TypeError(`Value is not a valid number: ${util.format(value)}`);
+      }
+      validateLabel(gauge.labelNames, labels);
+      setValue(gauge.hashMap, value, labels);
+    }
+    function setDelta(gauge, labels, delta) {
+      if (typeof delta !== "number") {
+        throw new TypeError(`Delta is not a valid number: ${util.format(delta)}`);
+      }
+      validateLabel(gauge.labelNames, labels);
+      const hash = hashObject(labels, gauge.sortedLabelNames);
+      setValueDelta(gauge.hashMap, delta, labels, hash);
+    }
+    function getLabelArg(labels) {
+      return isObject(labels) ? labels : {};
+    }
+    function getValueArg(labels, value) {
+      return isObject(labels) ? value : labels;
+    }
+    module2.exports = Gauge;
+  }
+});
+
+// node_modules/prom-client/lib/histogram.js
+var require_histogram = __commonJS({
+  "node_modules/prom-client/lib/histogram.js"(exports2, module2) {
+    "use strict";
+    var util = require("util");
+    var {
+      getLabels,
+      hashObject,
+      isObject,
+      removeLabels,
+      nowTimestamp
+    } = require_util();
+    var { validateLabel } = require_validation();
+    var { Metric } = require_metric();
+    var Exemplar = require_exemplar();
+    var Histogram = class extends Metric {
+      constructor(config) {
+        super(config, {
+          buckets: [5e-3, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]
+        });
+        this.type = "histogram";
+        this.defaultLabels = {};
+        this.defaultExemplarLabelSet = {};
+        this.enableExemplars = false;
+        for (const label of this.labelNames) {
+          if (label === "le") {
+            throw new Error("le is a reserved label keyword");
+          }
+        }
+        this.upperBounds = this.buckets;
+        this.bucketValues = this.upperBounds.reduce((acc, upperBound) => {
+          acc[upperBound] = 0;
+          return acc;
+        }, {});
+        if (config.enableExemplars) {
+          this.enableExemplars = true;
+          this.bucketExemplars = this.upperBounds.reduce((acc, upperBound) => {
+            acc[upperBound] = null;
+            return acc;
+          }, {});
+          Object.freeze(this.bucketExemplars);
+          this.observe = this.observeWithExemplar;
+        } else {
+          this.observe = this.observeWithoutExemplar;
+        }
+        Object.freeze(this.bucketValues);
+        Object.freeze(this.upperBounds);
+        if (this.labelNames.length === 0) {
+          this.hashMap = {
+            [hashObject({})]: createBaseValues(
+              {},
+              this.bucketValues,
+              this.bucketExemplars
+            )
+          };
+        }
+      }
+      /**
+       * Observe a value in histogram
+       * @param {object} labels - Object with labels where key is the label key and value is label value. Can only be one level deep
+       * @param {Number} value - Value to observe in the histogram
+       * @returns {void}
+       */
+      observeWithoutExemplar(labels, value) {
+        observe.call(this, labels === 0 ? 0 : labels || {})(value);
+      }
+      observeWithExemplar({
+        labels = this.defaultLabels,
+        value,
+        exemplarLabels = this.defaultExemplarLabelSet
+      } = {}) {
+        observe.call(this, labels === 0 ? 0 : labels || {})(value);
+        this.updateExemplar(labels, value, exemplarLabels);
+      }
+      updateExemplar(labels, value, exemplarLabels) {
+        if (Object.keys(exemplarLabels).length === 0) return;
+        const hash = hashObject(labels, this.sortedLabelNames);
+        const bound = findBound(this.upperBounds, value);
+        const { bucketExemplars } = this.hashMap[hash];
+        let exemplar = bucketExemplars[bound];
+        if (!isObject(exemplar)) {
+          exemplar = new Exemplar();
+          bucketExemplars[bound] = exemplar;
+        }
+        exemplar.validateExemplarLabelSet(exemplarLabels);
+        exemplar.labelSet = exemplarLabels;
+        exemplar.value = value;
+        exemplar.timestamp = nowTimestamp();
+      }
+      async get() {
+        const data = await this.getForPromString();
+        data.values = data.values.map(splayLabels);
+        return data;
+      }
+      async getForPromString() {
+        if (this.collect) {
+          const v = this.collect();
+          if (v instanceof Promise) await v;
+        }
+        const data = Object.values(this.hashMap);
+        const values = data.map(extractBucketValuesForExport(this)).reduce(addSumAndCountForExport(this), []);
+        return {
+          name: this.name,
+          help: this.help,
+          type: this.type,
+          values,
+          aggregator: this.aggregator
+        };
+      }
+      reset() {
+        this.hashMap = {};
+      }
+      /**
+       * Initialize the metrics for the given combination of labels to zero
+       * @param {object} labels - Object with labels where key is the label key and value is label value. Can only be one level deep
+       * @returns {void}
+       */
+      zero(labels) {
+        const hash = hashObject(labels, this.sortedLabelNames);
+        this.hashMap[hash] = createBaseValues(
+          labels,
+          this.bucketValues,
+          this.bucketExemplars
+        );
+      }
+      /**
+       * Start a timer that could be used to logging durations
+       * @param {object} labels - Object with labels where key is the label key and value is label value. Can only be one level deep
+       * @param {object} exemplarLabels - Object with labels for exemplar where key is the label key and value is label value. Can only be one level deep
+       * @returns {function} - Function to invoke when you want to stop the timer and observe the duration in seconds
+       * @example
+       * var end = histogram.startTimer();
+       * makeExpensiveXHRRequest(function(err, res) {
+       * 	const duration = end(); //Observe the duration of expensiveXHRRequest and returns duration in seconds
+       * 	console.log('Duration', duration);
+       * });
+       */
+      startTimer(labels, exemplarLabels) {
+        return this.enableExemplars ? startTimerWithExemplar.call(this, labels, exemplarLabels)() : startTimer.call(this, labels)();
+      }
+      labels(...args) {
+        const labels = getLabels(this.labelNames, args);
+        validateLabel(this.labelNames, labels);
+        return {
+          observe: observe.call(this, labels),
+          startTimer: startTimer.call(this, labels)
+        };
+      }
+      remove(...args) {
+        const labels = getLabels(this.labelNames, args);
+        validateLabel(this.labelNames, labels);
+        removeLabels.call(this, this.hashMap, labels, this.sortedLabelNames);
+      }
+    };
+    function startTimer(startLabels) {
+      return () => {
+        const start = process.hrtime();
+        return (endLabels) => {
+          const delta = process.hrtime(start);
+          const value = delta[0] + delta[1] / 1e9;
+          this.observe(Object.assign({}, startLabels, endLabels), value);
+          return value;
+        };
+      };
+    }
+    function startTimerWithExemplar(startLabels, startExemplarLabels) {
+      return () => {
+        const start = process.hrtime();
+        return (endLabels, endExemplarLabels) => {
+          const delta = process.hrtime(start);
+          const value = delta[0] + delta[1] / 1e9;
+          this.observe({
+            labels: Object.assign({}, startLabels, endLabels),
+            value,
+            exemplarLabels: Object.assign(
+              {},
+              startExemplarLabels,
+              endExemplarLabels
+            )
+          });
+          return value;
+        };
+      };
+    }
+    function setValuePair(labels, value, metricName, exemplar, sharedLabels = {}) {
+      return {
+        labels,
+        sharedLabels,
+        value,
+        metricName,
+        exemplar
+      };
+    }
+    function findBound(upperBounds, value) {
+      for (let i = 0; i < upperBounds.length; i++) {
+        const bound = upperBounds[i];
+        if (value <= bound) {
+          return bound;
+        }
+      }
+      return -1;
+    }
+    function observe(labels) {
+      return (value) => {
+        const labelValuePair = convertLabelsAndValues(labels, value);
+        validateLabel(this.labelNames, labelValuePair.labels);
+        if (!Number.isFinite(labelValuePair.value)) {
+          throw new TypeError(
+            `Value is not a valid number: ${util.format(labelValuePair.value)}`
+          );
+        }
+        const hash = hashObject(labelValuePair.labels, this.sortedLabelNames);
+        let valueFromMap = this.hashMap[hash];
+        if (!valueFromMap) {
+          valueFromMap = createBaseValues(
+            labelValuePair.labels,
+            this.bucketValues,
+            this.bucketExemplars
+          );
+        }
+        const b = findBound(this.upperBounds, labelValuePair.value);
+        valueFromMap.sum += labelValuePair.value;
+        valueFromMap.count += 1;
+        if (Object.prototype.hasOwnProperty.call(valueFromMap.bucketValues, b)) {
+          valueFromMap.bucketValues[b] += 1;
+        }
+        this.hashMap[hash] = valueFromMap;
+      };
+    }
+    function createBaseValues(labels, bucketValues, bucketExemplars) {
+      const result = {
+        labels,
+        bucketValues: { ...bucketValues },
+        sum: 0,
+        count: 0
+      };
+      if (bucketExemplars) {
+        result.bucketExemplars = { ...bucketExemplars };
+      }
+      return result;
+    }
+    function convertLabelsAndValues(labels, value) {
+      return isObject(labels) ? {
+        labels,
+        value
+      } : {
+        value: labels,
+        labels: {}
+      };
+    }
+    function extractBucketValuesForExport(histogram) {
+      const name = `${histogram.name}_bucket`;
+      return (bucketData) => {
+        let acc = 0;
+        const buckets = histogram.upperBounds.map((upperBound) => {
+          acc += bucketData.bucketValues[upperBound];
+          return setValuePair(
+            { le: upperBound },
+            acc,
+            name,
+            bucketData.bucketExemplars ? bucketData.bucketExemplars[upperBound] : null,
+            bucketData.labels
+          );
+        });
+        return { buckets, data: bucketData };
+      };
+    }
+    function addSumAndCountForExport(histogram) {
+      return (acc, d) => {
+        acc.push(...d.buckets);
+        const infLabel = { le: "+Inf" };
+        acc.push(
+          setValuePair(
+            infLabel,
+            d.data.count,
+            `${histogram.name}_bucket`,
+            d.data.bucketExemplars ? d.data.bucketExemplars["-1"] : null,
+            d.data.labels
+          ),
+          setValuePair(
+            {},
+            d.data.sum,
+            `${histogram.name}_sum`,
+            void 0,
+            d.data.labels
+          ),
+          setValuePair(
+            {},
+            d.data.count,
+            `${histogram.name}_count`,
+            void 0,
+            d.data.labels
+          )
+        );
+        return acc;
+      };
+    }
+    function splayLabels(bucket) {
+      const { sharedLabels, labels, ...newBucket } = bucket;
+      for (const label of Object.keys(sharedLabels)) {
+        labels[label] = sharedLabels[label];
+      }
+      newBucket.labels = labels;
+      return newBucket;
+    }
+    module2.exports = Histogram;
+  }
+});
+
+// node_modules/bintrees/lib/treebase.js
+var require_treebase = __commonJS({
+  "node_modules/bintrees/lib/treebase.js"(exports2, module2) {
+    function TreeBase() {
+    }
+    TreeBase.prototype.clear = function() {
+      this._root = null;
+      this.size = 0;
+    };
+    TreeBase.prototype.find = function(data) {
+      var res = this._root;
+      while (res !== null) {
+        var c = this._comparator(data, res.data);
+        if (c === 0) {
+          return res.data;
+        } else {
+          res = res.get_child(c > 0);
+        }
+      }
+      return null;
+    };
+    TreeBase.prototype.findIter = function(data) {
+      var res = this._root;
+      var iter = this.iterator();
+      while (res !== null) {
+        var c = this._comparator(data, res.data);
+        if (c === 0) {
+          iter._cursor = res;
+          return iter;
+        } else {
+          iter._ancestors.push(res);
+          res = res.get_child(c > 0);
+        }
+      }
+      return null;
+    };
+    TreeBase.prototype.lowerBound = function(item) {
+      var cur = this._root;
+      var iter = this.iterator();
+      var cmp = this._comparator;
+      while (cur !== null) {
+        var c = cmp(item, cur.data);
+        if (c === 0) {
+          iter._cursor = cur;
+          return iter;
+        }
+        iter._ancestors.push(cur);
+        cur = cur.get_child(c > 0);
+      }
+      for (var i = iter._ancestors.length - 1; i >= 0; --i) {
+        cur = iter._ancestors[i];
+        if (cmp(item, cur.data) < 0) {
+          iter._cursor = cur;
+          iter._ancestors.length = i;
+          return iter;
+        }
+      }
+      iter._ancestors.length = 0;
+      return iter;
+    };
+    TreeBase.prototype.upperBound = function(item) {
+      var iter = this.lowerBound(item);
+      var cmp = this._comparator;
+      while (iter.data() !== null && cmp(iter.data(), item) === 0) {
+        iter.next();
+      }
+      return iter;
+    };
+    TreeBase.prototype.min = function() {
+      var res = this._root;
+      if (res === null) {
+        return null;
+      }
+      while (res.left !== null) {
+        res = res.left;
+      }
+      return res.data;
+    };
+    TreeBase.prototype.max = function() {
+      var res = this._root;
+      if (res === null) {
+        return null;
+      }
+      while (res.right !== null) {
+        res = res.right;
+      }
+      return res.data;
+    };
+    TreeBase.prototype.iterator = function() {
+      return new Iterator(this);
+    };
+    TreeBase.prototype.each = function(cb) {
+      var it = this.iterator(), data;
+      while ((data = it.next()) !== null) {
+        if (cb(data) === false) {
+          return;
+        }
+      }
+    };
+    TreeBase.prototype.reach = function(cb) {
+      var it = this.iterator(), data;
+      while ((data = it.prev()) !== null) {
+        if (cb(data) === false) {
+          return;
+        }
+      }
+    };
+    function Iterator(tree) {
+      this._tree = tree;
+      this._ancestors = [];
+      this._cursor = null;
+    }
+    Iterator.prototype.data = function() {
+      return this._cursor !== null ? this._cursor.data : null;
+    };
+    Iterator.prototype.next = function() {
+      if (this._cursor === null) {
+        var root = this._tree._root;
+        if (root !== null) {
+          this._minNode(root);
+        }
+      } else {
+        if (this._cursor.right === null) {
+          var save;
+          do {
+            save = this._cursor;
+            if (this._ancestors.length) {
+              this._cursor = this._ancestors.pop();
+            } else {
+              this._cursor = null;
+              break;
+            }
+          } while (this._cursor.right === save);
+        } else {
+          this._ancestors.push(this._cursor);
+          this._minNode(this._cursor.right);
+        }
+      }
+      return this._cursor !== null ? this._cursor.data : null;
+    };
+    Iterator.prototype.prev = function() {
+      if (this._cursor === null) {
+        var root = this._tree._root;
+        if (root !== null) {
+          this._maxNode(root);
+        }
+      } else {
+        if (this._cursor.left === null) {
+          var save;
+          do {
+            save = this._cursor;
+            if (this._ancestors.length) {
+              this._cursor = this._ancestors.pop();
+            } else {
+              this._cursor = null;
+              break;
+            }
+          } while (this._cursor.left === save);
+        } else {
+          this._ancestors.push(this._cursor);
+          this._maxNode(this._cursor.left);
+        }
+      }
+      return this._cursor !== null ? this._cursor.data : null;
+    };
+    Iterator.prototype._minNode = function(start) {
+      while (start.left !== null) {
+        this._ancestors.push(start);
+        start = start.left;
+      }
+      this._cursor = start;
+    };
+    Iterator.prototype._maxNode = function(start) {
+      while (start.right !== null) {
+        this._ancestors.push(start);
+        start = start.right;
+      }
+      this._cursor = start;
+    };
+    module2.exports = TreeBase;
+  }
+});
+
+// node_modules/bintrees/lib/rbtree.js
+var require_rbtree = __commonJS({
+  "node_modules/bintrees/lib/rbtree.js"(exports2, module2) {
+    var TreeBase = require_treebase();
+    function Node(data) {
+      this.data = data;
+      this.left = null;
+      this.right = null;
+      this.red = true;
+    }
+    Node.prototype.get_child = function(dir) {
+      return dir ? this.right : this.left;
+    };
+    Node.prototype.set_child = function(dir, val) {
+      if (dir) {
+        this.right = val;
+      } else {
+        this.left = val;
+      }
+    };
+    function RBTree(comparator) {
+      this._root = null;
+      this._comparator = comparator;
+      this.size = 0;
+    }
+    RBTree.prototype = new TreeBase();
+    RBTree.prototype.insert = function(data) {
+      var ret2 = false;
+      if (this._root === null) {
+        this._root = new Node(data);
+        ret2 = true;
+        this.size++;
+      } else {
+        var head = new Node(void 0);
+        var dir = 0;
+        var last = 0;
+        var gp = null;
+        var ggp = head;
+        var p = null;
+        var node = this._root;
+        ggp.right = this._root;
+        while (true) {
+          if (node === null) {
+            node = new Node(data);
+            p.set_child(dir, node);
+            ret2 = true;
+            this.size++;
+          } else if (is_red(node.left) && is_red(node.right)) {
+            node.red = true;
+            node.left.red = false;
+            node.right.red = false;
+          }
+          if (is_red(node) && is_red(p)) {
+            var dir2 = ggp.right === gp;
+            if (node === p.get_child(last)) {
+              ggp.set_child(dir2, single_rotate(gp, !last));
+            } else {
+              ggp.set_child(dir2, double_rotate(gp, !last));
+            }
+          }
+          var cmp = this._comparator(node.data, data);
+          if (cmp === 0) {
+            break;
+          }
+          last = dir;
+          dir = cmp < 0;
+          if (gp !== null) {
+            ggp = gp;
+          }
+          gp = p;
+          p = node;
+          node = node.get_child(dir);
+        }
+        this._root = head.right;
+      }
+      this._root.red = false;
+      return ret2;
+    };
+    RBTree.prototype.remove = function(data) {
+      if (this._root === null) {
+        return false;
+      }
+      var head = new Node(void 0);
+      var node = head;
+      node.right = this._root;
+      var p = null;
+      var gp = null;
+      var found = null;
+      var dir = 1;
+      while (node.get_child(dir) !== null) {
+        var last = dir;
+        gp = p;
+        p = node;
+        node = node.get_child(dir);
+        var cmp = this._comparator(data, node.data);
+        dir = cmp > 0;
+        if (cmp === 0) {
+          found = node;
+        }
+        if (!is_red(node) && !is_red(node.get_child(dir))) {
+          if (is_red(node.get_child(!dir))) {
+            var sr = single_rotate(node, dir);
+            p.set_child(last, sr);
+            p = sr;
+          } else if (!is_red(node.get_child(!dir))) {
+            var sibling = p.get_child(!last);
+            if (sibling !== null) {
+              if (!is_red(sibling.get_child(!last)) && !is_red(sibling.get_child(last))) {
+                p.red = false;
+                sibling.red = true;
+                node.red = true;
+              } else {
+                var dir2 = gp.right === p;
+                if (is_red(sibling.get_child(last))) {
+                  gp.set_child(dir2, double_rotate(p, last));
+                } else if (is_red(sibling.get_child(!last))) {
+                  gp.set_child(dir2, single_rotate(p, last));
+                }
+                var gpc = gp.get_child(dir2);
+                gpc.red = true;
+                node.red = true;
+                gpc.left.red = false;
+                gpc.right.red = false;
+              }
+            }
+          }
+        }
+      }
+      if (found !== null) {
+        found.data = node.data;
+        p.set_child(p.right === node, node.get_child(node.left === null));
+        this.size--;
+      }
+      this._root = head.right;
+      if (this._root !== null) {
+        this._root.red = false;
+      }
+      return found !== null;
+    };
+    function is_red(node) {
+      return node !== null && node.red;
+    }
+    function single_rotate(root, dir) {
+      var save = root.get_child(!dir);
+      root.set_child(!dir, save.get_child(dir));
+      save.set_child(dir, root);
+      root.red = true;
+      save.red = false;
+      return save;
+    }
+    function double_rotate(root, dir) {
+      root.set_child(!dir, single_rotate(root.get_child(!dir), !dir));
+      return single_rotate(root, dir);
+    }
+    module2.exports = RBTree;
+  }
+});
+
+// node_modules/bintrees/lib/bintree.js
+var require_bintree = __commonJS({
+  "node_modules/bintrees/lib/bintree.js"(exports2, module2) {
+    var TreeBase = require_treebase();
+    function Node(data) {
+      this.data = data;
+      this.left = null;
+      this.right = null;
+    }
+    Node.prototype.get_child = function(dir) {
+      return dir ? this.right : this.left;
+    };
+    Node.prototype.set_child = function(dir, val) {
+      if (dir) {
+        this.right = val;
+      } else {
+        this.left = val;
+      }
+    };
+    function BinTree(comparator) {
+      this._root = null;
+      this._comparator = comparator;
+      this.size = 0;
+    }
+    BinTree.prototype = new TreeBase();
+    BinTree.prototype.insert = function(data) {
+      if (this._root === null) {
+        this._root = new Node(data);
+        this.size++;
+        return true;
+      }
+      var dir = 0;
+      var p = null;
+      var node = this._root;
+      while (true) {
+        if (node === null) {
+          node = new Node(data);
+          p.set_child(dir, node);
+          ret = true;
+          this.size++;
+          return true;
+        }
+        if (this._comparator(node.data, data) === 0) {
+          return false;
+        }
+        dir = this._comparator(node.data, data) < 0;
+        p = node;
+        node = node.get_child(dir);
+      }
+    };
+    BinTree.prototype.remove = function(data) {
+      if (this._root === null) {
+        return false;
+      }
+      var head = new Node(void 0);
+      var node = head;
+      node.right = this._root;
+      var p = null;
+      var found = null;
+      var dir = 1;
+      while (node.get_child(dir) !== null) {
+        p = node;
+        node = node.get_child(dir);
+        var cmp = this._comparator(data, node.data);
+        dir = cmp > 0;
+        if (cmp === 0) {
+          found = node;
+        }
+      }
+      if (found !== null) {
+        found.data = node.data;
+        p.set_child(p.right === node, node.get_child(node.left === null));
+        this._root = head.right;
+        this.size--;
+        return true;
+      } else {
+        return false;
+      }
+    };
+    module2.exports = BinTree;
+  }
+});
+
+// node_modules/bintrees/index.js
+var require_bintrees = __commonJS({
+  "node_modules/bintrees/index.js"(exports2, module2) {
+    module2.exports = {
+      RBTree: require_rbtree(),
+      BinTree: require_bintree()
+    };
+  }
+});
+
+// node_modules/tdigest/tdigest.js
+var require_tdigest = __commonJS({
+  "node_modules/tdigest/tdigest.js"(exports2, module2) {
+    var RBTree = require_bintrees().RBTree;
+    function TDigest(delta, K, CX) {
+      this.discrete = delta === false;
+      this.delta = delta || 0.01;
+      this.K = K === void 0 ? 25 : K;
+      this.CX = CX === void 0 ? 1.1 : CX;
+      this.centroids = new RBTree(compare_centroid_means);
+      this.nreset = 0;
+      this.reset();
+    }
+    TDigest.prototype.reset = function() {
+      this.centroids.clear();
+      this.n = 0;
+      this.nreset += 1;
+      this.last_cumulate = 0;
+    };
+    TDigest.prototype.size = function() {
+      return this.centroids.size;
+    };
+    TDigest.prototype.toArray = function(everything) {
+      var result = [];
+      if (everything) {
+        this._cumulate(true);
+        this.centroids.each(function(c) {
+          result.push(c);
+        });
+      } else {
+        this.centroids.each(function(c) {
+          result.push({ mean: c.mean, n: c.n });
+        });
+      }
+      return result;
+    };
+    TDigest.prototype.summary = function() {
+      var approx = this.discrete ? "exact " : "approximating ";
+      var s = [
+        approx + this.n + " samples using " + this.size() + " centroids",
+        "min = " + this.percentile(0),
+        "Q1  = " + this.percentile(0.25),
+        "Q2  = " + this.percentile(0.5),
+        "Q3  = " + this.percentile(0.75),
+        "max = " + this.percentile(1)
+      ];
+      return s.join("\n");
+    };
+    function compare_centroid_means(a, b) {
+      return a.mean > b.mean ? 1 : a.mean < b.mean ? -1 : 0;
+    }
+    function compare_centroid_mean_cumns(a, b) {
+      return a.mean_cumn - b.mean_cumn;
+    }
+    TDigest.prototype.push = function(x, n) {
+      n = n || 1;
+      x = Array.isArray(x) ? x : [x];
+      for (var i = 0; i < x.length; i++) {
+        this._digest(x[i], n);
+      }
+    };
+    TDigest.prototype.push_centroid = function(c) {
+      c = Array.isArray(c) ? c : [c];
+      for (var i = 0; i < c.length; i++) {
+        this._digest(c[i].mean, c[i].n);
+      }
+    };
+    TDigest.prototype._cumulate = function(exact) {
+      if (this.n === this.last_cumulate || !exact && this.CX && this.CX > this.n / this.last_cumulate) {
+        return;
+      }
+      var cumn = 0;
+      this.centroids.each(function(c) {
+        c.mean_cumn = cumn + c.n / 2;
+        cumn = c.cumn = cumn + c.n;
+      });
+      this.n = this.last_cumulate = cumn;
+    };
+    TDigest.prototype.find_nearest = function(x) {
+      if (this.size() === 0) {
+        return null;
+      }
+      var iter = this.centroids.lowerBound({ mean: x });
+      var c = iter.data() === null ? iter.prev() : iter.data();
+      if (c.mean === x || this.discrete) {
+        return c;
+      }
+      var prev = iter.prev();
+      if (prev && Math.abs(prev.mean - x) < Math.abs(c.mean - x)) {
+        return prev;
+      } else {
+        return c;
+      }
+    };
+    TDigest.prototype._new_centroid = function(x, n, cumn) {
+      var c = { mean: x, n, cumn };
+      this.centroids.insert(c);
+      this.n += n;
+      return c;
+    };
+    TDigest.prototype._addweight = function(nearest, x, n) {
+      if (x !== nearest.mean) {
+        nearest.mean += n * (x - nearest.mean) / (nearest.n + n);
+      }
+      nearest.cumn += n;
+      nearest.mean_cumn += n / 2;
+      nearest.n += n;
+      this.n += n;
+    };
+    TDigest.prototype._digest = function(x, n) {
+      var min = this.centroids.min();
+      var max = this.centroids.max();
+      var nearest = this.find_nearest(x);
+      if (nearest && nearest.mean === x) {
+        this._addweight(nearest, x, n);
+      } else if (nearest === min) {
+        this._new_centroid(x, n, 0);
+      } else if (nearest === max) {
+        this._new_centroid(x, n, this.n);
+      } else if (this.discrete) {
+        this._new_centroid(x, n, nearest.cumn);
+      } else {
+        var p = nearest.mean_cumn / this.n;
+        var max_n = Math.floor(4 * this.n * this.delta * p * (1 - p));
+        if (max_n - nearest.n >= n) {
+          this._addweight(nearest, x, n);
+        } else {
+          this._new_centroid(x, n, nearest.cumn);
+        }
+      }
+      this._cumulate(false);
+      if (!this.discrete && this.K && this.size() > this.K / this.delta) {
+        this.compress();
+      }
+    };
+    TDigest.prototype.bound_mean = function(x) {
+      var iter = this.centroids.upperBound({ mean: x });
+      var lower = iter.prev();
+      var upper = lower.mean === x ? lower : iter.next();
+      return [lower, upper];
+    };
+    TDigest.prototype.p_rank = function(x_or_xlist) {
+      var xs = Array.isArray(x_or_xlist) ? x_or_xlist : [x_or_xlist];
+      var ps = xs.map(this._p_rank, this);
+      return Array.isArray(x_or_xlist) ? ps : ps[0];
+    };
+    TDigest.prototype._p_rank = function(x) {
+      if (this.size() === 0) {
+        return void 0;
+      } else if (x < this.centroids.min().mean) {
+        return 0;
+      } else if (x > this.centroids.max().mean) {
+        return 1;
+      }
+      this._cumulate(true);
+      var bound = this.bound_mean(x);
+      var lower = bound[0], upper = bound[1];
+      if (this.discrete) {
+        return lower.cumn / this.n;
+      } else {
+        var cumn = lower.mean_cumn;
+        if (lower !== upper) {
+          cumn += (x - lower.mean) * (upper.mean_cumn - lower.mean_cumn) / (upper.mean - lower.mean);
+        }
+        return cumn / this.n;
+      }
+    };
+    TDigest.prototype.bound_mean_cumn = function(cumn) {
+      this.centroids._comparator = compare_centroid_mean_cumns;
+      var iter = this.centroids.upperBound({ mean_cumn: cumn });
+      this.centroids._comparator = compare_centroid_means;
+      var lower = iter.prev();
+      var upper = lower && lower.mean_cumn === cumn ? lower : iter.next();
+      return [lower, upper];
+    };
+    TDigest.prototype.percentile = function(p_or_plist) {
+      var ps = Array.isArray(p_or_plist) ? p_or_plist : [p_or_plist];
+      var qs = ps.map(this._percentile, this);
+      return Array.isArray(p_or_plist) ? qs : qs[0];
+    };
+    TDigest.prototype._percentile = function(p) {
+      if (this.size() === 0) {
+        return void 0;
+      }
+      this._cumulate(true);
+      var h = this.n * p;
+      var bound = this.bound_mean_cumn(h);
+      var lower = bound[0], upper = bound[1];
+      if (upper === lower || lower === null || upper === null) {
+        return (lower || upper).mean;
+      } else if (!this.discrete) {
+        return lower.mean + (h - lower.mean_cumn) * (upper.mean - lower.mean) / (upper.mean_cumn - lower.mean_cumn);
+      } else if (h <= lower.cumn) {
+        return lower.mean;
+      } else {
+        return upper.mean;
+      }
+    };
+    function pop_random(choices) {
+      var idx = Math.floor(Math.random() * choices.length);
+      return choices.splice(idx, 1)[0];
+    }
+    TDigest.prototype.compress = function() {
+      if (this.compressing) {
+        return;
+      }
+      var points = this.toArray();
+      this.reset();
+      this.compressing = true;
+      while (points.length > 0) {
+        this.push_centroid(pop_random(points));
+      }
+      this._cumulate(true);
+      this.compressing = false;
+    };
+    function Digest(config) {
+      this.config = config || {};
+      this.mode = this.config.mode || "auto";
+      TDigest.call(this, this.mode === "cont" ? config.delta : false);
+      this.digest_ratio = this.config.ratio || 0.9;
+      this.digest_thresh = this.config.thresh || 1e3;
+      this.n_unique = 0;
+    }
+    Digest.prototype = Object.create(TDigest.prototype);
+    Digest.prototype.constructor = Digest;
+    Digest.prototype.push = function(x_or_xlist) {
+      TDigest.prototype.push.call(this, x_or_xlist);
+      this.check_continuous();
+    };
+    Digest.prototype._new_centroid = function(x, n, cumn) {
+      this.n_unique += 1;
+      TDigest.prototype._new_centroid.call(this, x, n, cumn);
+    };
+    Digest.prototype._addweight = function(nearest, x, n) {
+      if (nearest.n === 1) {
+        this.n_unique -= 1;
+      }
+      TDigest.prototype._addweight.call(this, nearest, x, n);
+    };
+    Digest.prototype.check_continuous = function() {
+      if (this.mode !== "auto" || this.size() < this.digest_thresh) {
+        return false;
+      }
+      if (this.n_unique / this.size() > this.digest_ratio) {
+        this.mode = "cont";
+        this.discrete = false;
+        this.delta = this.config.delta || 0.01;
+        this.compress();
+        return true;
+      }
+      return false;
+    };
+    module2.exports = {
+      "TDigest": TDigest,
+      "Digest": Digest
+    };
+  }
+});
+
+// node_modules/prom-client/lib/timeWindowQuantiles.js
+var require_timeWindowQuantiles = __commonJS({
+  "node_modules/prom-client/lib/timeWindowQuantiles.js"(exports2, module2) {
+    "use strict";
+    var { TDigest } = require_tdigest();
+    var TimeWindowQuantiles = class {
+      constructor(maxAgeSeconds, ageBuckets) {
+        this.maxAgeSeconds = maxAgeSeconds || 0;
+        this.ageBuckets = ageBuckets || 0;
+        this.shouldRotate = maxAgeSeconds && ageBuckets;
+        this.ringBuffer = Array(ageBuckets).fill(new TDigest());
+        this.currentBuffer = 0;
+        this.lastRotateTimestampMillis = Date.now();
+        this.durationBetweenRotatesMillis = maxAgeSeconds * 1e3 / ageBuckets || Infinity;
+      }
+      size() {
+        const bucket = rotate.call(this);
+        return bucket.size();
+      }
+      percentile(quantile) {
+        const bucket = rotate.call(this);
+        return bucket.percentile(quantile);
+      }
+      push(value) {
+        rotate.call(this);
+        this.ringBuffer.forEach((bucket) => {
+          bucket.push(value);
+        });
+      }
+      reset() {
+        this.ringBuffer.forEach((bucket) => {
+          bucket.reset();
+        });
+      }
+      compress() {
+        this.ringBuffer.forEach((bucket) => {
+          bucket.compress();
+        });
+      }
+    };
+    function rotate() {
+      let timeSinceLastRotateMillis = Date.now() - this.lastRotateTimestampMillis;
+      while (timeSinceLastRotateMillis > this.durationBetweenRotatesMillis && this.shouldRotate) {
+        this.ringBuffer[this.currentBuffer] = new TDigest();
+        if (++this.currentBuffer >= this.ringBuffer.length) {
+          this.currentBuffer = 0;
+        }
+        timeSinceLastRotateMillis -= this.durationBetweenRotatesMillis;
+        this.lastRotateTimestampMillis += this.durationBetweenRotatesMillis;
+      }
+      return this.ringBuffer[this.currentBuffer];
+    }
+    module2.exports = TimeWindowQuantiles;
+  }
+});
+
+// node_modules/prom-client/lib/summary.js
+var require_summary = __commonJS({
+  "node_modules/prom-client/lib/summary.js"(exports2, module2) {
+    "use strict";
+    var util = require("util");
+    var { getLabels, hashObject, removeLabels } = require_util();
+    var { validateLabel } = require_validation();
+    var { Metric } = require_metric();
+    var timeWindowQuantiles = require_timeWindowQuantiles();
+    var DEFAULT_COMPRESS_COUNT = 1e3;
+    var Summary = class extends Metric {
+      constructor(config) {
+        super(config, {
+          percentiles: [0.01, 0.05, 0.5, 0.9, 0.95, 0.99, 0.999],
+          compressCount: DEFAULT_COMPRESS_COUNT,
+          hashMap: {}
+        });
+        this.type = "summary";
+        for (const label of this.labelNames) {
+          if (label === "quantile")
+            throw new Error("quantile is a reserved label keyword");
+        }
+        if (this.labelNames.length === 0) {
+          this.hashMap = {
+            [hashObject({})]: {
+              labels: {},
+              td: new timeWindowQuantiles(this.maxAgeSeconds, this.ageBuckets),
+              count: 0,
+              sum: 0
+            }
+          };
+        }
+      }
+      /**
+       * Observe a value
+       * @param {object} labels - Object with labels where key is the label key and value is label value. Can only be one level deep
+       * @param {Number} value - Value to observe
+       * @returns {void}
+       */
+      observe(labels, value) {
+        observe.call(this, labels === 0 ? 0 : labels || {})(value);
+      }
+      async get() {
+        if (this.collect) {
+          const v = this.collect();
+          if (v instanceof Promise) await v;
+        }
+        const hashKeys = Object.keys(this.hashMap);
+        const values = [];
+        hashKeys.forEach((hashKey) => {
+          const s = this.hashMap[hashKey];
+          if (s) {
+            if (this.pruneAgedBuckets && s.td.size() === 0) {
+              delete this.hashMap[hashKey];
+            } else {
+              extractSummariesForExport(s, this.percentiles).forEach((v) => {
+                values.push(v);
+              });
+              values.push(getSumForExport(s, this));
+              values.push(getCountForExport(s, this));
+            }
+          }
+        });
+        return {
+          name: this.name,
+          help: this.help,
+          type: this.type,
+          values,
+          aggregator: this.aggregator
+        };
+      }
+      reset() {
+        const data = Object.values(this.hashMap);
+        data.forEach((s) => {
+          s.td.reset();
+          s.count = 0;
+          s.sum = 0;
+        });
+      }
+      /**
+       * Start a timer that could be used to logging durations
+       * @param {object} labels - Object with labels where key is the label key and value is label value. Can only be one level deep
+       * @returns {function} - Function to invoke when you want to stop the timer and observe the duration in seconds
+       * @example
+       * var end = summary.startTimer();
+       * makeExpensiveXHRRequest(function(err, res) {
+       *	end(); //Observe the duration of expensiveXHRRequest
+       * });
+       */
+      startTimer(labels) {
+        return startTimer.call(this, labels)();
+      }
+      labels(...args) {
+        const labels = getLabels(this.labelNames, args);
+        validateLabel(this.labelNames, labels);
+        return {
+          observe: observe.call(this, labels),
+          startTimer: startTimer.call(this, labels)
+        };
+      }
+      remove(...args) {
+        const labels = getLabels(this.labelNames, args);
+        validateLabel(this.labelNames, labels);
+        removeLabels.call(this, this.hashMap, labels, this.sortedLabelNames);
+      }
+    };
+    function extractSummariesForExport(summaryOfLabels, percentiles) {
+      summaryOfLabels.td.compress();
+      return percentiles.map((percentile) => {
+        const percentileValue = summaryOfLabels.td.percentile(percentile);
+        return {
+          labels: Object.assign({ quantile: percentile }, summaryOfLabels.labels),
+          value: percentileValue ? percentileValue : 0
+        };
+      });
+    }
+    function getCountForExport(value, summary) {
+      return {
+        metricName: `${summary.name}_count`,
+        labels: value.labels,
+        value: value.count
+      };
+    }
+    function getSumForExport(value, summary) {
+      return {
+        metricName: `${summary.name}_sum`,
+        labels: value.labels,
+        value: value.sum
+      };
+    }
+    function startTimer(startLabels) {
+      return () => {
+        const start = process.hrtime();
+        return (endLabels) => {
+          const delta = process.hrtime(start);
+          const value = delta[0] + delta[1] / 1e9;
+          this.observe(Object.assign({}, startLabels, endLabels), value);
+          return value;
+        };
+      };
+    }
+    function observe(labels) {
+      return (value) => {
+        const labelValuePair = convertLabelsAndValues(labels, value);
+        validateLabel(this.labelNames, labels);
+        if (!Number.isFinite(labelValuePair.value)) {
+          throw new TypeError(
+            `Value is not a valid number: ${util.format(labelValuePair.value)}`
+          );
+        }
+        const hash = hashObject(labelValuePair.labels, this.sortedLabelNames);
+        let summaryOfLabel = this.hashMap[hash];
+        if (!summaryOfLabel) {
+          summaryOfLabel = {
+            labels: labelValuePair.labels,
+            td: new timeWindowQuantiles(this.maxAgeSeconds, this.ageBuckets),
+            count: 0,
+            sum: 0
+          };
+        }
+        summaryOfLabel.td.push(labelValuePair.value);
+        summaryOfLabel.count++;
+        if (summaryOfLabel.count % this.compressCount === 0) {
+          summaryOfLabel.td.compress();
+        }
+        summaryOfLabel.sum += labelValuePair.value;
+        this.hashMap[hash] = summaryOfLabel;
+      };
+    }
+    function convertLabelsAndValues(labels, value) {
+      if (value === void 0) {
+        return {
+          value: labels,
+          labels: {}
+        };
+      }
+      return {
+        labels,
+        value
+      };
+    }
+    module2.exports = Summary;
+  }
+});
+
+// node_modules/prom-client/lib/pushgateway.js
+var require_pushgateway = __commonJS({
+  "node_modules/prom-client/lib/pushgateway.js"(exports2, module2) {
+    "use strict";
+    var url = require("url");
+    var http = require("http");
+    var https = require("https");
+    var { gzipSync } = require("zlib");
+    var { globalRegistry } = require_registry();
+    var Pushgateway = class {
+      constructor(gatewayUrl, options, registry) {
+        if (!registry) {
+          registry = globalRegistry;
+        }
+        this.registry = registry;
+        this.gatewayUrl = gatewayUrl;
+        const { requireJobName, ...requestOptions } = {
+          requireJobName: true,
+          ...options
+        };
+        this.requireJobName = requireJobName;
+        this.requestOptions = requestOptions;
+      }
+      pushAdd(params = {}) {
+        if (this.requireJobName && !params.jobName) {
+          throw new Error("Missing jobName parameter");
+        }
+        return useGateway.call(this, "POST", params.jobName, params.groupings);
+      }
+      push(params = {}) {
+        if (this.requireJobName && !params.jobName) {
+          throw new Error("Missing jobName parameter");
+        }
+        return useGateway.call(this, "PUT", params.jobName, params.groupings);
+      }
+      delete(params = {}) {
+        if (this.requireJobName && !params.jobName) {
+          throw new Error("Missing jobName parameter");
+        }
+        return useGateway.call(this, "DELETE", params.jobName, params.groupings);
+      }
+    };
+    async function useGateway(method, job, groupings) {
+      const gatewayUrlParsed = url.parse(this.gatewayUrl);
+      const gatewayUrlPath = gatewayUrlParsed.pathname && gatewayUrlParsed.pathname !== "/" ? gatewayUrlParsed.pathname : "";
+      const jobPath = job ? `/job/${encodeURIComponent(job)}${generateGroupings(groupings)}` : "";
+      const path4 = `${gatewayUrlPath}/metrics${jobPath}`;
+      const target = url.resolve(this.gatewayUrl, path4);
+      const requestParams = url.parse(target);
+      const httpModule = isHttps(requestParams.href) ? https : http;
+      const options = Object.assign(requestParams, this.requestOptions, {
+        method
+      });
+      return new Promise((resolve, reject) => {
+        if (method === "DELETE" && options.headers) {
+          delete options.headers["Content-Encoding"];
+        }
+        const req = httpModule.request(options, (resp) => {
+          let body = "";
+          resp.setEncoding("utf8");
+          resp.on("data", (chunk) => {
+            body += chunk;
+          });
+          resp.on("end", () => {
+            if (resp.statusCode >= 400) {
+              reject(
+                new Error(`push failed with status ${resp.statusCode}, ${body}`)
+              );
+            } else {
+              resolve({ resp, body });
+            }
+          });
+        });
+        req.on("error", (err) => {
+          reject(err);
+        });
+        req.on("timeout", () => {
+          req.destroy(new Error("Pushgateway request timed out"));
+        });
+        if (method !== "DELETE") {
+          this.registry.metrics().then((metrics2) => {
+            if (options.headers && options.headers["Content-Encoding"] === "gzip") {
+              metrics2 = gzipSync(metrics2);
+            }
+            req.write(metrics2);
+            req.end();
+          }).catch((err) => {
+            reject(err);
+          });
+        } else {
+          req.end();
+        }
+      });
+    }
+    function generateGroupings(groupings) {
+      if (!groupings) {
+        return "";
+      }
+      return Object.keys(groupings).map(
+        (key) => `/${encodeURIComponent(key)}/${encodeURIComponent(groupings[key])}`
+      ).join("");
+    }
+    function isHttps(href) {
+      return href.search(/^https/) !== -1;
+    }
+    module2.exports = Pushgateway;
+  }
+});
+
+// node_modules/prom-client/lib/bucketGenerators.js
+var require_bucketGenerators = __commonJS({
+  "node_modules/prom-client/lib/bucketGenerators.js"(exports2) {
+    "use strict";
+    exports2.linearBuckets = (start, width, count) => {
+      if (count < 1) {
+        throw new Error("Linear buckets needs a positive count");
+      }
+      const buckets = new Array(count);
+      for (let i = 0; i < count; i++) {
+        buckets[i] = start + i * width;
+      }
+      return buckets;
+    };
+    exports2.exponentialBuckets = (start, factor, count) => {
+      if (start <= 0) {
+        throw new Error("Exponential buckets needs a positive start");
+      }
+      if (count < 1) {
+        throw new Error("Exponential buckets needs a positive count");
+      }
+      if (factor <= 1) {
+        throw new Error("Exponential buckets needs a factor greater than 1");
+      }
+      const buckets = new Array(count);
+      for (let i = 0; i < count; i++) {
+        buckets[i] = start;
+        start *= factor;
+      }
+      return buckets;
+    };
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/platform/node/globalThis.js
+var _globalThis;
+var init_globalThis = __esm({
+  "node_modules/@opentelemetry/api/build/esm/platform/node/globalThis.js"() {
+    _globalThis = typeof globalThis === "object" ? globalThis : global;
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/platform/node/index.js
+var init_node = __esm({
+  "node_modules/@opentelemetry/api/build/esm/platform/node/index.js"() {
+    init_globalThis();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/platform/index.js
+var init_platform = __esm({
+  "node_modules/@opentelemetry/api/build/esm/platform/index.js"() {
+    init_node();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/version.js
+var VERSION;
+var init_version = __esm({
+  "node_modules/@opentelemetry/api/build/esm/version.js"() {
+    VERSION = "1.9.0";
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/internal/semver.js
+function _makeCompatibilityCheck(ownVersion) {
+  var acceptedVersions = /* @__PURE__ */ new Set([ownVersion]);
+  var rejectedVersions = /* @__PURE__ */ new Set();
+  var myVersionMatch = ownVersion.match(re);
+  if (!myVersionMatch) {
+    return function() {
+      return false;
+    };
+  }
+  var ownVersionParsed = {
+    major: +myVersionMatch[1],
+    minor: +myVersionMatch[2],
+    patch: +myVersionMatch[3],
+    prerelease: myVersionMatch[4]
+  };
+  if (ownVersionParsed.prerelease != null) {
+    return function isExactmatch(globalVersion) {
+      return globalVersion === ownVersion;
+    };
+  }
+  function _reject(v) {
+    rejectedVersions.add(v);
+    return false;
+  }
+  function _accept(v) {
+    acceptedVersions.add(v);
+    return true;
+  }
+  return function isCompatible2(globalVersion) {
+    if (acceptedVersions.has(globalVersion)) {
+      return true;
+    }
+    if (rejectedVersions.has(globalVersion)) {
+      return false;
+    }
+    var globalVersionMatch = globalVersion.match(re);
+    if (!globalVersionMatch) {
+      return _reject(globalVersion);
+    }
+    var globalVersionParsed = {
+      major: +globalVersionMatch[1],
+      minor: +globalVersionMatch[2],
+      patch: +globalVersionMatch[3],
+      prerelease: globalVersionMatch[4]
+    };
+    if (globalVersionParsed.prerelease != null) {
+      return _reject(globalVersion);
+    }
+    if (ownVersionParsed.major !== globalVersionParsed.major) {
+      return _reject(globalVersion);
+    }
+    if (ownVersionParsed.major === 0) {
+      if (ownVersionParsed.minor === globalVersionParsed.minor && ownVersionParsed.patch <= globalVersionParsed.patch) {
+        return _accept(globalVersion);
+      }
+      return _reject(globalVersion);
+    }
+    if (ownVersionParsed.minor <= globalVersionParsed.minor) {
+      return _accept(globalVersion);
+    }
+    return _reject(globalVersion);
+  };
+}
+var re, isCompatible;
+var init_semver = __esm({
+  "node_modules/@opentelemetry/api/build/esm/internal/semver.js"() {
+    init_version();
+    re = /^(\d+)\.(\d+)\.(\d+)(-(.+))?$/;
+    isCompatible = _makeCompatibilityCheck(VERSION);
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/internal/global-utils.js
+function registerGlobal(type, instance, diag3, allowOverride) {
+  var _a;
+  if (allowOverride === void 0) {
+    allowOverride = false;
+  }
+  var api = _global[GLOBAL_OPENTELEMETRY_API_KEY] = (_a = _global[GLOBAL_OPENTELEMETRY_API_KEY]) !== null && _a !== void 0 ? _a : {
+    version: VERSION
+  };
+  if (!allowOverride && api[type]) {
+    var err = new Error("@opentelemetry/api: Attempted duplicate registration of API: " + type);
+    diag3.error(err.stack || err.message);
+    return false;
+  }
+  if (api.version !== VERSION) {
+    var err = new Error("@opentelemetry/api: Registration of version v" + api.version + " for " + type + " does not match previously registered API v" + VERSION);
+    diag3.error(err.stack || err.message);
+    return false;
+  }
+  api[type] = instance;
+  diag3.debug("@opentelemetry/api: Registered a global for " + type + " v" + VERSION + ".");
+  return true;
+}
+function getGlobal(type) {
+  var _a, _b;
+  var globalVersion = (_a = _global[GLOBAL_OPENTELEMETRY_API_KEY]) === null || _a === void 0 ? void 0 : _a.version;
+  if (!globalVersion || !isCompatible(globalVersion)) {
+    return;
+  }
+  return (_b = _global[GLOBAL_OPENTELEMETRY_API_KEY]) === null || _b === void 0 ? void 0 : _b[type];
+}
+function unregisterGlobal(type, diag3) {
+  diag3.debug("@opentelemetry/api: Unregistering a global for " + type + " v" + VERSION + ".");
+  var api = _global[GLOBAL_OPENTELEMETRY_API_KEY];
+  if (api) {
+    delete api[type];
+  }
+}
+var major, GLOBAL_OPENTELEMETRY_API_KEY, _global;
+var init_global_utils = __esm({
+  "node_modules/@opentelemetry/api/build/esm/internal/global-utils.js"() {
+    init_platform();
+    init_version();
+    init_semver();
+    major = VERSION.split(".")[0];
+    GLOBAL_OPENTELEMETRY_API_KEY = Symbol.for("opentelemetry.js.api." + major);
+    _global = _globalThis;
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/diag/ComponentLogger.js
+function logProxy(funcName, namespace, args) {
+  var logger2 = getGlobal("diag");
+  if (!logger2) {
+    return;
+  }
+  args.unshift(namespace);
+  return logger2[funcName].apply(logger2, __spreadArray([], __read(args), false));
+}
+var __read, __spreadArray, DiagComponentLogger;
+var init_ComponentLogger = __esm({
+  "node_modules/@opentelemetry/api/build/esm/diag/ComponentLogger.js"() {
+    init_global_utils();
+    __read = function(o, n) {
+      var m = typeof Symbol === "function" && o[Symbol.iterator];
+      if (!m) return o;
+      var i = m.call(o), r, ar = [], e;
+      try {
+        while ((n === void 0 || n-- > 0) && !(r = i.next()).done) ar.push(r.value);
+      } catch (error) {
+        e = { error };
+      } finally {
+        try {
+          if (r && !r.done && (m = i["return"])) m.call(i);
+        } finally {
+          if (e) throw e.error;
+        }
+      }
+      return ar;
+    };
+    __spreadArray = function(to, from, pack) {
+      if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+        if (ar || !(i in from)) {
+          if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+          ar[i] = from[i];
+        }
+      }
+      return to.concat(ar || Array.prototype.slice.call(from));
+    };
+    DiagComponentLogger = /** @class */
+    (function() {
+      function DiagComponentLogger2(props) {
+        this._namespace = props.namespace || "DiagComponentLogger";
+      }
+      DiagComponentLogger2.prototype.debug = function() {
+        var args = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+          args[_i] = arguments[_i];
+        }
+        return logProxy("debug", this._namespace, args);
+      };
+      DiagComponentLogger2.prototype.error = function() {
+        var args = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+          args[_i] = arguments[_i];
+        }
+        return logProxy("error", this._namespace, args);
+      };
+      DiagComponentLogger2.prototype.info = function() {
+        var args = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+          args[_i] = arguments[_i];
+        }
+        return logProxy("info", this._namespace, args);
+      };
+      DiagComponentLogger2.prototype.warn = function() {
+        var args = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+          args[_i] = arguments[_i];
+        }
+        return logProxy("warn", this._namespace, args);
+      };
+      DiagComponentLogger2.prototype.verbose = function() {
+        var args = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+          args[_i] = arguments[_i];
+        }
+        return logProxy("verbose", this._namespace, args);
+      };
+      return DiagComponentLogger2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/diag/types.js
+var DiagLogLevel;
+var init_types = __esm({
+  "node_modules/@opentelemetry/api/build/esm/diag/types.js"() {
+    (function(DiagLogLevel2) {
+      DiagLogLevel2[DiagLogLevel2["NONE"] = 0] = "NONE";
+      DiagLogLevel2[DiagLogLevel2["ERROR"] = 30] = "ERROR";
+      DiagLogLevel2[DiagLogLevel2["WARN"] = 50] = "WARN";
+      DiagLogLevel2[DiagLogLevel2["INFO"] = 60] = "INFO";
+      DiagLogLevel2[DiagLogLevel2["DEBUG"] = 70] = "DEBUG";
+      DiagLogLevel2[DiagLogLevel2["VERBOSE"] = 80] = "VERBOSE";
+      DiagLogLevel2[DiagLogLevel2["ALL"] = 9999] = "ALL";
+    })(DiagLogLevel || (DiagLogLevel = {}));
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/diag/internal/logLevelLogger.js
+function createLogLevelDiagLogger(maxLevel, logger2) {
+  if (maxLevel < DiagLogLevel.NONE) {
+    maxLevel = DiagLogLevel.NONE;
+  } else if (maxLevel > DiagLogLevel.ALL) {
+    maxLevel = DiagLogLevel.ALL;
+  }
+  logger2 = logger2 || {};
+  function _filterFunc(funcName, theLevel) {
+    var theFunc = logger2[funcName];
+    if (typeof theFunc === "function" && maxLevel >= theLevel) {
+      return theFunc.bind(logger2);
+    }
+    return function() {
+    };
+  }
+  return {
+    error: _filterFunc("error", DiagLogLevel.ERROR),
+    warn: _filterFunc("warn", DiagLogLevel.WARN),
+    info: _filterFunc("info", DiagLogLevel.INFO),
+    debug: _filterFunc("debug", DiagLogLevel.DEBUG),
+    verbose: _filterFunc("verbose", DiagLogLevel.VERBOSE)
+  };
+}
+var init_logLevelLogger = __esm({
+  "node_modules/@opentelemetry/api/build/esm/diag/internal/logLevelLogger.js"() {
+    init_types();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/api/diag.js
+var __read2, __spreadArray2, API_NAME, DiagAPI;
+var init_diag = __esm({
+  "node_modules/@opentelemetry/api/build/esm/api/diag.js"() {
+    init_ComponentLogger();
+    init_logLevelLogger();
+    init_types();
+    init_global_utils();
+    __read2 = function(o, n) {
+      var m = typeof Symbol === "function" && o[Symbol.iterator];
+      if (!m) return o;
+      var i = m.call(o), r, ar = [], e;
+      try {
+        while ((n === void 0 || n-- > 0) && !(r = i.next()).done) ar.push(r.value);
+      } catch (error) {
+        e = { error };
+      } finally {
+        try {
+          if (r && !r.done && (m = i["return"])) m.call(i);
+        } finally {
+          if (e) throw e.error;
+        }
+      }
+      return ar;
+    };
+    __spreadArray2 = function(to, from, pack) {
+      if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+        if (ar || !(i in from)) {
+          if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+          ar[i] = from[i];
+        }
+      }
+      return to.concat(ar || Array.prototype.slice.call(from));
+    };
+    API_NAME = "diag";
+    DiagAPI = /** @class */
+    (function() {
+      function DiagAPI2() {
+        function _logProxy(funcName) {
+          return function() {
+            var args = [];
+            for (var _i = 0; _i < arguments.length; _i++) {
+              args[_i] = arguments[_i];
+            }
+            var logger2 = getGlobal("diag");
+            if (!logger2)
+              return;
+            return logger2[funcName].apply(logger2, __spreadArray2([], __read2(args), false));
+          };
+        }
+        var self = this;
+        var setLogger = function(logger2, optionsOrLogLevel) {
+          var _a, _b, _c;
+          if (optionsOrLogLevel === void 0) {
+            optionsOrLogLevel = { logLevel: DiagLogLevel.INFO };
+          }
+          if (logger2 === self) {
+            var err = new Error("Cannot use diag as the logger for itself. Please use a DiagLogger implementation like ConsoleDiagLogger or a custom implementation");
+            self.error((_a = err.stack) !== null && _a !== void 0 ? _a : err.message);
+            return false;
+          }
+          if (typeof optionsOrLogLevel === "number") {
+            optionsOrLogLevel = {
+              logLevel: optionsOrLogLevel
+            };
+          }
+          var oldLogger = getGlobal("diag");
+          var newLogger = createLogLevelDiagLogger((_b = optionsOrLogLevel.logLevel) !== null && _b !== void 0 ? _b : DiagLogLevel.INFO, logger2);
+          if (oldLogger && !optionsOrLogLevel.suppressOverrideMessage) {
+            var stack = (_c = new Error().stack) !== null && _c !== void 0 ? _c : "<failed to generate stacktrace>";
+            oldLogger.warn("Current logger will be overwritten from " + stack);
+            newLogger.warn("Current logger will overwrite one already registered from " + stack);
+          }
+          return registerGlobal("diag", newLogger, self, true);
+        };
+        self.setLogger = setLogger;
+        self.disable = function() {
+          unregisterGlobal(API_NAME, self);
+        };
+        self.createComponentLogger = function(options) {
+          return new DiagComponentLogger(options);
+        };
+        self.verbose = _logProxy("verbose");
+        self.debug = _logProxy("debug");
+        self.info = _logProxy("info");
+        self.warn = _logProxy("warn");
+        self.error = _logProxy("error");
+      }
+      DiagAPI2.instance = function() {
+        if (!this._instance) {
+          this._instance = new DiagAPI2();
+        }
+        return this._instance;
+      };
+      return DiagAPI2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/baggage/internal/baggage-impl.js
+var __read3, __values, BaggageImpl;
+var init_baggage_impl = __esm({
+  "node_modules/@opentelemetry/api/build/esm/baggage/internal/baggage-impl.js"() {
+    __read3 = function(o, n) {
+      var m = typeof Symbol === "function" && o[Symbol.iterator];
+      if (!m) return o;
+      var i = m.call(o), r, ar = [], e;
+      try {
+        while ((n === void 0 || n-- > 0) && !(r = i.next()).done) ar.push(r.value);
+      } catch (error) {
+        e = { error };
+      } finally {
+        try {
+          if (r && !r.done && (m = i["return"])) m.call(i);
+        } finally {
+          if (e) throw e.error;
+        }
+      }
+      return ar;
+    };
+    __values = function(o) {
+      var s = typeof Symbol === "function" && Symbol.iterator, m = s && o[s], i = 0;
+      if (m) return m.call(o);
+      if (o && typeof o.length === "number") return {
+        next: function() {
+          if (o && i >= o.length) o = void 0;
+          return { value: o && o[i++], done: !o };
+        }
+      };
+      throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
+    };
+    BaggageImpl = /** @class */
+    (function() {
+      function BaggageImpl2(entries) {
+        this._entries = entries ? new Map(entries) : /* @__PURE__ */ new Map();
+      }
+      BaggageImpl2.prototype.getEntry = function(key) {
+        var entry = this._entries.get(key);
+        if (!entry) {
+          return void 0;
+        }
+        return Object.assign({}, entry);
+      };
+      BaggageImpl2.prototype.getAllEntries = function() {
+        return Array.from(this._entries.entries()).map(function(_a) {
+          var _b = __read3(_a, 2), k = _b[0], v = _b[1];
+          return [k, v];
+        });
+      };
+      BaggageImpl2.prototype.setEntry = function(key, entry) {
+        var newBaggage = new BaggageImpl2(this._entries);
+        newBaggage._entries.set(key, entry);
+        return newBaggage;
+      };
+      BaggageImpl2.prototype.removeEntry = function(key) {
+        var newBaggage = new BaggageImpl2(this._entries);
+        newBaggage._entries.delete(key);
+        return newBaggage;
+      };
+      BaggageImpl2.prototype.removeEntries = function() {
+        var e_1, _a;
+        var keys = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+          keys[_i] = arguments[_i];
+        }
+        var newBaggage = new BaggageImpl2(this._entries);
+        try {
+          for (var keys_1 = __values(keys), keys_1_1 = keys_1.next(); !keys_1_1.done; keys_1_1 = keys_1.next()) {
+            var key = keys_1_1.value;
+            newBaggage._entries.delete(key);
+          }
+        } catch (e_1_1) {
+          e_1 = { error: e_1_1 };
+        } finally {
+          try {
+            if (keys_1_1 && !keys_1_1.done && (_a = keys_1.return)) _a.call(keys_1);
+          } finally {
+            if (e_1) throw e_1.error;
+          }
+        }
+        return newBaggage;
+      };
+      BaggageImpl2.prototype.clear = function() {
+        return new BaggageImpl2();
+      };
+      return BaggageImpl2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/baggage/internal/symbol.js
+var baggageEntryMetadataSymbol;
+var init_symbol = __esm({
+  "node_modules/@opentelemetry/api/build/esm/baggage/internal/symbol.js"() {
+    baggageEntryMetadataSymbol = Symbol("BaggageEntryMetadata");
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/baggage/utils.js
+function createBaggage(entries) {
+  if (entries === void 0) {
+    entries = {};
+  }
+  return new BaggageImpl(new Map(Object.entries(entries)));
+}
+function baggageEntryMetadataFromString(str) {
+  if (typeof str !== "string") {
+    diag.error("Cannot create baggage metadata from unknown type: " + typeof str);
+    str = "";
+  }
+  return {
+    __TYPE__: baggageEntryMetadataSymbol,
+    toString: function() {
+      return str;
+    }
+  };
+}
+var diag;
+var init_utils = __esm({
+  "node_modules/@opentelemetry/api/build/esm/baggage/utils.js"() {
+    init_diag();
+    init_baggage_impl();
+    init_symbol();
+    diag = DiagAPI.instance();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/context/context.js
+function createContextKey(description) {
+  return Symbol.for(description);
+}
+var BaseContext, ROOT_CONTEXT;
+var init_context = __esm({
+  "node_modules/@opentelemetry/api/build/esm/context/context.js"() {
+    BaseContext = /** @class */
+    /* @__PURE__ */ (function() {
+      function BaseContext2(parentContext) {
+        var self = this;
+        self._currentContext = parentContext ? new Map(parentContext) : /* @__PURE__ */ new Map();
+        self.getValue = function(key) {
+          return self._currentContext.get(key);
+        };
+        self.setValue = function(key, value) {
+          var context2 = new BaseContext2(self._currentContext);
+          context2._currentContext.set(key, value);
+          return context2;
+        };
+        self.deleteValue = function(key) {
+          var context2 = new BaseContext2(self._currentContext);
+          context2._currentContext.delete(key);
+          return context2;
+        };
+      }
+      return BaseContext2;
+    })();
+    ROOT_CONTEXT = new BaseContext();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/diag/consoleLogger.js
+var consoleMap, DiagConsoleLogger;
+var init_consoleLogger = __esm({
+  "node_modules/@opentelemetry/api/build/esm/diag/consoleLogger.js"() {
+    consoleMap = [
+      { n: "error", c: "error" },
+      { n: "warn", c: "warn" },
+      { n: "info", c: "info" },
+      { n: "debug", c: "debug" },
+      { n: "verbose", c: "trace" }
+    ];
+    DiagConsoleLogger = /** @class */
+    /* @__PURE__ */ (function() {
+      function DiagConsoleLogger2() {
+        function _consoleFunc(funcName) {
+          return function() {
+            var args = [];
+            for (var _i = 0; _i < arguments.length; _i++) {
+              args[_i] = arguments[_i];
+            }
+            if (console) {
+              var theFunc = console[funcName];
+              if (typeof theFunc !== "function") {
+                theFunc = console.log;
+              }
+              if (typeof theFunc === "function") {
+                return theFunc.apply(console, args);
+              }
+            }
+          };
+        }
+        for (var i = 0; i < consoleMap.length; i++) {
+          this[consoleMap[i].n] = _consoleFunc(consoleMap[i].c);
+        }
+      }
+      return DiagConsoleLogger2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/metrics/NoopMeter.js
+function createNoopMeter() {
+  return NOOP_METER;
+}
+var __extends, NoopMeter, NoopMetric, NoopCounterMetric, NoopUpDownCounterMetric, NoopGaugeMetric, NoopHistogramMetric, NoopObservableMetric, NoopObservableCounterMetric, NoopObservableGaugeMetric, NoopObservableUpDownCounterMetric, NOOP_METER, NOOP_COUNTER_METRIC, NOOP_GAUGE_METRIC, NOOP_HISTOGRAM_METRIC, NOOP_UP_DOWN_COUNTER_METRIC, NOOP_OBSERVABLE_COUNTER_METRIC, NOOP_OBSERVABLE_GAUGE_METRIC, NOOP_OBSERVABLE_UP_DOWN_COUNTER_METRIC;
+var init_NoopMeter = __esm({
+  "node_modules/@opentelemetry/api/build/esm/metrics/NoopMeter.js"() {
+    __extends = /* @__PURE__ */ (function() {
+      var extendStatics = function(d, b) {
+        extendStatics = Object.setPrototypeOf || { __proto__: [] } instanceof Array && function(d2, b2) {
+          d2.__proto__ = b2;
+        } || function(d2, b2) {
+          for (var p in b2) if (Object.prototype.hasOwnProperty.call(b2, p)) d2[p] = b2[p];
+        };
+        return extendStatics(d, b);
+      };
+      return function(d, b) {
+        if (typeof b !== "function" && b !== null)
+          throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
+        extendStatics(d, b);
+        function __() {
+          this.constructor = d;
+        }
+        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+      };
+    })();
+    NoopMeter = /** @class */
+    (function() {
+      function NoopMeter2() {
+      }
+      NoopMeter2.prototype.createGauge = function(_name, _options) {
+        return NOOP_GAUGE_METRIC;
+      };
+      NoopMeter2.prototype.createHistogram = function(_name, _options) {
+        return NOOP_HISTOGRAM_METRIC;
+      };
+      NoopMeter2.prototype.createCounter = function(_name, _options) {
+        return NOOP_COUNTER_METRIC;
+      };
+      NoopMeter2.prototype.createUpDownCounter = function(_name, _options) {
+        return NOOP_UP_DOWN_COUNTER_METRIC;
+      };
+      NoopMeter2.prototype.createObservableGauge = function(_name, _options) {
+        return NOOP_OBSERVABLE_GAUGE_METRIC;
+      };
+      NoopMeter2.prototype.createObservableCounter = function(_name, _options) {
+        return NOOP_OBSERVABLE_COUNTER_METRIC;
+      };
+      NoopMeter2.prototype.createObservableUpDownCounter = function(_name, _options) {
+        return NOOP_OBSERVABLE_UP_DOWN_COUNTER_METRIC;
+      };
+      NoopMeter2.prototype.addBatchObservableCallback = function(_callback, _observables) {
+      };
+      NoopMeter2.prototype.removeBatchObservableCallback = function(_callback) {
+      };
+      return NoopMeter2;
+    })();
+    NoopMetric = /** @class */
+    /* @__PURE__ */ (function() {
+      function NoopMetric2() {
+      }
+      return NoopMetric2;
+    })();
+    NoopCounterMetric = /** @class */
+    (function(_super) {
+      __extends(NoopCounterMetric2, _super);
+      function NoopCounterMetric2() {
+        return _super !== null && _super.apply(this, arguments) || this;
+      }
+      NoopCounterMetric2.prototype.add = function(_value, _attributes) {
+      };
+      return NoopCounterMetric2;
+    })(NoopMetric);
+    NoopUpDownCounterMetric = /** @class */
+    (function(_super) {
+      __extends(NoopUpDownCounterMetric2, _super);
+      function NoopUpDownCounterMetric2() {
+        return _super !== null && _super.apply(this, arguments) || this;
+      }
+      NoopUpDownCounterMetric2.prototype.add = function(_value, _attributes) {
+      };
+      return NoopUpDownCounterMetric2;
+    })(NoopMetric);
+    NoopGaugeMetric = /** @class */
+    (function(_super) {
+      __extends(NoopGaugeMetric2, _super);
+      function NoopGaugeMetric2() {
+        return _super !== null && _super.apply(this, arguments) || this;
+      }
+      NoopGaugeMetric2.prototype.record = function(_value, _attributes) {
+      };
+      return NoopGaugeMetric2;
+    })(NoopMetric);
+    NoopHistogramMetric = /** @class */
+    (function(_super) {
+      __extends(NoopHistogramMetric2, _super);
+      function NoopHistogramMetric2() {
+        return _super !== null && _super.apply(this, arguments) || this;
+      }
+      NoopHistogramMetric2.prototype.record = function(_value, _attributes) {
+      };
+      return NoopHistogramMetric2;
+    })(NoopMetric);
+    NoopObservableMetric = /** @class */
+    (function() {
+      function NoopObservableMetric2() {
+      }
+      NoopObservableMetric2.prototype.addCallback = function(_callback) {
+      };
+      NoopObservableMetric2.prototype.removeCallback = function(_callback) {
+      };
+      return NoopObservableMetric2;
+    })();
+    NoopObservableCounterMetric = /** @class */
+    (function(_super) {
+      __extends(NoopObservableCounterMetric2, _super);
+      function NoopObservableCounterMetric2() {
+        return _super !== null && _super.apply(this, arguments) || this;
+      }
+      return NoopObservableCounterMetric2;
+    })(NoopObservableMetric);
+    NoopObservableGaugeMetric = /** @class */
+    (function(_super) {
+      __extends(NoopObservableGaugeMetric2, _super);
+      function NoopObservableGaugeMetric2() {
+        return _super !== null && _super.apply(this, arguments) || this;
+      }
+      return NoopObservableGaugeMetric2;
+    })(NoopObservableMetric);
+    NoopObservableUpDownCounterMetric = /** @class */
+    (function(_super) {
+      __extends(NoopObservableUpDownCounterMetric2, _super);
+      function NoopObservableUpDownCounterMetric2() {
+        return _super !== null && _super.apply(this, arguments) || this;
+      }
+      return NoopObservableUpDownCounterMetric2;
+    })(NoopObservableMetric);
+    NOOP_METER = new NoopMeter();
+    NOOP_COUNTER_METRIC = new NoopCounterMetric();
+    NOOP_GAUGE_METRIC = new NoopGaugeMetric();
+    NOOP_HISTOGRAM_METRIC = new NoopHistogramMetric();
+    NOOP_UP_DOWN_COUNTER_METRIC = new NoopUpDownCounterMetric();
+    NOOP_OBSERVABLE_COUNTER_METRIC = new NoopObservableCounterMetric();
+    NOOP_OBSERVABLE_GAUGE_METRIC = new NoopObservableGaugeMetric();
+    NOOP_OBSERVABLE_UP_DOWN_COUNTER_METRIC = new NoopObservableUpDownCounterMetric();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/metrics/Metric.js
+var ValueType;
+var init_Metric = __esm({
+  "node_modules/@opentelemetry/api/build/esm/metrics/Metric.js"() {
+    (function(ValueType2) {
+      ValueType2[ValueType2["INT"] = 0] = "INT";
+      ValueType2[ValueType2["DOUBLE"] = 1] = "DOUBLE";
+    })(ValueType || (ValueType = {}));
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/propagation/TextMapPropagator.js
+var defaultTextMapGetter, defaultTextMapSetter;
+var init_TextMapPropagator = __esm({
+  "node_modules/@opentelemetry/api/build/esm/propagation/TextMapPropagator.js"() {
+    defaultTextMapGetter = {
+      get: function(carrier, key) {
+        if (carrier == null) {
+          return void 0;
+        }
+        return carrier[key];
+      },
+      keys: function(carrier) {
+        if (carrier == null) {
+          return [];
+        }
+        return Object.keys(carrier);
+      }
+    };
+    defaultTextMapSetter = {
+      set: function(carrier, key, value) {
+        if (carrier == null) {
+          return;
+        }
+        carrier[key] = value;
+      }
+    };
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/context/NoopContextManager.js
+var __read4, __spreadArray3, NoopContextManager;
+var init_NoopContextManager = __esm({
+  "node_modules/@opentelemetry/api/build/esm/context/NoopContextManager.js"() {
+    init_context();
+    __read4 = function(o, n) {
+      var m = typeof Symbol === "function" && o[Symbol.iterator];
+      if (!m) return o;
+      var i = m.call(o), r, ar = [], e;
+      try {
+        while ((n === void 0 || n-- > 0) && !(r = i.next()).done) ar.push(r.value);
+      } catch (error) {
+        e = { error };
+      } finally {
+        try {
+          if (r && !r.done && (m = i["return"])) m.call(i);
+        } finally {
+          if (e) throw e.error;
+        }
+      }
+      return ar;
+    };
+    __spreadArray3 = function(to, from, pack) {
+      if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+        if (ar || !(i in from)) {
+          if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+          ar[i] = from[i];
+        }
+      }
+      return to.concat(ar || Array.prototype.slice.call(from));
+    };
+    NoopContextManager = /** @class */
+    (function() {
+      function NoopContextManager2() {
+      }
+      NoopContextManager2.prototype.active = function() {
+        return ROOT_CONTEXT;
+      };
+      NoopContextManager2.prototype.with = function(_context, fn, thisArg) {
+        var args = [];
+        for (var _i = 3; _i < arguments.length; _i++) {
+          args[_i - 3] = arguments[_i];
+        }
+        return fn.call.apply(fn, __spreadArray3([thisArg], __read4(args), false));
+      };
+      NoopContextManager2.prototype.bind = function(_context, target) {
+        return target;
+      };
+      NoopContextManager2.prototype.enable = function() {
+        return this;
+      };
+      NoopContextManager2.prototype.disable = function() {
+        return this;
+      };
+      return NoopContextManager2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/api/context.js
+var __read5, __spreadArray4, API_NAME2, NOOP_CONTEXT_MANAGER, ContextAPI;
+var init_context2 = __esm({
+  "node_modules/@opentelemetry/api/build/esm/api/context.js"() {
+    init_NoopContextManager();
+    init_global_utils();
+    init_diag();
+    __read5 = function(o, n) {
+      var m = typeof Symbol === "function" && o[Symbol.iterator];
+      if (!m) return o;
+      var i = m.call(o), r, ar = [], e;
+      try {
+        while ((n === void 0 || n-- > 0) && !(r = i.next()).done) ar.push(r.value);
+      } catch (error) {
+        e = { error };
+      } finally {
+        try {
+          if (r && !r.done && (m = i["return"])) m.call(i);
+        } finally {
+          if (e) throw e.error;
+        }
+      }
+      return ar;
+    };
+    __spreadArray4 = function(to, from, pack) {
+      if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+        if (ar || !(i in from)) {
+          if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+          ar[i] = from[i];
+        }
+      }
+      return to.concat(ar || Array.prototype.slice.call(from));
+    };
+    API_NAME2 = "context";
+    NOOP_CONTEXT_MANAGER = new NoopContextManager();
+    ContextAPI = /** @class */
+    (function() {
+      function ContextAPI2() {
+      }
+      ContextAPI2.getInstance = function() {
+        if (!this._instance) {
+          this._instance = new ContextAPI2();
+        }
+        return this._instance;
+      };
+      ContextAPI2.prototype.setGlobalContextManager = function(contextManager) {
+        return registerGlobal(API_NAME2, contextManager, DiagAPI.instance());
+      };
+      ContextAPI2.prototype.active = function() {
+        return this._getContextManager().active();
+      };
+      ContextAPI2.prototype.with = function(context2, fn, thisArg) {
+        var _a;
+        var args = [];
+        for (var _i = 3; _i < arguments.length; _i++) {
+          args[_i - 3] = arguments[_i];
+        }
+        return (_a = this._getContextManager()).with.apply(_a, __spreadArray4([context2, fn, thisArg], __read5(args), false));
+      };
+      ContextAPI2.prototype.bind = function(context2, target) {
+        return this._getContextManager().bind(context2, target);
+      };
+      ContextAPI2.prototype._getContextManager = function() {
+        return getGlobal(API_NAME2) || NOOP_CONTEXT_MANAGER;
+      };
+      ContextAPI2.prototype.disable = function() {
+        this._getContextManager().disable();
+        unregisterGlobal(API_NAME2, DiagAPI.instance());
+      };
+      return ContextAPI2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/trace_flags.js
+var TraceFlags;
+var init_trace_flags = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/trace_flags.js"() {
+    (function(TraceFlags2) {
+      TraceFlags2[TraceFlags2["NONE"] = 0] = "NONE";
+      TraceFlags2[TraceFlags2["SAMPLED"] = 1] = "SAMPLED";
+    })(TraceFlags || (TraceFlags = {}));
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/invalid-span-constants.js
+var INVALID_SPANID, INVALID_TRACEID, INVALID_SPAN_CONTEXT;
+var init_invalid_span_constants = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/invalid-span-constants.js"() {
+    init_trace_flags();
+    INVALID_SPANID = "0000000000000000";
+    INVALID_TRACEID = "00000000000000000000000000000000";
+    INVALID_SPAN_CONTEXT = {
+      traceId: INVALID_TRACEID,
+      spanId: INVALID_SPANID,
+      traceFlags: TraceFlags.NONE
+    };
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/NonRecordingSpan.js
+var NonRecordingSpan;
+var init_NonRecordingSpan = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/NonRecordingSpan.js"() {
+    init_invalid_span_constants();
+    NonRecordingSpan = /** @class */
+    (function() {
+      function NonRecordingSpan2(_spanContext) {
+        if (_spanContext === void 0) {
+          _spanContext = INVALID_SPAN_CONTEXT;
+        }
+        this._spanContext = _spanContext;
+      }
+      NonRecordingSpan2.prototype.spanContext = function() {
+        return this._spanContext;
+      };
+      NonRecordingSpan2.prototype.setAttribute = function(_key, _value) {
+        return this;
+      };
+      NonRecordingSpan2.prototype.setAttributes = function(_attributes) {
+        return this;
+      };
+      NonRecordingSpan2.prototype.addEvent = function(_name, _attributes) {
+        return this;
+      };
+      NonRecordingSpan2.prototype.addLink = function(_link) {
+        return this;
+      };
+      NonRecordingSpan2.prototype.addLinks = function(_links) {
+        return this;
+      };
+      NonRecordingSpan2.prototype.setStatus = function(_status) {
+        return this;
+      };
+      NonRecordingSpan2.prototype.updateName = function(_name) {
+        return this;
+      };
+      NonRecordingSpan2.prototype.end = function(_endTime) {
+      };
+      NonRecordingSpan2.prototype.isRecording = function() {
+        return false;
+      };
+      NonRecordingSpan2.prototype.recordException = function(_exception, _time) {
+      };
+      return NonRecordingSpan2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/context-utils.js
+function getSpan(context2) {
+  return context2.getValue(SPAN_KEY) || void 0;
+}
+function getActiveSpan() {
+  return getSpan(ContextAPI.getInstance().active());
+}
+function setSpan(context2, span) {
+  return context2.setValue(SPAN_KEY, span);
+}
+function deleteSpan(context2) {
+  return context2.deleteValue(SPAN_KEY);
+}
+function setSpanContext(context2, spanContext) {
+  return setSpan(context2, new NonRecordingSpan(spanContext));
+}
+function getSpanContext(context2) {
+  var _a;
+  return (_a = getSpan(context2)) === null || _a === void 0 ? void 0 : _a.spanContext();
+}
+var SPAN_KEY;
+var init_context_utils = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/context-utils.js"() {
+    init_context();
+    init_NonRecordingSpan();
+    init_context2();
+    SPAN_KEY = createContextKey("OpenTelemetry Context Key SPAN");
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/spancontext-utils.js
+function isValidTraceId(traceId) {
+  return VALID_TRACEID_REGEX.test(traceId) && traceId !== INVALID_TRACEID;
+}
+function isValidSpanId(spanId) {
+  return VALID_SPANID_REGEX.test(spanId) && spanId !== INVALID_SPANID;
+}
+function isSpanContextValid(spanContext) {
+  return isValidTraceId(spanContext.traceId) && isValidSpanId(spanContext.spanId);
+}
+function wrapSpanContext(spanContext) {
+  return new NonRecordingSpan(spanContext);
+}
+var VALID_TRACEID_REGEX, VALID_SPANID_REGEX;
+var init_spancontext_utils = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/spancontext-utils.js"() {
+    init_invalid_span_constants();
+    init_NonRecordingSpan();
+    VALID_TRACEID_REGEX = /^([0-9a-f]{32})$/i;
+    VALID_SPANID_REGEX = /^[0-9a-f]{16}$/i;
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/NoopTracer.js
+function isSpanContext(spanContext) {
+  return typeof spanContext === "object" && typeof spanContext["spanId"] === "string" && typeof spanContext["traceId"] === "string" && typeof spanContext["traceFlags"] === "number";
+}
+var contextApi, NoopTracer;
+var init_NoopTracer = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/NoopTracer.js"() {
+    init_context2();
+    init_context_utils();
+    init_NonRecordingSpan();
+    init_spancontext_utils();
+    contextApi = ContextAPI.getInstance();
+    NoopTracer = /** @class */
+    (function() {
+      function NoopTracer2() {
+      }
+      NoopTracer2.prototype.startSpan = function(name, options, context2) {
+        if (context2 === void 0) {
+          context2 = contextApi.active();
+        }
+        var root = Boolean(options === null || options === void 0 ? void 0 : options.root);
+        if (root) {
+          return new NonRecordingSpan();
+        }
+        var parentFromContext = context2 && getSpanContext(context2);
+        if (isSpanContext(parentFromContext) && isSpanContextValid(parentFromContext)) {
+          return new NonRecordingSpan(parentFromContext);
+        } else {
+          return new NonRecordingSpan();
+        }
+      };
+      NoopTracer2.prototype.startActiveSpan = function(name, arg2, arg3, arg4) {
+        var opts;
+        var ctx;
+        var fn;
+        if (arguments.length < 2) {
+          return;
+        } else if (arguments.length === 2) {
+          fn = arg2;
+        } else if (arguments.length === 3) {
+          opts = arg2;
+          fn = arg3;
+        } else {
+          opts = arg2;
+          ctx = arg3;
+          fn = arg4;
+        }
+        var parentContext = ctx !== null && ctx !== void 0 ? ctx : contextApi.active();
+        var span = this.startSpan(name, opts, parentContext);
+        var contextWithSpanSet = setSpan(parentContext, span);
+        return contextApi.with(contextWithSpanSet, fn, void 0, span);
+      };
+      return NoopTracer2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/ProxyTracer.js
+var NOOP_TRACER, ProxyTracer;
+var init_ProxyTracer = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/ProxyTracer.js"() {
+    init_NoopTracer();
+    NOOP_TRACER = new NoopTracer();
+    ProxyTracer = /** @class */
+    (function() {
+      function ProxyTracer2(_provider, name, version, options) {
+        this._provider = _provider;
+        this.name = name;
+        this.version = version;
+        this.options = options;
+      }
+      ProxyTracer2.prototype.startSpan = function(name, options, context2) {
+        return this._getTracer().startSpan(name, options, context2);
+      };
+      ProxyTracer2.prototype.startActiveSpan = function(_name, _options, _context, _fn) {
+        var tracer = this._getTracer();
+        return Reflect.apply(tracer.startActiveSpan, tracer, arguments);
+      };
+      ProxyTracer2.prototype._getTracer = function() {
+        if (this._delegate) {
+          return this._delegate;
+        }
+        var tracer = this._provider.getDelegateTracer(this.name, this.version, this.options);
+        if (!tracer) {
+          return NOOP_TRACER;
+        }
+        this._delegate = tracer;
+        return this._delegate;
+      };
+      return ProxyTracer2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/NoopTracerProvider.js
+var NoopTracerProvider;
+var init_NoopTracerProvider = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/NoopTracerProvider.js"() {
+    init_NoopTracer();
+    NoopTracerProvider = /** @class */
+    (function() {
+      function NoopTracerProvider2() {
+      }
+      NoopTracerProvider2.prototype.getTracer = function(_name, _version, _options) {
+        return new NoopTracer();
+      };
+      return NoopTracerProvider2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/ProxyTracerProvider.js
+var NOOP_TRACER_PROVIDER, ProxyTracerProvider;
+var init_ProxyTracerProvider = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/ProxyTracerProvider.js"() {
+    init_ProxyTracer();
+    init_NoopTracerProvider();
+    NOOP_TRACER_PROVIDER = new NoopTracerProvider();
+    ProxyTracerProvider = /** @class */
+    (function() {
+      function ProxyTracerProvider2() {
+      }
+      ProxyTracerProvider2.prototype.getTracer = function(name, version, options) {
+        var _a;
+        return (_a = this.getDelegateTracer(name, version, options)) !== null && _a !== void 0 ? _a : new ProxyTracer(this, name, version, options);
+      };
+      ProxyTracerProvider2.prototype.getDelegate = function() {
+        var _a;
+        return (_a = this._delegate) !== null && _a !== void 0 ? _a : NOOP_TRACER_PROVIDER;
+      };
+      ProxyTracerProvider2.prototype.setDelegate = function(delegate) {
+        this._delegate = delegate;
+      };
+      ProxyTracerProvider2.prototype.getDelegateTracer = function(name, version, options) {
+        var _a;
+        return (_a = this._delegate) === null || _a === void 0 ? void 0 : _a.getTracer(name, version, options);
+      };
+      return ProxyTracerProvider2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/SamplingResult.js
+var SamplingDecision;
+var init_SamplingResult = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/SamplingResult.js"() {
+    (function(SamplingDecision2) {
+      SamplingDecision2[SamplingDecision2["NOT_RECORD"] = 0] = "NOT_RECORD";
+      SamplingDecision2[SamplingDecision2["RECORD"] = 1] = "RECORD";
+      SamplingDecision2[SamplingDecision2["RECORD_AND_SAMPLED"] = 2] = "RECORD_AND_SAMPLED";
+    })(SamplingDecision || (SamplingDecision = {}));
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/span_kind.js
+var SpanKind;
+var init_span_kind = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/span_kind.js"() {
+    (function(SpanKind2) {
+      SpanKind2[SpanKind2["INTERNAL"] = 0] = "INTERNAL";
+      SpanKind2[SpanKind2["SERVER"] = 1] = "SERVER";
+      SpanKind2[SpanKind2["CLIENT"] = 2] = "CLIENT";
+      SpanKind2[SpanKind2["PRODUCER"] = 3] = "PRODUCER";
+      SpanKind2[SpanKind2["CONSUMER"] = 4] = "CONSUMER";
+    })(SpanKind || (SpanKind = {}));
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/status.js
+var SpanStatusCode;
+var init_status = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/status.js"() {
+    (function(SpanStatusCode2) {
+      SpanStatusCode2[SpanStatusCode2["UNSET"] = 0] = "UNSET";
+      SpanStatusCode2[SpanStatusCode2["OK"] = 1] = "OK";
+      SpanStatusCode2[SpanStatusCode2["ERROR"] = 2] = "ERROR";
+    })(SpanStatusCode || (SpanStatusCode = {}));
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/internal/tracestate-validators.js
+function validateKey(key) {
+  return VALID_KEY_REGEX.test(key);
+}
+function validateValue(value) {
+  return VALID_VALUE_BASE_REGEX.test(value) && !INVALID_VALUE_COMMA_EQUAL_REGEX.test(value);
+}
+var VALID_KEY_CHAR_RANGE, VALID_KEY, VALID_VENDOR_KEY, VALID_KEY_REGEX, VALID_VALUE_BASE_REGEX, INVALID_VALUE_COMMA_EQUAL_REGEX;
+var init_tracestate_validators = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/internal/tracestate-validators.js"() {
+    VALID_KEY_CHAR_RANGE = "[_0-9a-z-*/]";
+    VALID_KEY = "[a-z]" + VALID_KEY_CHAR_RANGE + "{0,255}";
+    VALID_VENDOR_KEY = "[a-z0-9]" + VALID_KEY_CHAR_RANGE + "{0,240}@[a-z]" + VALID_KEY_CHAR_RANGE + "{0,13}";
+    VALID_KEY_REGEX = new RegExp("^(?:" + VALID_KEY + "|" + VALID_VENDOR_KEY + ")$");
+    VALID_VALUE_BASE_REGEX = /^[ -~]{0,255}[!-~]$/;
+    INVALID_VALUE_COMMA_EQUAL_REGEX = /,|=/;
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/internal/tracestate-impl.js
+var MAX_TRACE_STATE_ITEMS, MAX_TRACE_STATE_LEN, LIST_MEMBERS_SEPARATOR, LIST_MEMBER_KEY_VALUE_SPLITTER, TraceStateImpl;
+var init_tracestate_impl = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/internal/tracestate-impl.js"() {
+    init_tracestate_validators();
+    MAX_TRACE_STATE_ITEMS = 32;
+    MAX_TRACE_STATE_LEN = 512;
+    LIST_MEMBERS_SEPARATOR = ",";
+    LIST_MEMBER_KEY_VALUE_SPLITTER = "=";
+    TraceStateImpl = /** @class */
+    (function() {
+      function TraceStateImpl2(rawTraceState) {
+        this._internalState = /* @__PURE__ */ new Map();
+        if (rawTraceState)
+          this._parse(rawTraceState);
+      }
+      TraceStateImpl2.prototype.set = function(key, value) {
+        var traceState = this._clone();
+        if (traceState._internalState.has(key)) {
+          traceState._internalState.delete(key);
+        }
+        traceState._internalState.set(key, value);
+        return traceState;
+      };
+      TraceStateImpl2.prototype.unset = function(key) {
+        var traceState = this._clone();
+        traceState._internalState.delete(key);
+        return traceState;
+      };
+      TraceStateImpl2.prototype.get = function(key) {
+        return this._internalState.get(key);
+      };
+      TraceStateImpl2.prototype.serialize = function() {
+        var _this = this;
+        return this._keys().reduce(function(agg, key) {
+          agg.push(key + LIST_MEMBER_KEY_VALUE_SPLITTER + _this.get(key));
+          return agg;
+        }, []).join(LIST_MEMBERS_SEPARATOR);
+      };
+      TraceStateImpl2.prototype._parse = function(rawTraceState) {
+        if (rawTraceState.length > MAX_TRACE_STATE_LEN)
+          return;
+        this._internalState = rawTraceState.split(LIST_MEMBERS_SEPARATOR).reverse().reduce(function(agg, part) {
+          var listMember = part.trim();
+          var i = listMember.indexOf(LIST_MEMBER_KEY_VALUE_SPLITTER);
+          if (i !== -1) {
+            var key = listMember.slice(0, i);
+            var value = listMember.slice(i + 1, part.length);
+            if (validateKey(key) && validateValue(value)) {
+              agg.set(key, value);
+            } else {
+            }
+          }
+          return agg;
+        }, /* @__PURE__ */ new Map());
+        if (this._internalState.size > MAX_TRACE_STATE_ITEMS) {
+          this._internalState = new Map(Array.from(this._internalState.entries()).reverse().slice(0, MAX_TRACE_STATE_ITEMS));
+        }
+      };
+      TraceStateImpl2.prototype._keys = function() {
+        return Array.from(this._internalState.keys()).reverse();
+      };
+      TraceStateImpl2.prototype._clone = function() {
+        var traceState = new TraceStateImpl2();
+        traceState._internalState = new Map(this._internalState);
+        return traceState;
+      };
+      return TraceStateImpl2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace/internal/utils.js
+function createTraceState(rawTraceState) {
+  return new TraceStateImpl(rawTraceState);
+}
+var init_utils2 = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace/internal/utils.js"() {
+    init_tracestate_impl();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/context-api.js
+var context;
+var init_context_api = __esm({
+  "node_modules/@opentelemetry/api/build/esm/context-api.js"() {
+    init_context2();
+    context = ContextAPI.getInstance();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/diag-api.js
+var diag2;
+var init_diag_api = __esm({
+  "node_modules/@opentelemetry/api/build/esm/diag-api.js"() {
+    init_diag();
+    diag2 = DiagAPI.instance();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/metrics/NoopMeterProvider.js
+var NoopMeterProvider, NOOP_METER_PROVIDER;
+var init_NoopMeterProvider = __esm({
+  "node_modules/@opentelemetry/api/build/esm/metrics/NoopMeterProvider.js"() {
+    init_NoopMeter();
+    NoopMeterProvider = /** @class */
+    (function() {
+      function NoopMeterProvider2() {
+      }
+      NoopMeterProvider2.prototype.getMeter = function(_name, _version, _options) {
+        return NOOP_METER;
+      };
+      return NoopMeterProvider2;
+    })();
+    NOOP_METER_PROVIDER = new NoopMeterProvider();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/api/metrics.js
+var API_NAME3, MetricsAPI;
+var init_metrics = __esm({
+  "node_modules/@opentelemetry/api/build/esm/api/metrics.js"() {
+    init_NoopMeterProvider();
+    init_global_utils();
+    init_diag();
+    API_NAME3 = "metrics";
+    MetricsAPI = /** @class */
+    (function() {
+      function MetricsAPI2() {
+      }
+      MetricsAPI2.getInstance = function() {
+        if (!this._instance) {
+          this._instance = new MetricsAPI2();
+        }
+        return this._instance;
+      };
+      MetricsAPI2.prototype.setGlobalMeterProvider = function(provider) {
+        return registerGlobal(API_NAME3, provider, DiagAPI.instance());
+      };
+      MetricsAPI2.prototype.getMeterProvider = function() {
+        return getGlobal(API_NAME3) || NOOP_METER_PROVIDER;
+      };
+      MetricsAPI2.prototype.getMeter = function(name, version, options) {
+        return this.getMeterProvider().getMeter(name, version, options);
+      };
+      MetricsAPI2.prototype.disable = function() {
+        unregisterGlobal(API_NAME3, DiagAPI.instance());
+      };
+      return MetricsAPI2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/metrics-api.js
+var metrics;
+var init_metrics_api = __esm({
+  "node_modules/@opentelemetry/api/build/esm/metrics-api.js"() {
+    init_metrics();
+    metrics = MetricsAPI.getInstance();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/propagation/NoopTextMapPropagator.js
+var NoopTextMapPropagator;
+var init_NoopTextMapPropagator = __esm({
+  "node_modules/@opentelemetry/api/build/esm/propagation/NoopTextMapPropagator.js"() {
+    NoopTextMapPropagator = /** @class */
+    (function() {
+      function NoopTextMapPropagator2() {
+      }
+      NoopTextMapPropagator2.prototype.inject = function(_context, _carrier) {
+      };
+      NoopTextMapPropagator2.prototype.extract = function(context2, _carrier) {
+        return context2;
+      };
+      NoopTextMapPropagator2.prototype.fields = function() {
+        return [];
+      };
+      return NoopTextMapPropagator2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/baggage/context-helpers.js
+function getBaggage(context2) {
+  return context2.getValue(BAGGAGE_KEY) || void 0;
+}
+function getActiveBaggage() {
+  return getBaggage(ContextAPI.getInstance().active());
+}
+function setBaggage(context2, baggage) {
+  return context2.setValue(BAGGAGE_KEY, baggage);
+}
+function deleteBaggage(context2) {
+  return context2.deleteValue(BAGGAGE_KEY);
+}
+var BAGGAGE_KEY;
+var init_context_helpers = __esm({
+  "node_modules/@opentelemetry/api/build/esm/baggage/context-helpers.js"() {
+    init_context2();
+    init_context();
+    BAGGAGE_KEY = createContextKey("OpenTelemetry Baggage Key");
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/api/propagation.js
+var API_NAME4, NOOP_TEXT_MAP_PROPAGATOR, PropagationAPI;
+var init_propagation = __esm({
+  "node_modules/@opentelemetry/api/build/esm/api/propagation.js"() {
+    init_global_utils();
+    init_NoopTextMapPropagator();
+    init_TextMapPropagator();
+    init_context_helpers();
+    init_utils();
+    init_diag();
+    API_NAME4 = "propagation";
+    NOOP_TEXT_MAP_PROPAGATOR = new NoopTextMapPropagator();
+    PropagationAPI = /** @class */
+    (function() {
+      function PropagationAPI2() {
+        this.createBaggage = createBaggage;
+        this.getBaggage = getBaggage;
+        this.getActiveBaggage = getActiveBaggage;
+        this.setBaggage = setBaggage;
+        this.deleteBaggage = deleteBaggage;
+      }
+      PropagationAPI2.getInstance = function() {
+        if (!this._instance) {
+          this._instance = new PropagationAPI2();
+        }
+        return this._instance;
+      };
+      PropagationAPI2.prototype.setGlobalPropagator = function(propagator) {
+        return registerGlobal(API_NAME4, propagator, DiagAPI.instance());
+      };
+      PropagationAPI2.prototype.inject = function(context2, carrier, setter) {
+        if (setter === void 0) {
+          setter = defaultTextMapSetter;
+        }
+        return this._getGlobalPropagator().inject(context2, carrier, setter);
+      };
+      PropagationAPI2.prototype.extract = function(context2, carrier, getter) {
+        if (getter === void 0) {
+          getter = defaultTextMapGetter;
+        }
+        return this._getGlobalPropagator().extract(context2, carrier, getter);
+      };
+      PropagationAPI2.prototype.fields = function() {
+        return this._getGlobalPropagator().fields();
+      };
+      PropagationAPI2.prototype.disable = function() {
+        unregisterGlobal(API_NAME4, DiagAPI.instance());
+      };
+      PropagationAPI2.prototype._getGlobalPropagator = function() {
+        return getGlobal(API_NAME4) || NOOP_TEXT_MAP_PROPAGATOR;
+      };
+      return PropagationAPI2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/propagation-api.js
+var propagation;
+var init_propagation_api = __esm({
+  "node_modules/@opentelemetry/api/build/esm/propagation-api.js"() {
+    init_propagation();
+    propagation = PropagationAPI.getInstance();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/api/trace.js
+var API_NAME5, TraceAPI;
+var init_trace = __esm({
+  "node_modules/@opentelemetry/api/build/esm/api/trace.js"() {
+    init_global_utils();
+    init_ProxyTracerProvider();
+    init_spancontext_utils();
+    init_context_utils();
+    init_diag();
+    API_NAME5 = "trace";
+    TraceAPI = /** @class */
+    (function() {
+      function TraceAPI2() {
+        this._proxyTracerProvider = new ProxyTracerProvider();
+        this.wrapSpanContext = wrapSpanContext;
+        this.isSpanContextValid = isSpanContextValid;
+        this.deleteSpan = deleteSpan;
+        this.getSpan = getSpan;
+        this.getActiveSpan = getActiveSpan;
+        this.getSpanContext = getSpanContext;
+        this.setSpan = setSpan;
+        this.setSpanContext = setSpanContext;
+      }
+      TraceAPI2.getInstance = function() {
+        if (!this._instance) {
+          this._instance = new TraceAPI2();
+        }
+        return this._instance;
+      };
+      TraceAPI2.prototype.setGlobalTracerProvider = function(provider) {
+        var success = registerGlobal(API_NAME5, this._proxyTracerProvider, DiagAPI.instance());
+        if (success) {
+          this._proxyTracerProvider.setDelegate(provider);
+        }
+        return success;
+      };
+      TraceAPI2.prototype.getTracerProvider = function() {
+        return getGlobal(API_NAME5) || this._proxyTracerProvider;
+      };
+      TraceAPI2.prototype.getTracer = function(name, version) {
+        return this.getTracerProvider().getTracer(name, version);
+      };
+      TraceAPI2.prototype.disable = function() {
+        unregisterGlobal(API_NAME5, DiagAPI.instance());
+        this._proxyTracerProvider = new ProxyTracerProvider();
+      };
+      return TraceAPI2;
+    })();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/trace-api.js
+var trace;
+var init_trace_api = __esm({
+  "node_modules/@opentelemetry/api/build/esm/trace-api.js"() {
+    init_trace();
+    trace = TraceAPI.getInstance();
+  }
+});
+
+// node_modules/@opentelemetry/api/build/esm/index.js
+var esm_exports = {};
+__export(esm_exports, {
+  DiagConsoleLogger: () => DiagConsoleLogger,
+  DiagLogLevel: () => DiagLogLevel,
+  INVALID_SPANID: () => INVALID_SPANID,
+  INVALID_SPAN_CONTEXT: () => INVALID_SPAN_CONTEXT,
+  INVALID_TRACEID: () => INVALID_TRACEID,
+  ProxyTracer: () => ProxyTracer,
+  ProxyTracerProvider: () => ProxyTracerProvider,
+  ROOT_CONTEXT: () => ROOT_CONTEXT,
+  SamplingDecision: () => SamplingDecision,
+  SpanKind: () => SpanKind,
+  SpanStatusCode: () => SpanStatusCode,
+  TraceFlags: () => TraceFlags,
+  ValueType: () => ValueType,
+  baggageEntryMetadataFromString: () => baggageEntryMetadataFromString,
+  context: () => context,
+  createContextKey: () => createContextKey,
+  createNoopMeter: () => createNoopMeter,
+  createTraceState: () => createTraceState,
+  default: () => esm_default,
+  defaultTextMapGetter: () => defaultTextMapGetter,
+  defaultTextMapSetter: () => defaultTextMapSetter,
+  diag: () => diag2,
+  isSpanContextValid: () => isSpanContextValid,
+  isValidSpanId: () => isValidSpanId,
+  isValidTraceId: () => isValidTraceId,
+  metrics: () => metrics,
+  propagation: () => propagation,
+  trace: () => trace
+});
+var esm_default;
+var init_esm = __esm({
+  "node_modules/@opentelemetry/api/build/esm/index.js"() {
+    init_utils();
+    init_context();
+    init_consoleLogger();
+    init_types();
+    init_NoopMeter();
+    init_Metric();
+    init_TextMapPropagator();
+    init_ProxyTracer();
+    init_ProxyTracerProvider();
+    init_SamplingResult();
+    init_span_kind();
+    init_status();
+    init_trace_flags();
+    init_utils2();
+    init_spancontext_utils();
+    init_invalid_span_constants();
+    init_context_api();
+    init_diag_api();
+    init_metrics_api();
+    init_propagation_api();
+    init_trace_api();
+    esm_default = {
+      context,
+      diag: diag2,
+      metrics,
+      propagation,
+      trace
+    };
+  }
+});
+
+// node_modules/prom-client/lib/metrics/processCpuTotal.js
+var require_processCpuTotal = __commonJS({
+  "node_modules/prom-client/lib/metrics/processCpuTotal.js"(exports2, module2) {
+    "use strict";
+    var OtelApi = (init_esm(), __toCommonJS(esm_exports));
+    var Counter2 = require_counter();
+    var PROCESS_CPU_USER_SECONDS = "process_cpu_user_seconds_total";
+    var PROCESS_CPU_SYSTEM_SECONDS = "process_cpu_system_seconds_total";
+    var PROCESS_CPU_SECONDS = "process_cpu_seconds_total";
+    module2.exports = (registry, config = {}) => {
+      const registers = registry ? [registry] : void 0;
+      const namePrefix = config.prefix ? config.prefix : "";
+      const labels = config.labels ? config.labels : {};
+      const exemplars = config.enableExemplars ? config.enableExemplars : false;
+      const labelNames = Object.keys(labels);
+      let lastCpuUsage = process.cpuUsage();
+      const cpuUserUsageCounter = new Counter2({
+        name: namePrefix + PROCESS_CPU_USER_SECONDS,
+        help: "Total user CPU time spent in seconds.",
+        enableExemplars: exemplars,
+        registers,
+        labelNames,
+        // Use this one metric's `collect` to set all metrics' values.
+        collect() {
+          const cpuUsage = process.cpuUsage();
+          const userUsageMicros = cpuUsage.user - lastCpuUsage.user;
+          const systemUsageMicros = cpuUsage.system - lastCpuUsage.system;
+          lastCpuUsage = cpuUsage;
+          if (this.enableExemplars) {
+            let exemplarLabels = {};
+            const currentSpan = OtelApi.trace.getSpan(OtelApi.context.active());
+            if (currentSpan) {
+              exemplarLabels = {
+                traceId: currentSpan.spanContext().traceId,
+                spanId: currentSpan.spanContext().spanId
+              };
+            }
+            cpuUserUsageCounter.inc({
+              labels,
+              value: userUsageMicros / 1e6,
+              exemplarLabels
+            });
+            cpuSystemUsageCounter.inc({
+              labels,
+              value: systemUsageMicros / 1e6,
+              exemplarLabels
+            });
+            cpuUsageCounter.inc({
+              labels,
+              value: (userUsageMicros + systemUsageMicros) / 1e6,
+              exemplarLabels
+            });
+          } else {
+            cpuUserUsageCounter.inc(labels, userUsageMicros / 1e6);
+            cpuSystemUsageCounter.inc(labels, systemUsageMicros / 1e6);
+            cpuUsageCounter.inc(
+              labels,
+              (userUsageMicros + systemUsageMicros) / 1e6
+            );
+          }
+        }
+      });
+      const cpuSystemUsageCounter = new Counter2({
+        name: namePrefix + PROCESS_CPU_SYSTEM_SECONDS,
+        help: "Total system CPU time spent in seconds.",
+        enableExemplars: exemplars,
+        registers,
+        labelNames
+      });
+      const cpuUsageCounter = new Counter2({
+        name: namePrefix + PROCESS_CPU_SECONDS,
+        help: "Total user and system CPU time spent in seconds.",
+        enableExemplars: exemplars,
+        registers,
+        labelNames
+      });
+    };
+    module2.exports.metricNames = [
+      PROCESS_CPU_USER_SECONDS,
+      PROCESS_CPU_SYSTEM_SECONDS,
+      PROCESS_CPU_SECONDS
+    ];
+  }
+});
+
+// node_modules/prom-client/lib/metrics/processStartTime.js
+var require_processStartTime = __commonJS({
+  "node_modules/prom-client/lib/metrics/processStartTime.js"(exports2, module2) {
+    "use strict";
+    var Gauge = require_gauge();
+    var startInSeconds = Math.round(Date.now() / 1e3 - process.uptime());
+    var PROCESS_START_TIME = "process_start_time_seconds";
+    module2.exports = (registry, config = {}) => {
+      const namePrefix = config.prefix ? config.prefix : "";
+      const labels = config.labels ? config.labels : {};
+      const labelNames = Object.keys(labels);
+      new Gauge({
+        name: namePrefix + PROCESS_START_TIME,
+        help: "Start time of the process since unix epoch in seconds.",
+        registers: registry ? [registry] : void 0,
+        labelNames,
+        aggregator: "omit",
+        collect() {
+          this.set(labels, startInSeconds);
+        }
+      });
+    };
+    module2.exports.metricNames = [PROCESS_START_TIME];
+  }
+});
+
+// node_modules/prom-client/lib/metrics/osMemoryHeapLinux.js
+var require_osMemoryHeapLinux = __commonJS({
+  "node_modules/prom-client/lib/metrics/osMemoryHeapLinux.js"(exports2, module2) {
+    "use strict";
+    var Gauge = require_gauge();
+    var fs3 = require("fs");
+    var values = ["VmSize", "VmRSS", "VmData"];
+    var PROCESS_RESIDENT_MEMORY = "process_resident_memory_bytes";
+    var PROCESS_VIRTUAL_MEMORY = "process_virtual_memory_bytes";
+    var PROCESS_HEAP = "process_heap_bytes";
+    function structureOutput(input) {
+      return input.split("\n").reduce((acc, string) => {
+        if (!values.some((value2) => string.startsWith(value2))) {
+          return acc;
+        }
+        const split = string.split(":");
+        let value = split[1].trim();
+        value = value.substr(0, value.length - 3);
+        value = Number(value) * 1024;
+        acc[split[0]] = value;
+        return acc;
+      }, {});
+    }
+    module2.exports = (registry, config = {}) => {
+      const registers = registry ? [registry] : void 0;
+      const namePrefix = config.prefix ? config.prefix : "";
+      const labels = config.labels ? config.labels : {};
+      const labelNames = Object.keys(labels);
+      const residentMemGauge = new Gauge({
+        name: namePrefix + PROCESS_RESIDENT_MEMORY,
+        help: "Resident memory size in bytes.",
+        registers,
+        labelNames,
+        // Use this one metric's `collect` to set all metrics' values.
+        collect() {
+          try {
+            const stat = fs3.readFileSync("/proc/self/status", "utf8");
+            const structuredOutput = structureOutput(stat);
+            residentMemGauge.set(labels, structuredOutput.VmRSS);
+            virtualMemGauge.set(labels, structuredOutput.VmSize);
+            heapSizeMemGauge.set(labels, structuredOutput.VmData);
+          } catch {
+          }
+        }
+      });
+      const virtualMemGauge = new Gauge({
+        name: namePrefix + PROCESS_VIRTUAL_MEMORY,
+        help: "Virtual memory size in bytes.",
+        registers,
+        labelNames
+      });
+      const heapSizeMemGauge = new Gauge({
+        name: namePrefix + PROCESS_HEAP,
+        help: "Process heap size in bytes.",
+        registers,
+        labelNames
+      });
+    };
+    module2.exports.metricNames = [
+      PROCESS_RESIDENT_MEMORY,
+      PROCESS_VIRTUAL_MEMORY,
+      PROCESS_HEAP
+    ];
+  }
+});
+
+// node_modules/prom-client/lib/metrics/helpers/safeMemoryUsage.js
+var require_safeMemoryUsage = __commonJS({
+  "node_modules/prom-client/lib/metrics/helpers/safeMemoryUsage.js"(exports2, module2) {
+    "use strict";
+    function safeMemoryUsage() {
+      try {
+        return process.memoryUsage();
+      } catch {
+        return;
+      }
+    }
+    module2.exports = safeMemoryUsage;
+  }
+});
+
+// node_modules/prom-client/lib/metrics/osMemoryHeap.js
+var require_osMemoryHeap = __commonJS({
+  "node_modules/prom-client/lib/metrics/osMemoryHeap.js"(exports2, module2) {
+    "use strict";
+    var Gauge = require_gauge();
+    var linuxVariant = require_osMemoryHeapLinux();
+    var safeMemoryUsage = require_safeMemoryUsage();
+    var PROCESS_RESIDENT_MEMORY = "process_resident_memory_bytes";
+    function notLinuxVariant(registry, config = {}) {
+      const namePrefix = config.prefix ? config.prefix : "";
+      const labels = config.labels ? config.labels : {};
+      const labelNames = Object.keys(labels);
+      new Gauge({
+        name: namePrefix + PROCESS_RESIDENT_MEMORY,
+        help: "Resident memory size in bytes.",
+        registers: registry ? [registry] : void 0,
+        labelNames,
+        collect() {
+          const memUsage = safeMemoryUsage();
+          if (memUsage) {
+            this.set(labels, memUsage.rss);
+          }
+        }
+      });
+    }
+    module2.exports = (registry, config) => process.platform === "linux" ? linuxVariant(registry, config) : notLinuxVariant(registry, config);
+    module2.exports.metricNames = process.platform === "linux" ? linuxVariant.metricNames : [PROCESS_RESIDENT_MEMORY];
+  }
+});
+
+// node_modules/prom-client/lib/metrics/processOpenFileDescriptors.js
+var require_processOpenFileDescriptors = __commonJS({
+  "node_modules/prom-client/lib/metrics/processOpenFileDescriptors.js"(exports2, module2) {
+    "use strict";
+    var Gauge = require_gauge();
+    var fs3 = require("fs");
+    var process2 = require("process");
+    var PROCESS_OPEN_FDS = "process_open_fds";
+    module2.exports = (registry, config = {}) => {
+      if (process2.platform !== "linux") {
+        return;
+      }
+      const namePrefix = config.prefix ? config.prefix : "";
+      const labels = config.labels ? config.labels : {};
+      const labelNames = Object.keys(labels);
+      new Gauge({
+        name: namePrefix + PROCESS_OPEN_FDS,
+        help: "Number of open file descriptors.",
+        registers: registry ? [registry] : void 0,
+        labelNames,
+        collect() {
+          try {
+            const fds = fs3.readdirSync("/proc/self/fd");
+            this.set(labels, fds.length - 1);
+          } catch {
+          }
+        }
+      });
+    };
+    module2.exports.metricNames = [PROCESS_OPEN_FDS];
+  }
+});
+
+// node_modules/prom-client/lib/metrics/processMaxFileDescriptors.js
+var require_processMaxFileDescriptors = __commonJS({
+  "node_modules/prom-client/lib/metrics/processMaxFileDescriptors.js"(exports2, module2) {
+    "use strict";
+    var Gauge = require_gauge();
+    var fs3 = require("fs");
+    var PROCESS_MAX_FDS = "process_max_fds";
+    var maxFds;
+    module2.exports = (registry, config = {}) => {
+      if (maxFds === void 0) {
+        try {
+          const limits = fs3.readFileSync("/proc/self/limits", "utf8");
+          const lines = limits.split("\n");
+          for (const line of lines) {
+            if (line.startsWith("Max open files")) {
+              const parts = line.split(/  +/);
+              maxFds = Number(parts[1]);
+              break;
+            }
+          }
+        } catch {
+          return;
+        }
+      }
+      if (maxFds === void 0) return;
+      const namePrefix = config.prefix ? config.prefix : "";
+      const labels = config.labels ? config.labels : {};
+      const labelNames = Object.keys(labels);
+      new Gauge({
+        name: namePrefix + PROCESS_MAX_FDS,
+        help: "Maximum number of open file descriptors.",
+        registers: registry ? [registry] : void 0,
+        labelNames,
+        collect() {
+          if (maxFds !== void 0) this.set(labels, maxFds);
+        }
+      });
+    };
+    module2.exports.metricNames = [PROCESS_MAX_FDS];
+  }
+});
+
+// node_modules/prom-client/lib/metrics/eventLoopLag.js
+var require_eventLoopLag = __commonJS({
+  "node_modules/prom-client/lib/metrics/eventLoopLag.js"(exports2, module2) {
+    "use strict";
+    var Gauge = require_gauge();
+    var perf_hooks;
+    try {
+      perf_hooks = require("perf_hooks");
+    } catch {
+    }
+    var NODEJS_EVENTLOOP_LAG = "nodejs_eventloop_lag_seconds";
+    var NODEJS_EVENTLOOP_LAG_MIN = "nodejs_eventloop_lag_min_seconds";
+    var NODEJS_EVENTLOOP_LAG_MAX = "nodejs_eventloop_lag_max_seconds";
+    var NODEJS_EVENTLOOP_LAG_MEAN = "nodejs_eventloop_lag_mean_seconds";
+    var NODEJS_EVENTLOOP_LAG_STDDEV = "nodejs_eventloop_lag_stddev_seconds";
+    var NODEJS_EVENTLOOP_LAG_P50 = "nodejs_eventloop_lag_p50_seconds";
+    var NODEJS_EVENTLOOP_LAG_P90 = "nodejs_eventloop_lag_p90_seconds";
+    var NODEJS_EVENTLOOP_LAG_P99 = "nodejs_eventloop_lag_p99_seconds";
+    function reportEventloopLag(start, gauge, labels) {
+      const delta = process.hrtime(start);
+      const nanosec = delta[0] * 1e9 + delta[1];
+      const seconds = nanosec / 1e9;
+      gauge.set(labels, seconds);
+    }
+    module2.exports = (registry, config = {}) => {
+      const namePrefix = config.prefix ? config.prefix : "";
+      const labels = config.labels ? config.labels : {};
+      const labelNames = Object.keys(labels);
+      const registers = registry ? [registry] : void 0;
+      let collect = () => {
+        const start = process.hrtime();
+        setImmediate(reportEventloopLag, start, lag, labels);
+      };
+      if (perf_hooks && perf_hooks.monitorEventLoopDelay) {
+        try {
+          const histogram = perf_hooks.monitorEventLoopDelay({
+            resolution: config.eventLoopMonitoringPrecision
+          });
+          histogram.enable();
+          collect = () => {
+            const start = process.hrtime();
+            setImmediate(reportEventloopLag, start, lag, labels);
+            lagMin.set(labels, histogram.min / 1e9);
+            lagMax.set(labels, histogram.max / 1e9);
+            lagMean.set(labels, histogram.mean / 1e9);
+            lagStddev.set(labels, histogram.stddev / 1e9);
+            lagP50.set(labels, histogram.percentile(50) / 1e9);
+            lagP90.set(labels, histogram.percentile(90) / 1e9);
+            lagP99.set(labels, histogram.percentile(99) / 1e9);
+            histogram.reset();
+          };
+        } catch (e) {
+          if (e.code === "ERR_NOT_IMPLEMENTED") {
+            return;
+          }
+          throw e;
+        }
+      }
+      const lag = new Gauge({
+        name: namePrefix + NODEJS_EVENTLOOP_LAG,
+        help: "Lag of event loop in seconds.",
+        registers,
+        labelNames,
+        aggregator: "average",
+        // Use this one metric's `collect` to set all metrics' values.
+        collect
+      });
+      const lagMin = new Gauge({
+        name: namePrefix + NODEJS_EVENTLOOP_LAG_MIN,
+        help: "The minimum recorded event loop delay.",
+        registers,
+        labelNames,
+        aggregator: "min"
+      });
+      const lagMax = new Gauge({
+        name: namePrefix + NODEJS_EVENTLOOP_LAG_MAX,
+        help: "The maximum recorded event loop delay.",
+        registers,
+        labelNames,
+        aggregator: "max"
+      });
+      const lagMean = new Gauge({
+        name: namePrefix + NODEJS_EVENTLOOP_LAG_MEAN,
+        help: "The mean of the recorded event loop delays.",
+        registers,
+        labelNames,
+        aggregator: "average"
+      });
+      const lagStddev = new Gauge({
+        name: namePrefix + NODEJS_EVENTLOOP_LAG_STDDEV,
+        help: "The standard deviation of the recorded event loop delays.",
+        registers,
+        labelNames,
+        aggregator: "average"
+      });
+      const lagP50 = new Gauge({
+        name: namePrefix + NODEJS_EVENTLOOP_LAG_P50,
+        help: "The 50th percentile of the recorded event loop delays.",
+        registers,
+        labelNames,
+        aggregator: "average"
+      });
+      const lagP90 = new Gauge({
+        name: namePrefix + NODEJS_EVENTLOOP_LAG_P90,
+        help: "The 90th percentile of the recorded event loop delays.",
+        registers,
+        labelNames,
+        aggregator: "average"
+      });
+      const lagP99 = new Gauge({
+        name: namePrefix + NODEJS_EVENTLOOP_LAG_P99,
+        help: "The 99th percentile of the recorded event loop delays.",
+        registers,
+        labelNames,
+        aggregator: "average"
+      });
+    };
+    module2.exports.metricNames = [
+      NODEJS_EVENTLOOP_LAG,
+      NODEJS_EVENTLOOP_LAG_MIN,
+      NODEJS_EVENTLOOP_LAG_MAX,
+      NODEJS_EVENTLOOP_LAG_MEAN,
+      NODEJS_EVENTLOOP_LAG_STDDEV,
+      NODEJS_EVENTLOOP_LAG_P50,
+      NODEJS_EVENTLOOP_LAG_P90,
+      NODEJS_EVENTLOOP_LAG_P99
+    ];
+  }
+});
+
+// node_modules/prom-client/lib/metrics/helpers/processMetricsHelpers.js
+var require_processMetricsHelpers = __commonJS({
+  "node_modules/prom-client/lib/metrics/helpers/processMetricsHelpers.js"(exports2, module2) {
+    "use strict";
+    function aggregateByObjectName(list) {
+      const data = {};
+      for (let i = 0; i < list.length; i++) {
+        const listElement = list[i];
+        if (!listElement || typeof listElement.constructor === "undefined") {
+          continue;
+        }
+        if (Object.hasOwnProperty.call(data, listElement.constructor.name)) {
+          data[listElement.constructor.name] += 1;
+        } else {
+          data[listElement.constructor.name] = 1;
+        }
+      }
+      return data;
+    }
+    function updateMetrics(gauge, data, labels) {
+      gauge.reset();
+      for (const key in data) {
+        gauge.set(Object.assign({ type: key }, labels || {}), data[key]);
+      }
+    }
+    module2.exports = {
+      aggregateByObjectName,
+      updateMetrics
+    };
+  }
+});
+
+// node_modules/prom-client/lib/metrics/processHandles.js
+var require_processHandles = __commonJS({
+  "node_modules/prom-client/lib/metrics/processHandles.js"(exports2, module2) {
+    "use strict";
+    var { aggregateByObjectName } = require_processMetricsHelpers();
+    var { updateMetrics } = require_processMetricsHelpers();
+    var Gauge = require_gauge();
+    var NODEJS_ACTIVE_HANDLES = "nodejs_active_handles";
+    var NODEJS_ACTIVE_HANDLES_TOTAL = "nodejs_active_handles_total";
+    module2.exports = (registry, config = {}) => {
+      if (typeof process._getActiveHandles !== "function") {
+        return;
+      }
+      const registers = registry ? [registry] : void 0;
+      const namePrefix = config.prefix ? config.prefix : "";
+      const labels = config.labels ? config.labels : {};
+      const labelNames = Object.keys(labels);
+      new Gauge({
+        name: namePrefix + NODEJS_ACTIVE_HANDLES,
+        help: "Number of active libuv handles grouped by handle type. Every handle type is C++ class name.",
+        labelNames: ["type", ...labelNames],
+        registers,
+        collect() {
+          const handles = process._getActiveHandles();
+          updateMetrics(this, aggregateByObjectName(handles), labels);
+        }
+      });
+      new Gauge({
+        name: namePrefix + NODEJS_ACTIVE_HANDLES_TOTAL,
+        help: "Total number of active handles.",
+        registers,
+        labelNames,
+        collect() {
+          const handles = process._getActiveHandles();
+          this.set(labels, handles.length);
+        }
+      });
+    };
+    module2.exports.metricNames = [
+      NODEJS_ACTIVE_HANDLES,
+      NODEJS_ACTIVE_HANDLES_TOTAL
+    ];
+  }
+});
+
+// node_modules/prom-client/lib/metrics/processRequests.js
+var require_processRequests = __commonJS({
+  "node_modules/prom-client/lib/metrics/processRequests.js"(exports2, module2) {
+    "use strict";
+    var Gauge = require_gauge();
+    var { aggregateByObjectName } = require_processMetricsHelpers();
+    var { updateMetrics } = require_processMetricsHelpers();
+    var NODEJS_ACTIVE_REQUESTS = "nodejs_active_requests";
+    var NODEJS_ACTIVE_REQUESTS_TOTAL = "nodejs_active_requests_total";
+    module2.exports = (registry, config = {}) => {
+      if (typeof process._getActiveRequests !== "function") {
+        return;
+      }
+      const namePrefix = config.prefix ? config.prefix : "";
+      const labels = config.labels ? config.labels : {};
+      const labelNames = Object.keys(labels);
+      new Gauge({
+        name: namePrefix + NODEJS_ACTIVE_REQUESTS,
+        help: "Number of active libuv requests grouped by request type. Every request type is C++ class name.",
+        labelNames: ["type", ...labelNames],
+        registers: registry ? [registry] : void 0,
+        collect() {
+          const requests = process._getActiveRequests();
+          updateMetrics(this, aggregateByObjectName(requests), labels);
+        }
+      });
+      new Gauge({
+        name: namePrefix + NODEJS_ACTIVE_REQUESTS_TOTAL,
+        help: "Total number of active requests.",
+        registers: registry ? [registry] : void 0,
+        labelNames,
+        collect() {
+          const requests = process._getActiveRequests();
+          this.set(labels, requests.length);
+        }
+      });
+    };
+    module2.exports.metricNames = [
+      NODEJS_ACTIVE_REQUESTS,
+      NODEJS_ACTIVE_REQUESTS_TOTAL
+    ];
+  }
+});
+
+// node_modules/prom-client/lib/metrics/processResources.js
+var require_processResources = __commonJS({
+  "node_modules/prom-client/lib/metrics/processResources.js"(exports2, module2) {
+    "use strict";
+    var Gauge = require_gauge();
+    var { updateMetrics } = require_processMetricsHelpers();
+    var NODEJS_ACTIVE_RESOURCES = "nodejs_active_resources";
+    var NODEJS_ACTIVE_RESOURCES_TOTAL = "nodejs_active_resources_total";
+    module2.exports = (registry, config = {}) => {
+      if (typeof process.getActiveResourcesInfo !== "function") {
+        return;
+      }
+      const namePrefix = config.prefix ? config.prefix : "";
+      const labels = config.labels ? config.labels : {};
+      const labelNames = Object.keys(labels);
+      new Gauge({
+        name: namePrefix + NODEJS_ACTIVE_RESOURCES,
+        help: "Number of active resources that are currently keeping the event loop alive, grouped by async resource type.",
+        labelNames: ["type", ...labelNames],
+        registers: registry ? [registry] : void 0,
+        collect() {
+          const resources = process.getActiveResourcesInfo();
+          const data = {};
+          for (let i = 0; i < resources.length; i++) {
+            const resource = resources[i];
+            if (Object.hasOwn(data, resource)) {
+              data[resource] += 1;
+            } else {
+              data[resource] = 1;
+            }
+          }
+          updateMetrics(this, data, labels);
+        }
+      });
+      new Gauge({
+        name: namePrefix + NODEJS_ACTIVE_RESOURCES_TOTAL,
+        help: "Total number of active resources.",
+        registers: registry ? [registry] : void 0,
+        labelNames,
+        collect() {
+          const resources = process.getActiveResourcesInfo();
+          this.set(labels, resources.length);
+        }
+      });
+    };
+    module2.exports.metricNames = [
+      NODEJS_ACTIVE_RESOURCES,
+      NODEJS_ACTIVE_RESOURCES_TOTAL
+    ];
+  }
+});
+
+// node_modules/prom-client/lib/metrics/heapSizeAndUsed.js
+var require_heapSizeAndUsed = __commonJS({
+  "node_modules/prom-client/lib/metrics/heapSizeAndUsed.js"(exports2, module2) {
+    "use strict";
+    var Gauge = require_gauge();
+    var safeMemoryUsage = require_safeMemoryUsage();
+    var NODEJS_HEAP_SIZE_TOTAL = "nodejs_heap_size_total_bytes";
+    var NODEJS_HEAP_SIZE_USED = "nodejs_heap_size_used_bytes";
+    var NODEJS_EXTERNAL_MEMORY = "nodejs_external_memory_bytes";
+    module2.exports = (registry, config = {}) => {
+      if (typeof process.memoryUsage !== "function") {
+        return;
+      }
+      const labels = config.labels ? config.labels : {};
+      const labelNames = Object.keys(labels);
+      const registers = registry ? [registry] : void 0;
+      const namePrefix = config.prefix ? config.prefix : "";
+      const collect = () => {
+        const memUsage = safeMemoryUsage();
+        if (memUsage) {
+          heapSizeTotal.set(labels, memUsage.heapTotal);
+          heapSizeUsed.set(labels, memUsage.heapUsed);
+          if (memUsage.external !== void 0) {
+            externalMemUsed.set(labels, memUsage.external);
+          }
+        }
+      };
+      const heapSizeTotal = new Gauge({
+        name: namePrefix + NODEJS_HEAP_SIZE_TOTAL,
+        help: "Process heap size from Node.js in bytes.",
+        registers,
+        labelNames,
+        // Use this one metric's `collect` to set all metrics' values.
+        collect
+      });
+      const heapSizeUsed = new Gauge({
+        name: namePrefix + NODEJS_HEAP_SIZE_USED,
+        help: "Process heap size used from Node.js in bytes.",
+        registers,
+        labelNames
+      });
+      const externalMemUsed = new Gauge({
+        name: namePrefix + NODEJS_EXTERNAL_MEMORY,
+        help: "Node.js external memory size in bytes.",
+        registers,
+        labelNames
+      });
+    };
+    module2.exports.metricNames = [
+      NODEJS_HEAP_SIZE_TOTAL,
+      NODEJS_HEAP_SIZE_USED,
+      NODEJS_EXTERNAL_MEMORY
+    ];
+  }
+});
+
+// node_modules/prom-client/lib/metrics/heapSpacesSizeAndUsed.js
+var require_heapSpacesSizeAndUsed = __commonJS({
+  "node_modules/prom-client/lib/metrics/heapSpacesSizeAndUsed.js"(exports2, module2) {
+    "use strict";
+    var Gauge = require_gauge();
+    var v8 = require("v8");
+    var METRICS = ["total", "used", "available"];
+    var NODEJS_HEAP_SIZE = {};
+    METRICS.forEach((metricType) => {
+      NODEJS_HEAP_SIZE[metricType] = `nodejs_heap_space_size_${metricType}_bytes`;
+    });
+    module2.exports = (registry, config = {}) => {
+      try {
+        v8.getHeapSpaceStatistics();
+      } catch (e) {
+        if (e.code === "ERR_NOT_IMPLEMENTED") {
+          return;
+        }
+        throw e;
+      }
+      const registers = registry ? [registry] : void 0;
+      const namePrefix = config.prefix ? config.prefix : "";
+      const labels = config.labels ? config.labels : {};
+      const labelNames = ["space", ...Object.keys(labels)];
+      const gauges = {};
+      METRICS.forEach((metricType) => {
+        gauges[metricType] = new Gauge({
+          name: namePrefix + NODEJS_HEAP_SIZE[metricType],
+          help: `Process heap space size ${metricType} from Node.js in bytes.`,
+          labelNames,
+          registers
+        });
+      });
+      gauges.total.collect = () => {
+        for (const space of v8.getHeapSpaceStatistics()) {
+          const spaceName = space.space_name.substr(
+            0,
+            space.space_name.indexOf("_space")
+          );
+          gauges.total.set({ space: spaceName, ...labels }, space.space_size);
+          gauges.used.set({ space: spaceName, ...labels }, space.space_used_size);
+          gauges.available.set(
+            { space: spaceName, ...labels },
+            space.space_available_size
+          );
+        }
+      };
+    };
+    module2.exports.metricNames = Object.values(NODEJS_HEAP_SIZE);
+  }
+});
+
+// node_modules/prom-client/lib/metrics/version.js
+var require_version = __commonJS({
+  "node_modules/prom-client/lib/metrics/version.js"(exports2, module2) {
+    "use strict";
+    var Gauge = require_gauge();
+    var version = process.version;
+    var versionSegments = version.slice(1).split(".").map(Number);
+    var NODE_VERSION_INFO = "nodejs_version_info";
+    module2.exports = (registry, config = {}) => {
+      const namePrefix = config.prefix ? config.prefix : "";
+      const labels = config.labels ? config.labels : {};
+      const labelNames = Object.keys(labels);
+      new Gauge({
+        name: namePrefix + NODE_VERSION_INFO,
+        help: "Node.js version info.",
+        labelNames: ["version", "major", "minor", "patch", ...labelNames],
+        registers: registry ? [registry] : void 0,
+        aggregator: "first",
+        collect() {
+          this.labels(
+            version,
+            versionSegments[0],
+            versionSegments[1],
+            versionSegments[2],
+            ...Object.values(labels)
+          ).set(1);
+        }
+      });
+    };
+    module2.exports.metricNames = [NODE_VERSION_INFO];
+  }
+});
+
+// node_modules/prom-client/lib/metrics/gc.js
+var require_gc = __commonJS({
+  "node_modules/prom-client/lib/metrics/gc.js"(exports2, module2) {
+    "use strict";
+    var Histogram = require_histogram();
+    var perf_hooks;
+    try {
+      perf_hooks = require("perf_hooks");
+    } catch {
+    }
+    var NODEJS_GC_DURATION_SECONDS = "nodejs_gc_duration_seconds";
+    var DEFAULT_GC_DURATION_BUCKETS = [1e-3, 0.01, 0.1, 1, 2, 5];
+    var kinds = [];
+    if (perf_hooks && perf_hooks.constants) {
+      kinds[perf_hooks.constants.NODE_PERFORMANCE_GC_MAJOR] = "major";
+      kinds[perf_hooks.constants.NODE_PERFORMANCE_GC_MINOR] = "minor";
+      kinds[perf_hooks.constants.NODE_PERFORMANCE_GC_INCREMENTAL] = "incremental";
+      kinds[perf_hooks.constants.NODE_PERFORMANCE_GC_WEAKCB] = "weakcb";
+    }
+    module2.exports = (registry, config = {}) => {
+      if (!perf_hooks) {
+        return;
+      }
+      const namePrefix = config.prefix ? config.prefix : "";
+      const labels = config.labels ? config.labels : {};
+      const labelNames = Object.keys(labels);
+      const buckets = config.gcDurationBuckets ? config.gcDurationBuckets : DEFAULT_GC_DURATION_BUCKETS;
+      const gcHistogram = new Histogram({
+        name: namePrefix + NODEJS_GC_DURATION_SECONDS,
+        help: "Garbage collection duration by kind, one of major, minor, incremental or weakcb.",
+        labelNames: ["kind", ...labelNames],
+        enableExemplars: false,
+        buckets,
+        registers: registry ? [registry] : void 0
+      });
+      const obs = new perf_hooks.PerformanceObserver((list) => {
+        const entry = list.getEntries()[0];
+        const kind = entry.detail ? kinds[entry.detail.kind] : kinds[entry.kind];
+        gcHistogram.observe(Object.assign({ kind }, labels), entry.duration / 1e3);
+      });
+      obs.observe({ entryTypes: ["gc"] });
+    };
+    module2.exports.metricNames = [NODEJS_GC_DURATION_SECONDS];
+  }
+});
+
+// node_modules/prom-client/lib/defaultMetrics.js
+var require_defaultMetrics = __commonJS({
+  "node_modules/prom-client/lib/defaultMetrics.js"(exports2, module2) {
+    "use strict";
+    var { isObject } = require_util();
+    var processCpuTotal = require_processCpuTotal();
+    var processStartTime = require_processStartTime();
+    var osMemoryHeap = require_osMemoryHeap();
+    var processOpenFileDescriptors = require_processOpenFileDescriptors();
+    var processMaxFileDescriptors = require_processMaxFileDescriptors();
+    var eventLoopLag = require_eventLoopLag();
+    var processHandles = require_processHandles();
+    var processRequests = require_processRequests();
+    var processResources = require_processResources();
+    var heapSizeAndUsed = require_heapSizeAndUsed();
+    var heapSpacesSizeAndUsed = require_heapSpacesSizeAndUsed();
+    var version = require_version();
+    var gc = require_gc();
+    var metrics2 = {
+      processCpuTotal,
+      processStartTime,
+      osMemoryHeap,
+      processOpenFileDescriptors,
+      processMaxFileDescriptors,
+      eventLoopLag,
+      ...typeof process.getActiveResourcesInfo === "function" ? { processResources } : {},
+      processHandles,
+      processRequests,
+      heapSizeAndUsed,
+      heapSpacesSizeAndUsed,
+      version,
+      gc
+    };
+    var metricsList = Object.keys(metrics2);
+    module2.exports = function collectDefaultMetrics(config) {
+      if (config !== null && config !== void 0 && !isObject(config)) {
+        throw new TypeError("config must be null, undefined, or an object");
+      }
+      config = { eventLoopMonitoringPrecision: 10, ...config };
+      for (const metric of Object.values(metrics2)) {
+        metric(config.register, config);
+      }
+    };
+    module2.exports.metricsList = metricsList;
+  }
+});
+
+// node_modules/prom-client/lib/metricAggregators.js
+var require_metricAggregators = __commonJS({
+  "node_modules/prom-client/lib/metricAggregators.js"(exports2) {
+    "use strict";
+    var { Grouper, hashObject } = require_util();
+    function AggregatorFactory(aggregatorFn) {
+      return (metrics2) => {
+        if (metrics2.length === 0) return;
+        const result = {
+          help: metrics2[0].help,
+          name: metrics2[0].name,
+          type: metrics2[0].type,
+          values: [],
+          aggregator: metrics2[0].aggregator
+        };
+        const byLabels = new Grouper();
+        metrics2.forEach((metric) => {
+          metric.values.forEach((value) => {
+            const key = hashObject(value.labels);
+            byLabels.add(`${value.metricName}_${key}`, value);
+          });
+        });
+        byLabels.forEach((values) => {
+          if (values.length === 0) return;
+          const valObj = {
+            value: aggregatorFn(values),
+            labels: values[0].labels
+          };
+          if (values[0].metricName) {
+            valObj.metricName = values[0].metricName;
+          }
+          result.values.push(valObj);
+        });
+        return result;
+      };
+    }
+    exports2.AggregatorFactory = AggregatorFactory;
+    exports2.aggregators = {
+      /**
+       * @return The sum of values.
+       */
+      sum: AggregatorFactory((v) => v.reduce((p, c) => p + c.value, 0)),
+      /**
+       * @return The first value.
+       */
+      first: AggregatorFactory((v) => v[0].value),
+      /**
+       * @return {undefined} Undefined; omits the metric.
+       */
+      omit: () => {
+      },
+      /**
+       * @return The arithmetic mean of the values.
+       */
+      average: AggregatorFactory(
+        (v) => v.reduce((p, c) => p + c.value, 0) / v.length
+      ),
+      /**
+       * @return The minimum of the values.
+       */
+      min: AggregatorFactory(
+        (v) => v.reduce((p, c) => Math.min(p, c.value), Infinity)
+      ),
+      /**
+       * @return The maximum of the values.
+       */
+      max: AggregatorFactory(
+        (v) => v.reduce((p, c) => Math.max(p, c.value), -Infinity)
+      )
+    };
+  }
+});
+
+// node_modules/prom-client/lib/cluster.js
+var require_cluster = __commonJS({
+  "node_modules/prom-client/lib/cluster.js"(exports2, module2) {
+    "use strict";
+    var Registry = require_registry();
+    var { Grouper } = require_util();
+    var { aggregators } = require_metricAggregators();
+    var cluster = () => {
+      const data = require("cluster");
+      cluster = () => data;
+      return data;
+    };
+    var GET_METRICS_REQ = "prom-client:getMetricsReq";
+    var GET_METRICS_RES = "prom-client:getMetricsRes";
+    var registries = [Registry.globalRegistry];
+    var requestCtr = 0;
+    var listenersAdded = false;
+    var requests = /* @__PURE__ */ new Map();
+    var AggregatorRegistry = class extends Registry {
+      constructor(regContentType = Registry.PROMETHEUS_CONTENT_TYPE) {
+        super(regContentType);
+        addListeners();
+      }
+      /**
+       * Gets aggregated metrics for all workers. The optional callback and
+       * returned Promise resolve with the same value; either may be used.
+       * @return {Promise<string>} Promise that resolves with the aggregated
+       *   metrics.
+       */
+      clusterMetrics() {
+        const requestId = requestCtr++;
+        return new Promise((resolve, reject) => {
+          let settled = false;
+          function done(err, result) {
+            if (settled) return;
+            settled = true;
+            if (err) reject(err);
+            else resolve(result);
+          }
+          const request = {
+            responses: [],
+            pending: 0,
+            done,
+            errorTimeout: setTimeout(() => {
+              const err = new Error("Operation timed out.");
+              request.done(err);
+            }, 5e3)
+          };
+          requests.set(requestId, request);
+          const message = {
+            type: GET_METRICS_REQ,
+            requestId
+          };
+          for (const id in cluster().workers) {
+            if (cluster().workers[id].isConnected()) {
+              cluster().workers[id].send(message);
+              request.pending++;
+            }
+          }
+          if (request.pending === 0) {
+            clearTimeout(request.errorTimeout);
+            process.nextTick(() => done(null, ""));
+          }
+        });
+      }
+      get contentType() {
+        return super.contentType;
+      }
+      /**
+       * Creates a new Registry instance from an array of metrics that were
+       * created by `registry.getMetricsAsJSON()`. Metrics are aggregated using
+       * the method specified by their `aggregator` property, or by summation if
+       * `aggregator` is undefined.
+       * @param {Array} metricsArr Array of metrics, each of which created by
+       *   `registry.getMetricsAsJSON()`.
+       * @param {string} registryType content type of the new registry. Defaults
+       * to PROMETHEUS_CONTENT_TYPE.
+       * @return {Registry} aggregated registry.
+       */
+      static aggregate(metricsArr, registryType = Registry.PROMETHEUS_CONTENT_TYPE) {
+        const aggregatedRegistry = new Registry();
+        const metricsByName = new Grouper();
+        aggregatedRegistry.setContentType(registryType);
+        metricsArr.forEach((metrics2) => {
+          metrics2.forEach((metric) => {
+            metricsByName.add(metric.name, metric);
+          });
+        });
+        metricsByName.forEach((metrics2) => {
+          const aggregatorName = metrics2[0].aggregator;
+          const aggregatorFn = aggregators[aggregatorName];
+          if (typeof aggregatorFn !== "function") {
+            throw new Error(`'${aggregatorName}' is not a defined aggregator.`);
+          }
+          const aggregatedMetric = aggregatorFn(metrics2);
+          if (aggregatedMetric) {
+            const aggregatedMetricWrapper = Object.assign(
+              {
+                get: () => aggregatedMetric
+              },
+              aggregatedMetric
+            );
+            aggregatedRegistry.registerMetric(aggregatedMetricWrapper);
+          }
+        });
+        return aggregatedRegistry;
+      }
+      /**
+       * Sets the registry or registries to be aggregated. Call from workers to
+       * use a registry/registries other than the default global registry.
+       * @param {Array<Registry>|Registry} regs Registry or registries to be
+       *   aggregated.
+       * @return {void}
+       */
+      static setRegistries(regs) {
+        if (!Array.isArray(regs)) regs = [regs];
+        regs.forEach((reg) => {
+          if (!(reg instanceof Registry)) {
+            throw new TypeError(`Expected Registry, got ${typeof reg}`);
+          }
+        });
+        registries = regs;
+      }
+    };
+    function addListeners() {
+      if (listenersAdded) return;
+      listenersAdded = true;
+      if (cluster().isMaster) {
+        cluster().on("message", (worker, message) => {
+          if (message.type === GET_METRICS_RES) {
+            const request = requests.get(message.requestId);
+            if (message.error) {
+              request.done(new Error(message.error));
+              return;
+            }
+            message.metrics.forEach((registry) => request.responses.push(registry));
+            request.pending--;
+            if (request.pending === 0) {
+              requests.delete(message.requestId);
+              clearTimeout(request.errorTimeout);
+              const registry = AggregatorRegistry.aggregate(request.responses);
+              const promString = registry.metrics();
+              request.done(null, promString);
+            }
+          }
+        });
+      }
+      if (cluster().isWorker) {
+        process.on("message", (message) => {
+          if (message.type === GET_METRICS_REQ) {
+            Promise.all(registries.map((r) => r.getMetricsAsJSON())).then((metrics2) => {
+              process.send({
+                type: GET_METRICS_RES,
+                requestId: message.requestId,
+                metrics: metrics2
+              });
+            }).catch((error) => {
+              process.send({
+                type: GET_METRICS_RES,
+                requestId: message.requestId,
+                error: error.message
+              });
+            });
+          }
+        });
+      }
+    }
+    module2.exports = AggregatorRegistry;
+  }
+});
+
+// node_modules/prom-client/index.js
+var require_prom_client = __commonJS({
+  "node_modules/prom-client/index.js"(exports2) {
+    "use strict";
+    exports2.register = require_registry().globalRegistry;
+    exports2.Registry = require_registry();
+    Object.defineProperty(exports2, "contentType", {
+      configurable: false,
+      enumerable: true,
+      get() {
+        return exports2.register.contentType;
+      },
+      set(value) {
+        exports2.register.setContentType(value);
+      }
+    });
+    exports2.prometheusContentType = exports2.Registry.PROMETHEUS_CONTENT_TYPE;
+    exports2.openMetricsContentType = exports2.Registry.OPENMETRICS_CONTENT_TYPE;
+    exports2.validateMetricName = require_validation().validateMetricName;
+    exports2.Counter = require_counter();
+    exports2.Gauge = require_gauge();
+    exports2.Histogram = require_histogram();
+    exports2.Summary = require_summary();
+    exports2.Pushgateway = require_pushgateway();
+    exports2.linearBuckets = require_bucketGenerators().linearBuckets;
+    exports2.exponentialBuckets = require_bucketGenerators().exponentialBuckets;
+    exports2.collectDefaultMetrics = require_defaultMetrics();
+    exports2.aggregators = require_metricAggregators().aggregators;
+    exports2.AggregatorRegistry = require_cluster();
+  }
+});
+
+// src/lib/metrics.ts
+function incLlmEmptyText(labels) {
+  llmEmptyTextTotal.inc({
+    provider: labels.provider,
+    context: labels.context ?? "unknown",
+    agent_id: labels.agentId ?? "unknown"
+  });
+}
+function incLlmEmptyToolRound(labels) {
+  llmEmptyToolRoundTotal.inc({
+    provider: labels.provider,
+    context: labels.context ?? "unknown",
+    agent_id: labels.agentId ?? "unknown"
+  });
+}
+function incLlmProviderFallback(labels) {
+  llmProviderFallbackTotal.inc({
+    from_provider: labels.fromProvider,
+    to_provider: labels.toProvider,
+    reason: labels.reason,
+    context: labels.context ?? "unknown",
+    attempted: String(labels.attempted)
+  });
+}
+function incWebSearchFallback(labels) {
+  webSearchFallbackTotal.inc({
+    from_provider: labels.fromProvider,
+    to_provider: labels.toProvider,
+    reason: labels.reason
+  });
+}
+var import_prom_client, llmEmptyTextTotal, llmEmptyToolRoundTotal, llmProviderFallbackTotal, workspaceWorldWritableFilesTotal, webSearchFallbackTotal;
+var init_metrics2 = __esm({
+  "src/lib/metrics.ts"() {
+    "use strict";
+    import_prom_client = __toESM(require_prom_client());
+    llmEmptyTextTotal = new import_prom_client.Counter({
+      name: "subcorp_llm_empty_text_total",
+      help: "LLM calls that returned empty final text, labelled by provider, context, and agent.",
+      labelNames: ["provider", "context", "agent_id"],
+      registers: [import_prom_client.register]
+    });
+    llmEmptyToolRoundTotal = new import_prom_client.Counter({
+      name: "subcorp_llm_empty_tool_round_total",
+      help: "LLM tool rounds that returned no final text but did execute one or more tools.",
+      labelNames: ["provider", "context", "agent_id"],
+      registers: [import_prom_client.register]
+    });
+    llmProviderFallbackTotal = new import_prom_client.Counter({
+      name: "subcorp_llm_provider_fallback_total",
+      help: "LLM provider fallback decisions labelled by provider path, reason, context, and whether fallback was attempted.",
+      labelNames: ["from_provider", "to_provider", "reason", "context", "attempted"],
+      registers: [import_prom_client.register]
+    });
+    workspaceWorldWritableFilesTotal = new import_prom_client.Counter({
+      name: "subcorp_workspace_world_writable_files_total",
+      help: "World-writable files found during heartbeat workspace permission checks.",
+      labelNames: ["scope"],
+      registers: [import_prom_client.register]
+    });
+    webSearchFallbackTotal = new import_prom_client.Counter({
+      name: "subcorp_web_search_fallback_total",
+      help: "Web search requests that fell back from a primary provider to a secondary provider.",
+      labelNames: ["from_provider", "to_provider", "reason"],
+      registers: [import_prom_client.register]
+    });
+  }
+});
+
 // src/lib/llm/model-routing.ts
-function normalizeContext2(context) {
-  return context.replace(/-/g, "_");
+function normalizeContext2(context2) {
+  return context2.replace(/-/g, "_");
 }
 function parseModels(value) {
   const models = value?.split(",").map((model) => model.trim()).filter(Boolean);
@@ -820,11 +5721,11 @@ function loadEnvRoutes() {
   }
   return routes;
 }
-async function resolveModels(context) {
+async function resolveModels(context2) {
   if (!MODEL_ROUTING_ENABLED) return DEFAULT_MODELS;
   const routes = loadEnvRoutes();
-  if (!context) return routes.get("default") ?? DEFAULT_MODELS;
-  const normalized = normalizeContext2(context);
+  if (!context2) return routes.get("default") ?? DEFAULT_MODELS;
+  const normalized = normalizeContext2(context2);
   const exact = routes.get(normalized);
   if (exact) return exact;
   const colonIdx = normalized.indexOf(":");
@@ -840,7 +5741,7 @@ var init_model_routing = __esm({
   "src/lib/llm/model-routing.ts"() {
     "use strict";
     DEFAULT_MODELS = [
-      process.env.MODEL_ROUTING_DEFAULT || process.env.OLLAMA_MODEL || "qwen3:14b"
+      process.env.MODEL_ROUTING_DEFAULT || process.env.OLLAMA_MODEL || "ollama/gemma4:latest"
     ];
     ENV_PREFIX = "MODEL_ROUTING_";
     CONTROL_ENV_KEYS = /* @__PURE__ */ new Set(["MODEL_ROUTING_ENABLED"]);
@@ -902,13 +5803,52 @@ function normalizeToolArgs(toolName, args) {
   }
   return { normalized, remapped };
 }
-async function resolveModelsWithEnv(context) {
-  const models = await resolveModels(context);
-  if (!LLM_MODEL_ENV) return models;
-  return [
-    LLM_MODEL_ENV,
-    ...models.filter((m) => m !== LLM_MODEL_ENV)
-  ];
+function requiredToolArgs(tool) {
+  const required = tool.parameters.required;
+  return Array.isArray(required) ? required.filter((v) => typeof v === "string") : [];
+}
+function missingRequiredToolArgs(tool, args) {
+  return requiredToolArgs(tool).filter((key) => {
+    const value = args[key];
+    return value === void 0 || value === null || typeof value === "string" && value.trim().length === 0;
+  });
+}
+async function warnOnLlamaLineQueue(baseUrl, context2) {
+  if (!baseUrl) return;
+  try {
+    const url = new URL(baseUrl);
+    const response = await fetch(`${url.origin}/broker/status`, {
+      signal: AbortSignal.timeout(2e3)
+    });
+    if (!response.ok) return;
+    const status = await response.json();
+    const queueDepth = Number(status.queue_depth ?? 0);
+    const logPayload = {
+      queueDepth,
+      maxDepth: status.max_depth,
+      inFlightClient: status.in_flight_client,
+      inFlightId: status.in_flight_id,
+      ...context2
+    };
+    if (queueDepth >= LLAMA_LINE_STATUS_WARN_QUEUE_DEPTH && LLAMA_LINE_STATUS_WARN_QUEUE_DEPTH > 0) {
+      log.warn("llama-line broker status before request", logPayload);
+    } else {
+      log.debug("llama-line broker status before request", logPayload);
+    }
+  } catch (err) {
+    log.warn("Unable to read llama-line broker status before request", {
+      error: err.message?.slice(0, 160),
+      ...context2
+    });
+  }
+}
+function resolveOpenRouterModels(context2) {
+  const explicit = (process.env.OPENROUTER_MODELS ?? "").split(",").map((model) => normalizeOpenRouterModel(model.trim())).filter(Boolean);
+  if (explicit.length > 0) return explicit;
+  const models = [OPENROUTER_DEFAULT_MODEL];
+  if (/code|patch|agent_session/i.test(context2 ?? "")) models.push(OPENROUTER_CODER_MODEL);
+  models.push(OPENROUTER_ESCALATION_MODEL);
+  return [...new Set(models.map(normalizeOpenRouterModel).filter(Boolean))];
 }
 function getClient() {
   if (!_client) {
@@ -930,6 +5870,7 @@ function shouldStopOllamaLocalFallback(spec, error) {
 function isLocalModelId(model) {
   if (!model) return false;
   const normalized = normalizeModel(model);
+  if (normalized.startsWith("ollama/") && normalized.includes(":")) return true;
   return normalized.includes(":") && !normalized.includes("/");
 }
 function isLlamaLineRoutedModel(model) {
@@ -940,8 +5881,125 @@ function isLlamaLineRoutedModel(model) {
 function isOllamaRoutedModel(model) {
   return isLocalModelId(model) || isLlamaLineRoutedModel(model);
 }
+function getDefaultOllamaToolModel() {
+  const explicitToolModel = OLLAMA_TOOL_MODEL.trim();
+  if (explicitToolModel) {
+    if (isLocalModelId(explicitToolModel)) return normalizeModel(explicitToolModel);
+    log.warn("Ignoring non-local OLLAMA_TOOL_MODEL for tool execution", {
+      toolModel: explicitToolModel
+    });
+  }
+  if (isLocalModelId(OLLAMA_MODEL)) return normalizeModel(OLLAMA_MODEL);
+  const fallbackLocalModel = OLLAMA_FALLBACK_MODELS.find(isLocalModelId);
+  if (fallbackLocalModel) return fallbackLocalModel;
+  return DEFAULT_OLLAMA_FALLBACK_MODELS[0];
+}
+function resolveOllamaModelForToolRequest(model) {
+  if (isLocalModelId(model)) return normalizeModel(model);
+  const toolModel = getDefaultOllamaToolModel();
+  if (model && isLlamaLineRoutedModel(model)) {
+    log.info("Routing tool request away from llama-line OpenCode harness model", {
+      requestedModel: model,
+      toolModel
+    });
+  }
+  return toolModel;
+}
+function resolvePreferredOllamaModel(model, hasTools) {
+  if (hasTools) return resolveOllamaModelForToolRequest(model);
+  return model && isOllamaRoutedModel(model) ? model : void 0;
+}
 function canUseOpenRouter() {
   return OPENROUTER_ENABLED && !!OPENROUTER_API_KEY;
+}
+function normalizeOpenRouterModel(model) {
+  return normalizeModel(model).replace(/^openrouter\//, "");
+}
+function openRouterSessionId(trackingContext) {
+  return trackingContext?.sessionId ?? trackingContext?.context;
+}
+function openRouterHeaders(trackingContext) {
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+    "HTTP-Referer": "https://subcorp.subcult.tv",
+    "X-Title": "Subcorp"
+  };
+  const sessionId = openRouterSessionId(trackingContext);
+  if (sessionId) headers["X-Session-Id"] = sessionId;
+  return headers;
+}
+function withOpenRouterCacheFields(body, trackingContext) {
+  const sessionId = openRouterSessionId(trackingContext);
+  return sessionId ? { ...body, session_id: sessionId } : body;
+}
+function estimateOpenRouterCostUsd(model, promptTokens = 0, completionTokens = 0) {
+  const pricing = OPENROUTER_PRICE_PER_MILLION[normalizeOpenRouterModel(model)];
+  if (!pricing) return null;
+  return (promptTokens * pricing.input + completionTokens * pricing.output) / 1e6;
+}
+async function getOpenRouterSpendUsd(period) {
+  const interval = period === "day" ? "1 day" : "30 days";
+  const rows = await sql`
+        SELECT COALESCE(SUM(cost_usd), 0)::text AS spend
+        FROM ops_llm_usage
+        WHERE created_at >= NOW() - ${interval}::interval
+          AND model NOT LIKE 'ollama/%'
+    `;
+  return Number.parseFloat(rows[0]?.spend ?? "0") || 0;
+}
+async function checkOpenRouterBudget(extraEstimatedUsd = 0) {
+  if (!canUseOpenRouter()) {
+    return { allowed: false, reason: "openrouter_disabled", dailySpend: 0, monthlySpend: 0 };
+  }
+  const [dailySpend, monthlySpend] = await Promise.all([
+    getOpenRouterSpendUsd("day"),
+    getOpenRouterSpendUsd("month")
+  ]);
+  if (OPENROUTER_DAILY_BUDGET_USD >= 0 && dailySpend + extraEstimatedUsd >= OPENROUTER_DAILY_BUDGET_USD) {
+    return { allowed: false, reason: "openrouter_daily_budget_exceeded", dailySpend, monthlySpend };
+  }
+  if (OPENROUTER_MONTHLY_BUDGET_USD >= 0 && monthlySpend + extraEstimatedUsd >= OPENROUTER_MONTHLY_BUDGET_USD) {
+    return { allowed: false, reason: "openrouter_monthly_budget_exceeded", dailySpend, monthlySpend };
+  }
+  return { allowed: true, reason: "openrouter_allowed", dailySpend, monthlySpend };
+}
+function shouldAllowOpenRouterAfterLocalFailure(localWasTried) {
+  if (!canUseOpenRouter()) return false;
+  if (!OPENROUTER_REQUIRE_LOCAL_FAILURE) return true;
+  return localWasTried && OPENROUTER_ALLOW_AFTER_LOCAL_FAILURE;
+}
+function openRouterFallbackPolicy(localWasTried) {
+  return {
+    openRouterEnabled: OPENROUTER_ENABLED,
+    openRouterApiKeyPresent: Boolean(OPENROUTER_API_KEY),
+    openRouterUsable: canUseOpenRouter(),
+    requireLocalFailure: OPENROUTER_REQUIRE_LOCAL_FAILURE,
+    allowAfterLocalFailure: OPENROUTER_ALLOW_AFTER_LOCAL_FAILURE,
+    localWasTried,
+    allowedAfterLocalFailure: shouldAllowOpenRouterAfterLocalFailure(localWasTried),
+    dailyBudgetUsd: OPENROUTER_DAILY_BUDGET_USD,
+    monthlyBudgetUsd: OPENROUTER_MONTHLY_BUDGET_USD
+  };
+}
+function recordProviderFallbackDecision(labels) {
+  incLlmProviderFallback({
+    fromProvider: labels.fromProvider,
+    toProvider: labels.toProvider,
+    reason: labels.reason,
+    context: labels.trackingContext?.context,
+    attempted: labels.attempted
+  });
+  log.info("LLM provider fallback decision", {
+    fromProvider: labels.fromProvider,
+    toProvider: labels.toProvider,
+    reason: labels.reason,
+    attempted: labels.attempted,
+    context: labels.trackingContext?.context,
+    agentId: labels.trackingContext?.agentId,
+    sessionId: labels.trackingContext?.sessionId,
+    ...labels.extra
+  });
 }
 function shouldTryOllamaFirst(model) {
   return !canUseOpenRouter() || isOllamaRoutedModel(model);
@@ -1086,7 +6144,8 @@ async function tryOllamaFirst(messages, temperature, maxTokens, startTime, track
     const ollamaResult = await ollamaChat(attemptMessages, temperature, {
       maxTokens,
       model: ollamaModel,
-      deadlineAt
+      deadlineAt,
+      trackingContext
     });
     if (ollamaResult?.text) {
       log.debug("Ollama succeeded", {
@@ -1123,7 +6182,8 @@ async function tryOllamaLastResort(messages, temperature, maxTokens, startTime, 
   if (!OLLAMA_API_KEY && !OLLAMA_LOCAL_URL) return null;
   const retryResult = await ollamaChat(messages, temperature, {
     maxTokens,
-    deadlineAt
+    deadlineAt,
+    trackingContext
   });
   if (retryResult?.text) {
     void trackUsage(
@@ -1192,7 +6252,7 @@ function parseAndNormalizeToolArgs(toolName, rawArgsInput, model, round) {
   }
   return { args: normalized, remapped };
 }
-function filterPhantomToolCalls(toolCalls, context) {
+function filterPhantomToolCalls(toolCalls, context2) {
   if (!toolCalls || toolCalls.length === 0) return void 0;
   const validCalls = toolCalls.filter(
     (tc) => tc.function?.name && typeof tc.function.name === "string"
@@ -1201,16 +6261,17 @@ function filterPhantomToolCalls(toolCalls, context) {
     log.warn("Filtered out tool calls with null/empty names", {
       original: toolCalls.length,
       valid: validCalls.length,
-      model: context.model,
-      round: context.round,
-      context: context.trackingContext
+      model: context2.model,
+      round: context2.round,
+      context: context2.trackingContext
     });
     return validCalls.length > 0 ? validCalls : void 0;
   }
   return toolCalls;
 }
 async function ollamaChat(messages, temperature, options) {
-  const preferredModel = options?.model && isOllamaRoutedModel(options.model) ? options.model : void 0;
+  const hasTools = !!options?.tools?.length;
+  const preferredModel = resolvePreferredOllamaModel(options?.model, hasTools);
   const models = getOllamaModelsWithFallback(preferredModel);
   if (models.length === 0) return null;
   const maxTokens = options?.maxTokens ?? OLLAMA_DEFAULT_MAX_TOKENS;
@@ -1265,7 +6326,8 @@ async function ollamaChat(messages, temperature, options) {
       maxToolRounds,
       deadlineAt,
       preferredModel,
-      isFirstLocalAttempt: !spec.apiKey && index === 0
+      isFirstLocalAttempt: !spec.apiKey && index === 0,
+      trackingContext: options?.trackingContext
     });
     if (attempt.result) return attempt.result;
     if (attempt.stopLocalFallback) {
@@ -1280,6 +6342,18 @@ async function ollamaChat(messages, temperature, options) {
 }
 async function parseOllamaSseResponse(response) {
   const text = await response.text();
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json") || !text.includes("data: ")) {
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      log.warn("Ollama JSON response parse failed", {
+        contentType,
+        bodyPreview: text.slice(0, 300),
+        error: err.message
+      });
+    }
+  }
   const lines = text.split("\n");
   for (const line of lines) {
     if (!line.startsWith("data: ")) continue;
@@ -1292,9 +6366,20 @@ async function parseOllamaSseResponse(response) {
       continue;
     }
     if (parsed["status"] === "ollama_unavailable" || parsed["status"] === "dropped_by_admin") {
-      throw new Error(`llama-line broker error: ${parsed["status"]}`);
+      const message = typeof parsed["message"] === "string" ? `: ${parsed["message"]}` : "";
+      const requestId = typeof parsed["request_id"] === "string" ? ` request_id=${parsed["request_id"]}` : "";
+      throw new Error(`llama-line broker error: ${parsed["status"]}${requestId}${message}`);
     }
-    if (typeof parsed["status"] === "string") continue;
+    if (typeof parsed["status"] === "string") {
+      if (parsed["status"] === "queued") {
+        log.debug("llama-line request queued", {
+          requestId: parsed["request_id"],
+          position: parsed["position"],
+          waitSeconds: parsed["wait_seconds"]
+        });
+      }
+      continue;
+    }
     return parsed;
   }
   throw new Error("No valid response found in llama-line SSE stream");
@@ -1310,7 +6395,8 @@ async function ollamaChatWithModel(input) {
     maxToolRounds,
     deadlineAt,
     preferredModel,
-    isFirstLocalAttempt
+    isFirstLocalAttempt,
+    trackingContext
   } = input;
   const { model, baseUrl, apiKey } = spec;
   const toolCallRecords = [];
@@ -1369,6 +6455,12 @@ async function ollamaChatWithModel(input) {
         body.tools = openaiTools;
         body.tool_choice = "none";
       }
+      await warnOnLlamaLineQueue(baseUrl, {
+        model,
+        round,
+        agentId: trackingContext?.agentId,
+        sessionId: trackingContext?.sessionId
+      });
       const response = await fetch(`${baseUrl}/api/chat`, {
         method: "POST",
         headers,
@@ -1418,16 +6510,36 @@ async function ollamaChatWithModel(input) {
         id: tc.id ?? `call_${round}_${i}`,
         function: tc.function
       }));
-      const ollamaPendingToolCalls = filterPhantomToolCalls(
+      let ollamaPendingToolCalls = filterPhantomToolCalls(
         rawToolCalls,
         { model, round }
       );
+      if (!ollamaPendingToolCalls || ollamaPendingToolCalls.length === 0) {
+        const raw = msg.content ?? "";
+        if (tools && tools.length > 0 && raw.length > 0) {
+          const dsmlCalls = parseDsmlToolCalls(raw, tools);
+          if (dsmlCalls.length > 0) {
+            ollamaPendingToolCalls = dsmlCalls;
+            log.info("Recovered Ollama tool calls from DSML text", {
+              count: dsmlCalls.length,
+              tools: dsmlCalls.map((tc) => tc.function.name),
+              model,
+              round
+            });
+          }
+        }
+      }
       if (!ollamaPendingToolCalls || ollamaPendingToolCalls.length === 0) {
         const raw = msg.content ?? "";
         const thinking = msg.thinking ?? msg.reasoning ?? "";
         const stripped = extractFromXml(stripThinking(raw)).trim();
         const text = stripped.length > 0 ? stripped : extractFromXml(raw).trim();
         if (text.length === 0 && toolCallRecords.length === 0) {
+          incLlmEmptyText({
+            provider: "ollama",
+            context: trackingContext?.context,
+            agentId: trackingContext?.agentId
+          });
           log.warn("Ollama model returned empty text", {
             model,
             doneReason: rawData.done_reason,
@@ -1467,6 +6579,33 @@ async function ollamaChatWithModel(input) {
             model,
             round
           );
+          const missingArgs = missingRequiredToolArgs(tool, args);
+          if (missingArgs.length > 0) {
+            const result2 = {
+              error: `Invalid tool arguments: missing required parameter(s): ${missingArgs.join(", ")}`,
+              expected: requiredToolArgs(tool),
+              received: Object.keys(args)
+            };
+            log.warn("Ollama tool call missing required args", {
+              tool: tc.function.name,
+              missingArgs,
+              argsKeys: Object.keys(args),
+              model,
+              round
+            });
+            toolCallRecords.push({
+              name: tool.name,
+              arguments: args,
+              result: result2
+            });
+            resultStr = JSON.stringify(result2);
+            workingMessages.push({
+              role: "tool",
+              tool_call_id: tc.id,
+              content: resultStr
+            });
+            continue;
+          }
           log.debug("Ollama executing tool call", {
             tool: tc.function.name,
             argsKeys: Object.keys(args),
@@ -1495,6 +6634,11 @@ async function ollamaChatWithModel(input) {
           });
           const availableNames = tools?.map((t) => t.name).join(", ") ?? "none";
           resultStr = `ERROR: Tool "${tc.function.name}" does not exist. Available tools: ${availableNames}. Use ONLY these exact tool names.`;
+          toolCallRecords.push({
+            name: tc.function.name || "unknown_tool",
+            arguments: {},
+            result: { error: resultStr }
+          });
         }
         workingMessages.push({
           role: "tool",
@@ -1557,7 +6701,7 @@ function jsonSchemaToZod(schema) {
   });
   return import_v4.z.object(Object.fromEntries(entries));
 }
-async function openRouterChatCompletions(model, messages, temperature, maxTokens, deadlineAt) {
+async function openRouterChatCompletions(model, messages, temperature, maxTokens, trackingContext, deadlineAt) {
   const remainingBudgetMs = deadlineAt ? getRemainingBudget(deadlineAt) : OPENROUTER_CHAT_TIMEOUT_MS;
   if (remainingBudgetMs <= 0) {
     log.warn("Skipping direct /chat/completions fallback because request budget is exhausted", {
@@ -1575,19 +6719,16 @@ async function openRouterChatCompletions(model, messages, temperature, maxTokens
       "https://openrouter.ai/api/v1/chat/completions",
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`
-        },
-        body: JSON.stringify({
+        headers: openRouterHeaders(trackingContext),
+        body: JSON.stringify(withOpenRouterCacheFields({
           model,
           messages: messages.map((m) => ({
             role: m.role,
             content: m.content
           })),
           temperature,
-          max_tokens: maxTokens
-        }),
+          max_tokens: Math.min(maxTokens, OPENROUTER_MAX_TOKENS)
+        }, trackingContext)),
         signal: controller.signal
       }
     );
@@ -1632,7 +6773,7 @@ function toOpenRouterTools(tools) {
 async function trackUsage(model, usage, durationMs, trackingContext) {
   try {
     const agentId = trackingContext?.agentId ?? "unknown";
-    const context = trackingContext?.context ?? "unknown";
+    const context2 = trackingContext?.context ?? "unknown";
     const sessionId = trackingContext?.sessionId ?? null;
     await sql`
             INSERT INTO ops_llm_usage (
@@ -1652,7 +6793,7 @@ async function trackUsage(model, usage, durationMs, trackingContext) {
                 ${usage?.totalTokens ?? null},
                 ${usage?.cost ?? null},
                 ${agentId},
-                ${context},
+                ${context2},
                 ${sessionId},
                 ${durationMs}
             )
@@ -1688,6 +6829,7 @@ async function llmGenerate(options) {
   const systemMessage = messages.find((m) => m.role === "system");
   const conversationMessages = messages.filter((m) => m.role !== "system");
   let resolvedOllamaModel = model;
+  let localWasTried = false;
   if (!resolvedOllamaModel && trackingContext?.context) {
     try {
       const routed = await resolveModels(trackingContext.context);
@@ -1699,6 +6841,7 @@ async function llmGenerate(options) {
   const preferOllamaFirst = shouldTryOllamaFirst(resolvedOllamaModel);
   const hasToolsDefined = tools && tools.length > 0;
   if (preferOllamaFirst) {
+    localWasTried = true;
     const ollamaText = await tryOllamaFirst(
       messages,
       temperature,
@@ -1709,16 +6852,21 @@ async function llmGenerate(options) {
       totalDeadlineAt
     );
     if (ollamaText) return ollamaText;
-    if (isOllamaRoutedModel(resolvedOllamaModel)) {
-      log.warn("Explicit Ollama/llama-line model request failed; skipping cloud fallback", {
+    if (isOllamaRoutedModel(resolvedOllamaModel) && !shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
+      log.warn("Explicit Ollama/llama-line model request failed; no cloud fallback configured", {
         model: resolvedOllamaModel,
         context: trackingContext?.context
       });
       return "";
     }
   }
-  if (!canUseOpenRouter()) {
-    log.warn("Ollama returned empty and OpenRouter is disabled", {
+  if (!shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
+    incLlmEmptyText({
+      provider: "ollama",
+      context: trackingContext?.context,
+      agentId: trackingContext?.agentId
+    });
+    log.warn("Ollama returned empty; no cloud fallback configured", {
       context: trackingContext?.context,
       agentId: trackingContext?.agentId,
       ollamaAvailable: !!(OLLAMA_API_KEY || OLLAMA_LOCAL_URL),
@@ -1726,12 +6874,48 @@ async function llmGenerate(options) {
     });
     return "";
   }
+  const budget = await checkOpenRouterBudget();
+  if (!budget.allowed) {
+    recordProviderFallbackDecision({
+      fromProvider: localWasTried ? "ollama" : "none",
+      toProvider: "openrouter",
+      reason: budget.reason,
+      attempted: false,
+      trackingContext,
+      extra: {
+        policy: openRouterFallbackPolicy(localWasTried),
+        dailySpend: budget.dailySpend,
+        monthlySpend: budget.monthlySpend
+      }
+    });
+    log.warn("Skipping OpenRouter fallback due to budget guardrail", {
+      reason: budget.reason,
+      dailySpend: budget.dailySpend,
+      monthlySpend: budget.monthlySpend,
+      context: trackingContext?.context,
+      agentId: trackingContext?.agentId
+    });
+    return "";
+  }
   const client = getClient();
-  const resolved = model ? [normalizeModel(model)] : await resolveModelsWithEnv(trackingContext?.context);
+  const resolved = model && !isOllamaRoutedModel(model) ? [normalizeModel(model)] : resolveOpenRouterModels(trackingContext?.context);
   const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
   if (modelList.length === 0) {
     throw new Error("No LLM models available after resolution");
   }
+  recordProviderFallbackDecision({
+    fromProvider: localWasTried ? "ollama" : "none",
+    toProvider: "openrouter",
+    reason: localWasTried ? "local_failed_openrouter_allowed" : "openrouter_primary_allowed",
+    attempted: true,
+    trackingContext,
+    extra: {
+      policy: openRouterFallbackPolicy(localWasTried),
+      modelList,
+      resolvedModels: resolved,
+      maxModelsArray: MAX_MODELS_ARRAY
+    }
+  });
   const openRouterDeadlineAt = Math.min(
     totalDeadlineAt,
     Date.now() + OPENROUTER_TEXT_BUDGET_MS
@@ -1747,7 +6931,8 @@ async function llmGenerate(options) {
         content: m.content
       })),
       temperature,
-      maxOutputTokens: maxTokens
+      maxOutputTokens: Math.min(maxTokens, OPENROUTER_MAX_TOKENS),
+      ...withOpenRouterCacheFields({}, trackingContext)
     };
     if (tools && tools.length > 0) {
       opts.tools = toOpenRouterTools(tools);
@@ -1784,8 +6969,13 @@ async function llmGenerate(options) {
     const durationMs = Date.now() - startTime;
     const usedModel = response.model || "unknown";
     const usage = response.usage;
-    void trackUsage(usedModel, usage, durationMs, trackingContext);
+    void trackUsage(`openrouter/${normalizeOpenRouterModel(usedModel)}`, usage, durationMs, trackingContext);
     if (text.length === 0) {
+      incLlmEmptyText({
+        provider: "openrouter",
+        context: trackingContext?.context,
+        agentId: trackingContext?.agentId
+      });
       log.warn("LLM returned empty text", {
         model: usedModel,
         context: trackingContext?.context,
@@ -1815,6 +7005,17 @@ async function llmGenerate(options) {
       error: openRouterResult.error.message,
       statusCode: openRouterResult.error.statusCode
     });
+    recordProviderFallbackDecision({
+      fromProvider: "openrouter",
+      toProvider: "ollama-text",
+      reason: "openrouter_text_failed_ollama_text_last_resort",
+      attempted: true,
+      trackingContext,
+      extra: {
+        statusCode: openRouterResult.error.statusCode,
+        error: openRouterResult.error.message?.slice(0, 200)
+      }
+    });
     const ollamaText = await tryOllamaLastResort(
       messages,
       temperature,
@@ -1827,6 +7028,17 @@ async function llmGenerate(options) {
   }
   throwForOpenRouterStatus(openRouterResult.error?.statusCode);
   if (canUseOpenRouter() && !hasToolsDefined) {
+    recordProviderFallbackDecision({
+      fromProvider: "openrouter_responses",
+      toProvider: "openrouter_chat_completions",
+      reason: "responses_empty_or_failed_direct_chat_fallback",
+      attempted: true,
+      trackingContext,
+      extra: {
+        resolvedModels: resolved,
+        hadOpenRouterError: !!openRouterResult.error
+      }
+    });
     const chatText = await tryDirectChatCompletions(
       resolved,
       messages,
@@ -1848,11 +7060,11 @@ async function llmGenerate(options) {
   });
   return "";
 }
-async function tryOpenRouterArray(tryCall, modelList, context) {
+async function tryOpenRouterArray(tryCall, modelList, context2) {
   try {
     const text = await tryCall(modelList);
     if (text) return { text, error: null };
-    log.debug("OpenRouter models array returned empty", { models: modelList, context });
+    log.debug("OpenRouter models array returned empty", { models: modelList, context: context2 });
     return { text: null, error: null };
   } catch (error) {
     const err = error;
@@ -1860,7 +7072,7 @@ async function tryOpenRouterArray(tryCall, modelList, context) {
       statusCode: err.statusCode,
       error: err.message?.slice(0, 200),
       models: modelList,
-      context
+      context: context2
     });
     if (err.statusCode === 401) {
       throw new Error("Invalid OpenRouter API key \u2014 check your OPENROUTER_API_KEY");
@@ -1868,7 +7080,7 @@ async function tryOpenRouterArray(tryCall, modelList, context) {
     return { text: null, error: err };
   }
 }
-async function tryOpenRouterIndividual(tryCall, resolved, openRouterError, deadlineAt, context) {
+async function tryOpenRouterIndividual(tryCall, resolved, openRouterError, deadlineAt, context2) {
   if (openRouterError?.statusCode === 402 || openRouterError?.statusCode === 429) {
     return null;
   }
@@ -1879,7 +7091,7 @@ async function tryOpenRouterIndividual(tryCall, resolved, openRouterError, deadl
   for (const fallback of fallbackModels) {
     if (getRemainingBudget(deadlineAt) <= 0) {
       log.warn("OpenRouter individual fallback budget exhausted", {
-        context,
+        context: context2,
         attemptedModels: fallbackModels
       });
       return null;
@@ -1891,7 +7103,7 @@ async function tryOpenRouterIndividual(tryCall, resolved, openRouterError, deadl
       log.warn("OpenRouter individual fallback failed", {
         model: fallback,
         error: fbErr.message?.slice(0, 200),
-        context
+        context: context2
       });
     }
   }
@@ -1905,6 +7117,7 @@ async function tryDirectChatCompletions(resolved, messages, temperature, maxToke
       messages,
       temperature,
       maxTokens,
+      trackingContext,
       deadlineAt
     );
     if (chatResult) {
@@ -1913,7 +7126,7 @@ async function tryDirectChatCompletions(resolved, messages, temperature, maxToke
         context: trackingContext?.context,
         textLength: chatResult.length
       });
-      void trackUsage(chatModel, null, Date.now() - startTime, trackingContext);
+      void trackUsage(`openrouter/${normalizeOpenRouterModel(chatModel)}`, null, Date.now() - startTime, trackingContext);
       return chatResult;
     }
   } catch (chatErr) {
@@ -1970,6 +7183,19 @@ async function executeToolCall(tc, tools, toolCallRecords, model, round) {
   toolCallRecords.push({ name: tool.name, arguments: args, result });
   return typeof result === "string" ? result : JSON.stringify(result);
 }
+function toOpenRouterChatUsage(model, usage) {
+  if (!usage) return null;
+  const inputTokens = usage.prompt_tokens ?? 0;
+  const outputTokens = usage.completion_tokens ?? 0;
+  const totalTokens = usage.total_tokens ?? inputTokens + outputTokens;
+  const estimatedCost = usage.cost ?? estimateOpenRouterCostUsd(model, inputTokens, outputTokens) ?? void 0;
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    cost: estimatedCost
+  };
+}
 async function openRouterToolLoop(opts) {
   const {
     messages: workingMessages,
@@ -2011,8 +7237,9 @@ async function openRouterToolLoop(opts) {
     const body = {
       messages: workingMessages,
       temperature,
-      max_tokens: maxTokens
+      max_tokens: Math.min(maxTokens, OPENROUTER_MAX_TOKENS)
     };
+    Object.assign(body, withOpenRouterCacheFields({}, trackingContext));
     if (modelList.length > 1) {
       body.models = modelList;
       body.provider = { allow_fallbacks: true };
@@ -2034,11 +7261,7 @@ async function openRouterToolLoop(opts) {
       "https://openrouter.ai/api/v1/chat/completions",
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "HTTP-Referer": "https://subcorp.subcult.tv"
-        },
+        headers: openRouterHeaders(trackingContext),
         body: JSON.stringify(body),
         signal: controller.signal
       }
@@ -2057,11 +7280,7 @@ async function openRouterToolLoop(opts) {
     const data = await response.json();
     lastModel = data.model ?? "unknown";
     if (data.usage) {
-      lastUsage = {
-        inputTokens: data.usage.prompt_tokens ?? 0,
-        outputTokens: data.usage.completion_tokens ?? 0,
-        totalTokens: (data.usage.prompt_tokens ?? 0) + (data.usage.completion_tokens ?? 0)
-      };
+      lastUsage = toOpenRouterChatUsage(lastModel, data.usage);
     }
     const msg = data.choices?.[0]?.message;
     if (!msg) {
@@ -2104,7 +7323,7 @@ async function openRouterToolLoop(opts) {
       const text = extractFromXml(raw).trim();
       const finalText = text || bestText;
       void trackUsage(
-        lastModel,
+        `openrouter/${normalizeOpenRouterModel(lastModel)}`,
         lastUsage,
         Date.now() - startTime,
         trackingContext
@@ -2149,7 +7368,7 @@ async function openRouterToolLoop(opts) {
     }
   }
   void trackUsage(
-    lastModel,
+    `openrouter/${normalizeOpenRouterModel(lastModel)}`,
     lastUsage,
     Date.now() - startTime,
     trackingContext
@@ -2181,6 +7400,7 @@ async function llmGenerateWithTools(options) {
     agentId: trackingContext?.agentId
   });
   let resolvedModel = model;
+  let localWasTried = false;
   if (!resolvedModel && trackingContext?.context) {
     try {
       const routed = await resolveModels(trackingContext.context);
@@ -2189,16 +7409,25 @@ async function llmGenerateWithTools(options) {
     } catch {
     }
   }
-  const preferOllamaFirst = shouldTryOllamaFirst(resolvedModel);
+  const preferOllamaFirst = hasTools || shouldTryOllamaFirst(resolvedModel);
   if (preferOllamaFirst) {
+    localWasTried = true;
     const ollamaResult = await ollamaChat(messages, temperature, {
       maxTokens,
       tools: hasTools ? tools : void 0,
       maxToolRounds,
       model: resolvedModel,
-      deadlineAt: totalDeadlineAt
+      deadlineAt: totalDeadlineAt,
+      trackingContext
     });
     if (ollamaResult?.text || ollamaResult?.toolCalls && ollamaResult.toolCalls.length > 0) {
+      if (!ollamaResult.text && ollamaResult.toolCalls.length > 0) {
+        incLlmEmptyToolRound({
+          provider: "ollama-tools",
+          context: trackingContext?.context,
+          agentId: trackingContext?.agentId
+        });
+      }
       log.debug("Ollama succeeded (with tools)", {
         model: ollamaResult.model,
         context: trackingContext?.context,
@@ -2213,16 +7442,21 @@ async function llmGenerateWithTools(options) {
       );
       return { text: ollamaResult.text, toolCalls: ollamaResult.toolCalls };
     }
-    if (isOllamaRoutedModel(resolvedModel)) {
-      log.warn("Explicit Ollama/llama-line tool-call model failed; skipping cloud fallback", {
+    if (isOllamaRoutedModel(resolvedModel) && !shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
+      log.warn("Explicit Ollama/llama-line tool-call model failed; no cloud fallback configured", {
         model: resolvedModel,
         context: trackingContext?.context
       });
       return { text: "", toolCalls: [] };
     }
   }
-  if (!canUseOpenRouter()) {
-    log.warn("Ollama returned empty and OpenRouter is disabled (tool call)", {
+  if (!shouldAllowOpenRouterAfterLocalFailure(localWasTried)) {
+    incLlmEmptyText({
+      provider: "ollama-tools",
+      context: trackingContext?.context,
+      agentId: trackingContext?.agentId
+    });
+    log.warn("Ollama returned empty; no cloud tool fallback configured", {
       context: trackingContext?.context,
       agentId: trackingContext?.agentId,
       hasTools,
@@ -2230,8 +7464,48 @@ async function llmGenerateWithTools(options) {
     });
     return { text: "", toolCalls: [] };
   }
-  const resolved = model ? [normalizeModel(model)] : await resolveModelsWithEnv(trackingContext?.context);
+  const budget = await checkOpenRouterBudget();
+  if (!budget.allowed) {
+    recordProviderFallbackDecision({
+      fromProvider: localWasTried ? "ollama-tools" : "none",
+      toProvider: "openrouter-tools",
+      reason: budget.reason,
+      attempted: false,
+      trackingContext,
+      extra: {
+        policy: openRouterFallbackPolicy(localWasTried),
+        dailySpend: budget.dailySpend,
+        monthlySpend: budget.monthlySpend,
+        toolNames: tools.map((t) => t.name)
+      }
+    });
+    log.warn("Skipping OpenRouter tool fallback due to budget guardrail", {
+      reason: budget.reason,
+      dailySpend: budget.dailySpend,
+      monthlySpend: budget.monthlySpend,
+      context: trackingContext?.context,
+      agentId: trackingContext?.agentId,
+      toolNames: tools.map((t) => t.name)
+    });
+    return { text: "", toolCalls: [] };
+  }
+  const resolved = model && !isOllamaRoutedModel(model) ? [normalizeModel(model)] : resolveOpenRouterModels(trackingContext?.context);
   const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
+  recordProviderFallbackDecision({
+    fromProvider: localWasTried ? "ollama-tools" : "none",
+    toProvider: "openrouter-tools",
+    reason: localWasTried ? "local_tool_failed_openrouter_allowed" : "openrouter_tool_primary_allowed",
+    attempted: true,
+    trackingContext,
+    extra: {
+      policy: openRouterFallbackPolicy(localWasTried),
+      modelList,
+      resolvedModels: resolved,
+      maxModelsArray: MAX_MODELS_ARRAY,
+      toolNames: tools.map((t) => t.name),
+      maxToolRounds: Math.min(maxToolRounds, OPENROUTER_MAX_TOOL_ROUNDS)
+    }
+  });
   const openaiTools = tools.map((t) => ({
     type: "function",
     function: {
@@ -2252,7 +7526,7 @@ async function llmGenerateWithTools(options) {
       modelList,
       temperature,
       maxTokens,
-      maxToolRounds,
+      maxToolRounds: Math.min(maxToolRounds, OPENROUTER_MAX_TOOL_ROUNDS),
       trackingContext,
       startTime,
       deadlineAt: totalDeadlineAt
@@ -2262,6 +7536,17 @@ async function llmGenerateWithTools(options) {
     log.debug("OpenRouter failed, trying Ollama text-only fallback", {
       error: err.message,
       statusCode: err.statusCode
+    });
+    recordProviderFallbackDecision({
+      fromProvider: "openrouter-tools",
+      toProvider: "ollama-text",
+      reason: "openrouter_tool_failed_ollama_text_last_resort",
+      attempted: true,
+      trackingContext,
+      extra: {
+        statusCode: err.statusCode,
+        error: err.message?.slice(0, 200)
+      }
     });
     const ollamaText = await tryOllamaLastResort(
       messages,
@@ -2388,7 +7673,7 @@ function extractJson(text) {
   }
   return null;
 }
-var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TEXT_TIMEOUT_MS, OPENROUTER_TEXT_BUDGET_MS, OPENROUTER_TOOL_TIMEOUT_MS, OPENROUTER_TOOL_BUDGET_MS, OPENROUTER_MAX_INDIVIDUAL_FALLBACKS, LLM_TEXT_TOTAL_BUDGET_MS, LLM_TOOL_TOTAL_BUDGET_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, LLM_MODEL_ENV, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_API_KEY, OLLAMA_TEXT_TIMEOUT_MS, OLLAMA_PREFERRED_TEXT_TIMEOUT_MS, OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS, OLLAMA_TOOL_TIMEOUT_MS, OLLAMA_BUDGET_MS, OLLAMA_TAGS_TIMEOUT_MS, OLLAMA_MODEL_CACHE_TTL_MS, OLLAMA_MODEL, OLLAMA_EMPTY_RETRY_COUNT, ollamaModelCatalogCache, LLAMA_LINE_MODEL_PREFIXES;
+var import_sdk, import_v4, log, OPENROUTER_API_KEY, OPENROUTER_ENABLED, OPENROUTER_DEFAULT_MODEL, OPENROUTER_ESCALATION_MODEL, OPENROUTER_CODER_MODEL, OPENROUTER_REQUIRE_LOCAL_FAILURE, OPENROUTER_ALLOW_AFTER_LOCAL_FAILURE, OPENROUTER_DAILY_BUDGET_USD, OPENROUTER_MONTHLY_BUDGET_USD, OPENROUTER_MAX_TOKENS, OPENROUTER_MAX_TOOL_ROUNDS, OPENROUTER_PRICE_PER_MILLION, MAX_MODELS_ARRAY, OLLAMA_DEFAULT_MAX_TOKENS, OPENROUTER_CHAT_TIMEOUT_MS, OPENROUTER_TEXT_TIMEOUT_MS, OPENROUTER_TEXT_BUDGET_MS, OPENROUTER_TOOL_TIMEOUT_MS, OPENROUTER_TOOL_BUDGET_MS, OPENROUTER_MAX_INDIVIDUAL_FALLBACKS, LLM_TEXT_TOTAL_BUDGET_MS, LLM_TOOL_TOTAL_BUDGET_MS, DEFAULT_OLLAMA_FALLBACK_MODELS, OLLAMA_FALLBACK_MODELS, TOOL_PARAM_ALIASES, _client, OLLAMA_ENABLED, OLLAMA_LOCAL_URL, OLLAMA_API_KEY, OLLAMA_TEXT_TIMEOUT_MS, OLLAMA_PREFERRED_TEXT_TIMEOUT_MS, OLLAMA_IMPLICIT_FIRST_LOCAL_TEXT_TIMEOUT_MS, OLLAMA_TOOL_TIMEOUT_MS, OLLAMA_BUDGET_MS, OLLAMA_TAGS_TIMEOUT_MS, OLLAMA_MODEL_CACHE_TTL_MS, OLLAMA_MODEL, OLLAMA_TOOL_MODEL, LLAMA_LINE_STATUS_WARN_QUEUE_DEPTH, OLLAMA_EMPTY_RETRY_COUNT, ollamaModelCatalogCache, LLAMA_LINE_MODEL_PREFIXES;
 var init_client = __esm({
   "src/lib/llm/client.ts"() {
     "use strict";
@@ -2396,10 +7681,26 @@ var init_client = __esm({
     import_v4 = require("zod/v4");
     init_db();
     init_logger();
+    init_metrics2();
     init_model_routing();
     log = logger.child({ module: "llm" });
     OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? "";
     OPENROUTER_ENABLED = process.env.OPENROUTER_ENABLED === "true";
+    OPENROUTER_DEFAULT_MODEL = process.env.OPENROUTER_DEFAULT_MODEL ?? "deepseek/deepseek-v4-flash";
+    OPENROUTER_ESCALATION_MODEL = process.env.OPENROUTER_ESCALATION_MODEL ?? "deepseek/deepseek-v3.2";
+    OPENROUTER_CODER_MODEL = process.env.OPENROUTER_CODER_MODEL ?? "qwen/qwen3-coder-flash";
+    OPENROUTER_REQUIRE_LOCAL_FAILURE = process.env.OPENROUTER_REQUIRE_LOCAL_FAILURE !== "false";
+    OPENROUTER_ALLOW_AFTER_LOCAL_FAILURE = process.env.OPENROUTER_ALLOW_AFTER_LOCAL_FAILURE !== "false";
+    OPENROUTER_DAILY_BUDGET_USD = Number.parseFloat(process.env.OPENROUTER_DAILY_BUDGET_USD ?? "1");
+    OPENROUTER_MONTHLY_BUDGET_USD = Number.parseFloat(process.env.OPENROUTER_MONTHLY_BUDGET_USD ?? "20");
+    OPENROUTER_MAX_TOKENS = Math.max(1, Number.parseInt(process.env.OPENROUTER_MAX_TOKENS ?? "2000", 10) || 2e3);
+    OPENROUTER_MAX_TOOL_ROUNDS = Math.max(0, Number.parseInt(process.env.OPENROUTER_MAX_TOOL_ROUNDS ?? "2", 10) || 0);
+    OPENROUTER_PRICE_PER_MILLION = {
+      "deepseek/deepseek-v4-flash": { input: 0.09, output: 0.18 },
+      "deepseek/deepseek-v3.2": { input: 0.2288, output: 0.3432 },
+      "deepseek/deepseek-v4-pro": { input: 0.435, output: 0.87 },
+      "qwen/qwen3-coder-flash": { input: 0.195, output: 0.975 }
+    };
     MAX_MODELS_ARRAY = 3;
     OLLAMA_DEFAULT_MAX_TOKENS = 16384;
     OPENROUTER_CHAT_TIMEOUT_MS = 3e4;
@@ -2409,8 +7710,8 @@ var init_client = __esm({
     OPENROUTER_TOOL_BUDGET_MS = 75e3;
     OPENROUTER_MAX_INDIVIDUAL_FALLBACKS = 2;
     LLM_TEXT_TOTAL_BUDGET_MS = 75e3;
-    LLM_TOOL_TOTAL_BUDGET_MS = 9e4;
-    DEFAULT_OLLAMA_FALLBACK_MODELS = ["qwen3:14b"];
+    LLM_TOOL_TOTAL_BUDGET_MS = 24e4;
+    DEFAULT_OLLAMA_FALLBACK_MODELS = ["ollama/gemma4:latest"];
     OLLAMA_FALLBACK_MODELS = (process.env.OLLAMA_FALLBACK_MODELS ?? DEFAULT_OLLAMA_FALLBACK_MODELS.join(",")).split(",").map((model) => model.trim()).filter(Boolean);
     TOOL_PARAM_ALIASES = {
       file_write: {
@@ -2460,11 +7761,6 @@ var init_client = __esm({
         body: "content"
       }
     };
-    LLM_MODEL_ENV = (() => {
-      const envModel = process.env.LLM_MODEL;
-      if (!envModel || envModel === "openrouter/auto") return null;
-      return normalizeModel(envModel);
-    })();
     _client = null;
     OLLAMA_ENABLED = process.env.OLLAMA_ENABLED !== "false";
     OLLAMA_LOCAL_URL = OLLAMA_ENABLED ? process.env.OLLAMA_BASE_URL ?? "" : "";
@@ -2477,6 +7773,11 @@ var init_client = __esm({
     OLLAMA_TAGS_TIMEOUT_MS = 5e3;
     OLLAMA_MODEL_CACHE_TTL_MS = 3e4;
     OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "";
+    OLLAMA_TOOL_MODEL = process.env.OLLAMA_TOOL_MODEL ?? "";
+    LLAMA_LINE_STATUS_WARN_QUEUE_DEPTH = Math.max(
+      0,
+      Number.parseInt(process.env.LLAMA_LINE_STATUS_WARN_QUEUE_DEPTH ?? "3", 10) || 0
+    );
     OLLAMA_EMPTY_RETRY_COUNT = Math.max(
       0,
       Number.parseInt(process.env.OLLAMA_EMPTY_RETRY_COUNT ?? "1", 10) || 0
@@ -2740,6 +8041,10 @@ async function sendWithRetry(url, body) {
 function sleep2(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
+function truncateDiscordContent(content) {
+  if (content.length <= DISCORD_CONTENT_LIMIT) return content;
+  return content.slice(0, DISCORD_CONTENT_LIMIT - DISCORD_TRUNCATION_SUFFIX.length) + DISCORD_TRUNCATION_SUFFIX;
+}
 async function fetchWithRetry429(url, init, label) {
   try {
     return await fetchWithRetry(url, {
@@ -2770,7 +8075,7 @@ function buildWebhookUrlAndPayload(options) {
   const payload = {};
   if (options.username) payload.username = options.username;
   if (options.avatarUrl) payload.avatar_url = options.avatarUrl;
-  if (options.content) payload.content = options.content;
+  if (options.content) payload.content = truncateDiscordContent(options.content);
   if (options.embeds) payload.embeds = options.embeds;
   if (!payload.content && !payload.embeds) {
     log4.warn("Skipping webhook post \u2014 no content or embeds");
@@ -2907,7 +8212,7 @@ async function postToWebhookWithFiles(options) {
     drainQueue(key);
   });
 }
-var log4, DISCORD_API, BOT_TOKEN, webhookCache, webhookProvisioning, WEBHOOK_MIN_INTERVAL_MS, MAX_RETRIES, DISCORD_TIMEOUT_MS, webhookQueues, processingWebhooks;
+var log4, DISCORD_API, BOT_TOKEN, webhookCache, webhookProvisioning, WEBHOOK_MIN_INTERVAL_MS, MAX_RETRIES, DISCORD_TIMEOUT_MS, DISCORD_CONTENT_LIMIT, DISCORD_TRUNCATION_SUFFIX, webhookQueues, processingWebhooks;
 var init_client2 = __esm({
   "src/lib/discord/client.ts"() {
     "use strict";
@@ -2921,6 +8226,8 @@ var init_client2 = __esm({
     WEBHOOK_MIN_INTERVAL_MS = 600;
     MAX_RETRIES = 3;
     DISCORD_TIMEOUT_MS = 15e3;
+    DISCORD_CONTENT_LIMIT = 2e3;
+    DISCORD_TRUNCATION_SUFFIX = "\n\n\u2026 [truncated to fit Discord 2000 character limit]";
     webhookQueues = /* @__PURE__ */ new Map();
     processingWebhooks = /* @__PURE__ */ new Set();
   }
@@ -3300,6 +8607,37 @@ var init_events = __esm({
   }
 });
 
+// src/lib/tenant/context.ts
+function getCurrentTenantContext() {
+  return {
+    tenantId: DEFAULT_TENANT_ID,
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    mode: "single-tenant"
+  };
+}
+var DEFAULT_TENANT_ID, DEFAULT_WORKSPACE_ID;
+var init_context3 = __esm({
+  "src/lib/tenant/context.ts"() {
+    "use strict";
+    DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID ?? "00000000-0000-0000-0000-000000000001";
+    DEFAULT_WORKSPACE_ID = process.env.DEFAULT_WORKSPACE_ID ?? "00000000-0000-0000-0000-000000000001";
+  }
+});
+
+// src/lib/tenant/cache-key.ts
+function sanitizePart(value) {
+  return value.replace(/:/g, "_");
+}
+function tenantCacheKey(namespace, id, ctx = getCurrentTenantContext()) {
+  return [ctx.tenantId, ctx.workspaceId, namespace, id].map(sanitizePart).join(":");
+}
+var init_cache_key = __esm({
+  "src/lib/tenant/cache-key.ts"() {
+    "use strict";
+    init_context3();
+  }
+});
+
 // src/lib/ops/policy.ts
 var policy_exports = {};
 __export(policy_exports, {
@@ -3345,7 +8683,8 @@ async function getPolicyRecord(key) {
   };
 }
 async function getPolicy(key) {
-  const cached = policyCache.get(key);
+  const cacheKey = tenantCacheKey("policy", key);
+  const cached = policyCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.value;
   }
@@ -3353,7 +8692,7 @@ async function getPolicy(key) {
         SELECT value FROM ops_policy WHERE key = ${key}
     `;
   const value = row?.value ?? { enabled: false };
-  policyCache.set(key, { value, ts: Date.now() });
+  policyCache.set(cacheKey, { value, ts: Date.now() });
   return value;
 }
 async function setPolicy(key, value, description) {
@@ -3365,7 +8704,7 @@ async function setPolicy(key, value, description) {
             description = COALESCE(EXCLUDED.description, ops_policy.description),
             updated_at = NOW()
     `;
-  policyCache.delete(key);
+  policyCache.delete(tenantCacheKey("policy", key));
 }
 function clearPolicyCache() {
   policyCache.clear();
@@ -3376,6 +8715,7 @@ var init_policy = __esm({
     "use strict";
     import_crypto = require("crypto");
     init_db();
+    init_cache_key();
     CACHE_TTL_MS = 3e4;
     policyCache = /* @__PURE__ */ new Map();
   }
@@ -3520,22 +8860,99 @@ var init_proposal_runner = __esm({
 });
 
 // src/lib/ops/cap-gates.ts
+function positiveNumberOrDefault(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+async function getMissionCapPolicy() {
+  try {
+    const policy = await getPolicy("mission_caps");
+    return {
+      maxConcurrentMissions: positiveNumberOrDefault(
+        policy?.max_concurrent_missions ?? process.env.MISSION_CAP_MAX_CONCURRENT,
+        MAX_CONCURRENT_MISSIONS
+      ),
+      maxDailyStepsPerAgent: positiveNumberOrDefault(
+        policy?.max_daily_steps_per_agent ?? process.env.MISSION_CAP_MAX_DAILY_STEPS_PER_AGENT,
+        MAX_DAILY_STEPS_PER_AGENT
+      ),
+      activeMissionStaleHours: positiveNumberOrDefault(
+        policy?.active_mission_stale_hours ?? process.env.MISSION_CAP_ACTIVE_STALE_HOURS,
+        ACTIVE_MISSION_STALE_HOURS
+      ),
+      maxPendingMissionSessions: positiveNumberOrDefault(
+        policy?.max_pending_mission_sessions ?? process.env.MISSION_CAP_MAX_PENDING_SESSIONS,
+        MAX_PENDING_MISSION_SESSIONS
+      ),
+      maxPendingMissionSessionAgeSeconds: positiveNumberOrDefault(
+        policy?.max_pending_mission_session_age_seconds ?? process.env.MISSION_CAP_MAX_PENDING_SESSION_AGE_SECONDS,
+        MAX_PENDING_MISSION_SESSION_AGE_SECONDS
+      )
+    };
+  } catch {
+    return {
+      maxConcurrentMissions: positiveNumberOrDefault(
+        process.env.MISSION_CAP_MAX_CONCURRENT,
+        MAX_CONCURRENT_MISSIONS
+      ),
+      maxDailyStepsPerAgent: positiveNumberOrDefault(
+        process.env.MISSION_CAP_MAX_DAILY_STEPS_PER_AGENT,
+        MAX_DAILY_STEPS_PER_AGENT
+      ),
+      activeMissionStaleHours: positiveNumberOrDefault(
+        process.env.MISSION_CAP_ACTIVE_STALE_HOURS,
+        ACTIVE_MISSION_STALE_HOURS
+      ),
+      maxPendingMissionSessions: positiveNumberOrDefault(
+        process.env.MISSION_CAP_MAX_PENDING_SESSIONS,
+        MAX_PENDING_MISSION_SESSIONS
+      ),
+      maxPendingMissionSessionAgeSeconds: positiveNumberOrDefault(
+        process.env.MISSION_CAP_MAX_PENDING_SESSION_AGE_SECONDS,
+        MAX_PENDING_MISSION_SESSION_AGE_SECONDS
+      )
+    };
+  }
+}
 async function checkCapGates(input) {
+  const missionCapPolicy = await getMissionCapPolicy();
   const [{ count: activeMissions }] = await sql`
         SELECT COUNT(*)::int as count FROM ops_missions
-        WHERE status IN ('approved', 'running')
+        WHERE status = ANY(${sql.array(ACTIVE_MISSION_STATUSES)}::text[])
+          AND (
+            EXISTS (
+                SELECT 1 FROM ops_mission_steps s
+                WHERE s.mission_id = ops_missions.id
+                  AND s.status = ANY(${sql.array(ACTIVE_STEP_STATUSES)}::text[])
+            )
+            OR updated_at >= NOW() - (${missionCapPolicy.activeMissionStaleHours} * INTERVAL '1 hour')
+          )
     `;
-  if (activeMissions >= MAX_CONCURRENT_MISSIONS) {
+  if (activeMissions >= missionCapPolicy.maxConcurrentMissions) {
     return {
       ok: false,
-      reason: `Too many active missions (${activeMissions}/${MAX_CONCURRENT_MISSIONS})`
+      reason: `Too many active missions (${activeMissions}/${missionCapPolicy.maxConcurrentMissions}; statuses=${ACTIVE_MISSION_STATUSES.join(",")}; active_steps=${ACTIVE_STEP_STATUSES.join(",")}; stale_window_hours=${missionCapPolicy.activeMissionStaleHours})`
     };
   }
   const dailySteps = await countTodaySteps(input.agent_id);
-  if (dailySteps >= MAX_DAILY_STEPS_PER_AGENT) {
+  if (dailySteps >= missionCapPolicy.maxDailyStepsPerAgent) {
     return {
       ok: false,
-      reason: `Daily step limit reached for ${input.agent_id} (${dailySteps}/${MAX_DAILY_STEPS_PER_AGENT})`
+      reason: `Daily step limit reached for ${input.agent_id} (${dailySteps}/${missionCapPolicy.maxDailyStepsPerAgent}; counts all attempted steps created today)`
+    };
+  }
+  const [pendingBacklog] = await sql`
+        SELECT COUNT(*)::int AS count,
+               EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_age_seconds
+        FROM ops_agent_sessions
+        WHERE status = 'pending'
+          AND source = 'mission'
+    `;
+  const oldestPendingAgeSeconds = pendingBacklog.oldest_age_seconds ?? 0;
+  if (pendingBacklog.count >= missionCapPolicy.maxPendingMissionSessions || oldestPendingAgeSeconds >= missionCapPolicy.maxPendingMissionSessionAgeSeconds) {
+    return {
+      ok: false,
+      reason: `Mission session backlog is draining (${pendingBacklog.count}/${missionCapPolicy.maxPendingMissionSessions} pending mission sessions; oldest_age_seconds=${oldestPendingAgeSeconds}/${missionCapPolicy.maxPendingMissionSessionAgeSeconds}). New missions are paused until backlog clears.`
     };
   }
   try {
@@ -3552,7 +8969,7 @@ async function checkCapGates(input) {
                 SELECT COUNT(*)::int as count FROM ops_mission_steps s
                 JOIN ops_missions m ON s.mission_id = m.id
                 WHERE m.created_by = ${input.agent_id}
-                AND s.kind = ANY(${draftKinds})
+                AND s.kind = ANY(${sql.array(draftKinds)}::text[])
                 AND s.created_at >= ${todayStart.toISOString()}
             `;
       if (todayDrafts >= maxDrafts) {
@@ -3577,7 +8994,7 @@ async function countTodaySteps(agentId) {
     `;
   return count;
 }
-var MAX_CONCURRENT_MISSIONS, MAX_DAILY_STEPS_PER_AGENT;
+var MAX_CONCURRENT_MISSIONS, MAX_DAILY_STEPS_PER_AGENT, ACTIVE_MISSION_STALE_HOURS, MAX_PENDING_MISSION_SESSIONS, MAX_PENDING_MISSION_SESSION_AGE_SECONDS, ACTIVE_MISSION_STATUSES, ACTIVE_STEP_STATUSES;
 var init_cap_gates = __esm({
   "src/lib/ops/cap-gates.ts"() {
     "use strict";
@@ -3585,6 +9002,11 @@ var init_cap_gates = __esm({
     init_policy();
     MAX_CONCURRENT_MISSIONS = 50;
     MAX_DAILY_STEPS_PER_AGENT = 200;
+    ACTIVE_MISSION_STALE_HOURS = 24;
+    MAX_PENDING_MISSION_SESSIONS = 30;
+    MAX_PENDING_MISSION_SESSION_AGE_SECONDS = 1800;
+    ACTIVE_MISSION_STATUSES = ["approved", "running"];
+    ACTIVE_STEP_STATUSES = ["queued", "running"];
   }
 });
 
@@ -4825,7 +10247,7 @@ async function enforceMemoryCap(agentId) {
     `;
   if (oldest.length > 0) {
     const ids = oldest.map((r) => r.id);
-    await sql`DELETE FROM ops_agent_memory WHERE id = ANY(${ids})`;
+    await sql`DELETE FROM ops_agent_memory WHERE id = ANY(${sql.array(ids)}::uuid[])`;
   }
 }
 var log10, configuredMemoryCap, MAX_MEMORIES_PER_AGENT;
@@ -6710,27 +12132,30 @@ var init_executor = __esm({
 
 // src/lib/ops/prime-directive.ts
 async function loadPrimeDirective() {
-  if (cachedDirective !== null && Date.now() - cacheTime < CACHE_TTL_MS3) {
-    return cachedDirective;
+  const cacheKey = tenantCacheKey("prime-directive", DIRECTIVE_PATH);
+  const cached = directiveCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS3) {
+    return cached.directive;
   }
   const result = await execInToolbox(`cat '${DIRECTIVE_PATH}' 2>/dev/null || echo ''`, 5e3);
+  let directive;
   if (result.exitCode === 0 && result.stdout.trim()) {
-    cachedDirective = result.stdout.trim();
+    directive = result.stdout.trim();
   } else {
-    cachedDirective = "";
+    directive = "";
   }
-  cacheTime = Date.now();
-  return cachedDirective;
+  directiveCache.set(cacheKey, { directive, ts: Date.now() });
+  return directive;
 }
-var DIRECTIVE_PATH, CACHE_TTL_MS3, cachedDirective, cacheTime;
+var DIRECTIVE_PATH, CACHE_TTL_MS3, directiveCache;
 var init_prime_directive = __esm({
   "src/lib/ops/prime-directive.ts"() {
     "use strict";
     init_executor();
+    init_cache_key();
     DIRECTIVE_PATH = "/workspace/shared/prime-directive.md";
     CACHE_TTL_MS3 = 5 * 60 * 1e3;
-    cachedDirective = null;
-    cacheTime = 0;
+    directiveCache = /* @__PURE__ */ new Map();
   }
 });
 
@@ -7009,7 +12434,8 @@ var init_scratchpad = __esm({
 
 // src/lib/ops/situational-briefing.ts
 async function buildBriefing(agentId) {
-  const cached = cache.get(agentId);
+  const cacheKey = tenantCacheKey("situational-briefing", agentId);
+  const cached = cache.get(cacheKey);
   if (cached && Date.now() < cached.expires) {
     return cached.text;
   }
@@ -7021,11 +12447,12 @@ async function buildBriefing(agentId) {
   sections.push(`\u2550\u2550\u2550 YOUR ORGANIZATION \u2550\u2550\u2550
 You are part of the SUBCORP collective \u2014 an autonomous AI agent organization.
 Today is ${dateStr}. Current period: ${quarter} ${year}. Use this for all planning \u2014 never reference past quarters.
-Gitea org: https://git.subcult.tv/subculture-collective (you have FULL ACCESS)
-Platform repo: https://git.subcult.tv/subculture-collective/subcorp.git
+Gitea org: ${GITEA_BASE_URL}/${GITEA_ORG} (you have FULL ACCESS when GITEA_TOKEN is configured)
+Platform repo: ${GITEA_BASE_URL}/${GITEA_ORG}/subcorp.git
 You can create repos, issues, PRs, labels, projects \u2014 anything. The org is yours to run like a business.
-Your product projects should be public repos in the subculture-collective org on git.subcult.tv.
+Generated product/workspace repos belong in ${GITEA_BASE_URL}/${GITEA_PROJECT_ORG}, not the platform org.
 Use git and the Gitea web UI/API for all org operations.
+Use sync-workspace-to-gitea.sh to push the full /workspace snapshot and individual /workspace/projects/* repos when requested.
 If you need human help (accounts, API keys, infrastructure), use notify_human to send a request via ntfy.
 Maintain a knowledge base (company wiki) in your repos \u2014 document decisions, architecture, processes, lessons learned, and anything a new team member would need. Be meticulous note-takers.
 \u2550\u2550\u2550 END \u2550\u2550\u2550`);
@@ -7139,7 +12566,7 @@ ${propLines.join("\n")}`);
 ${stepLines.join("\n")}`);
   }
   const text = sections.length > 0 ? sections.join("\n\n") : "No recent activity.";
-  cache.set(agentId, { text, expires: Date.now() + CACHE_TTL_MS4 });
+  cache.set(cacheKey, { text, expires: Date.now() + CACHE_TTL_MS4 });
   return text;
 }
 function timeAgo(date) {
@@ -7150,14 +12577,18 @@ function timeAgo(date) {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
 }
-var CACHE_TTL_MS4, cache;
+var CACHE_TTL_MS4, cache, GITEA_BASE_URL, GITEA_ORG, GITEA_PROJECT_ORG;
 var init_situational_briefing = __esm({
   "src/lib/ops/situational-briefing.ts"() {
     "use strict";
     init_db();
     init_agents();
+    init_cache_key();
     CACHE_TTL_MS4 = 5 * 60 * 1e3;
     cache = /* @__PURE__ */ new Map();
+    GITEA_BASE_URL = process.env.GITEA_BASE_URL ?? "https://git.subcult.tv";
+    GITEA_ORG = process.env.GITEA_ORG ?? "subculture-collective";
+    GITEA_PROJECT_ORG = process.env.GITEA_PROJECT_ORG ?? process.env.GITEA_WORKSPACE_ORG ?? GITEA_ORG;
   }
 });
 
@@ -7572,6 +13003,41 @@ async function markSessionRunning(session, extraSummary) {
     }
   });
 }
+async function markContentReviewBlockedAfterZeroTurnFailure(session, abortReason) {
+  if (session.format !== "content_review") return;
+  if (abortReason !== ROUNDTABLE_EMPTY_ABORT_REASON) return;
+  const metadata = session.metadata ?? {};
+  const draftId = typeof metadata.draft_id === "string" ? metadata.draft_id : null;
+  const reviewBlockedMetadata = {
+    review_blocked_model_empty: true,
+    review_blocked_reason: "review_blocked_model_empty",
+    review_blocked_session_id: session.id,
+    review_blocked_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  const reviewerNotes = ["review_blocked_model_empty: content review produced zero LLM turns after retry"];
+  if (draftId) {
+    await sql`
+            UPDATE ops_content_drafts
+            SET status = 'needs_revision',
+                reviewer_notes = ${jsonb(reviewerNotes)}::jsonb,
+                metadata = COALESCE(metadata, '{}'::jsonb) || ${jsonb(reviewBlockedMetadata)}::jsonb,
+                updated_at = NOW()
+            WHERE id = ${draftId}
+              AND status IN ('draft', 'review')
+              AND review_session_id = ${session.id}
+        `;
+  } else {
+    await sql`
+            UPDATE ops_content_drafts
+            SET status = 'needs_revision',
+                reviewer_notes = ${jsonb(reviewerNotes)}::jsonb,
+                metadata = COALESCE(metadata, '{}'::jsonb) || ${jsonb(reviewBlockedMetadata)}::jsonb,
+                updated_at = NOW()
+            WHERE review_session_id = ${session.id}
+              AND status IN ('draft', 'review')
+        `;
+  }
+}
 async function postConversationCleanup(session, history, finalStatus) {
   if (history.length < 3) return;
   try {
@@ -7934,6 +13400,27 @@ function buildUserPrompt(topic, turn, maxTurns, speakerName, format) {
   };
   return midPrompts[format] ?? `Respond to what was just said on "${topic}". Push the conversation forward \u2014 add something new or challenge something specific. Don't recap.`;
 }
+function dialoguePrompt(userPrompt, format) {
+  if (format === "deep_dive") {
+    return `${userPrompt}
+
+${ROUNDTABLE_PLAIN_DIALOGUE_INSTRUCTION}
+${ROUNDTABLE_DEEP_DIVE_GROUNDING_INSTRUCTION}`;
+  }
+  return userPrompt;
+}
+function initialDialogueTemperature(temperature, format) {
+  if (format === "deep_dive") {
+    return Math.max(0.4, temperature - 0.2);
+  }
+  return temperature;
+}
+function dialogueTrackingContext(format) {
+  if (format === "deep_dive") {
+    return "roundtable:deep_dive:empty_retry";
+  }
+  return `roundtable:${format}`;
+}
 async function loadParticipantContext(participants, topic) {
   const voiceModifiers = /* @__PURE__ */ new Map();
   const scratchpads = /* @__PURE__ */ new Map();
@@ -8009,6 +13496,9 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
     });
   }
   let abortReason = null;
+  let emptyDialogueCount = 0;
+  let emptyDialogueRetryCount = 0;
+  const emptyDialogueTurns = [];
   const lastDialogueMap = /* @__PURE__ */ new Map();
   let consecutiveStale = 0;
   for (let turn = 0; turn < maxTurns; turn++) {
@@ -8017,7 +13507,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
         sessionId: session.id,
         turnsAttempted: turn
       });
-      abortReason = "All LLM turns returned empty responses";
+      abortReason = ROUNDTABLE_EMPTY_ABORT_REASON;
       break;
     }
     const speaker = turn === 0 ? selectFirstSpeaker(session.participants, session.format) : selectNextSpeaker({
@@ -8062,19 +13552,29 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
       speakerName,
       session.format
     );
+    const effectiveTemperature = speakerRebelling ? Math.min(1, format.temperature + 0.1) : format.temperature;
+    const primaryTrackingContext = dialogueTrackingContext(session.format);
     let rawDialogue;
     try {
-      const effectiveTemperature = speakerRebelling ? Math.min(1, format.temperature + 0.1) : format.temperature;
       rawDialogue = await llmGenerate({
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
+          {
+            role: "user",
+            content: dialoguePrompt(
+              userPrompt,
+              session.format
+            )
+          }
         ],
-        temperature: effectiveTemperature,
+        temperature: initialDialogueTemperature(
+          effectiveTemperature,
+          session.format
+        ),
         maxTokens: format.maxTokensPerTurn,
         trackingContext: {
           agentId: speaker,
-          context: `roundtable:${session.format}`,
+          context: primaryTrackingContext,
           sessionId: session.id
         }
       });
@@ -8088,12 +13588,61 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
       abortReason = err.message;
       break;
     }
-    const dialogue = sanitizeDialogue(rawDialogue);
+    let dialogue = sanitizeDialogue(rawDialogue);
+    if (!dialogue) {
+      emptyDialogueCount++;
+      emptyDialogueTurns.push(turn);
+      log23.warn(
+        history.length === 0 ? "Empty opening dialogue from LLM, retrying with explicit plain-text instruction" : "Empty roundtable dialogue from LLM, retrying with explicit plain-text instruction",
+        {
+          sessionId: session.id,
+          turn,
+          speaker: speakerName,
+          retryLimit: ROUNDTABLE_EMPTY_TURN_RETRY_LIMIT,
+          openingTurn: history.length === 0
+        }
+      );
+      try {
+        emptyDialogueRetryCount++;
+        const retryDialogue = await llmGenerate({
+          messages: [
+            { role: "system", content: systemPrompt },
+            {
+              role: "user",
+              content: `${userPrompt}
+
+${ROUNDTABLE_PLAIN_DIALOGUE_INSTRUCTION}`
+            }
+          ],
+          temperature: Math.max(0.4, effectiveTemperature - 0.2),
+          maxTokens: format.maxTokensPerTurn,
+          trackingContext: {
+            agentId: speaker,
+            context: `roundtable:${session.format}:empty_retry`,
+            sessionId: session.id
+          }
+        });
+        dialogue = sanitizeDialogue(retryDialogue);
+        if (!dialogue) {
+          emptyDialogueCount++;
+          emptyDialogueTurns.push(turn);
+        }
+      } catch (err) {
+        log23.warn("Roundtable empty-dialogue retry failed", {
+          error: err.message,
+          sessionId: session.id,
+          turn,
+          speaker: speakerName
+        });
+      }
+    }
     if (!dialogue) {
       log23.warn("Empty dialogue from LLM, skipping turn", {
         sessionId: session.id,
         turn,
-        speaker: speakerName
+        speaker: speakerName,
+        emptyDialogueCount,
+        emptyDialogueRetryCount
       });
       continue;
     }
@@ -8162,6 +13711,16 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
   }
   await new Promise((resolve) => setTimeout(resolve, POST_CONVERSATION_SETTLE_MS));
   const finalStatus = history.length >= 3 || !abortReason ? "completed" : "failed";
+  const roundtableEmptyTurnMetadata = {
+    emptyDialogueCount,
+    emptyDialogueRetryCount,
+    emptyDialogueTurns,
+    roundtableEmptyTurnRetryLimit: ROUNDTABLE_EMPTY_TURN_RETRY_LIMIT,
+    roundtableRoutingContext: dialogueTrackingContext(session.format)
+  };
+  if (finalStatus === "failed") {
+    await markContentReviewBlockedAfterZeroTurnFailure(session, abortReason);
+  }
   await sql`
         UPDATE ops_roundtable_sessions
         SET status = ${finalStatus},
@@ -8171,8 +13730,12 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
     abortReason ? {
       ...session.metadata ?? {},
       abortReason,
-      abortedAtTurn: history.length
-    } : session.metadata ?? {}
+      abortedAtTurn: history.length,
+      ...roundtableEmptyTurnMetadata
+    } : {
+      ...session.metadata ?? {},
+      ...roundtableEmptyTurnMetadata
+    }
   )}
         WHERE id = ${session.id}
     `;
@@ -8187,6 +13750,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
       sessionId: session.id,
       turnCount: history.length,
       speakers: [...new Set(history.map((h) => h.speaker))],
+      ...roundtableEmptyTurnMetadata,
       ...abortReason ? { abortReason } : {}
     }
   });
@@ -8467,7 +14031,7 @@ async function generateTopic(slot) {
   const candidates = fresh.length > 0 ? fresh : pool;
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
-var log23, REPETITION_SIMILARITY_THRESHOLD, MAX_CONSECUTIVE_STALE_TURNS, TURN_DELAY_BASE_MS, TURN_DELAY_JITTER_MS, POST_CONVERSATION_SETTLE_MS, VOICE_OPENING_GAP_MS, VOICE_MULTI_RESPONSE_GAP_MS, VOICE_POLL_INTERVAL_MS, VOICE_INACTIVITY_TIMEOUT_MS, TOPIC_POOLS;
+var log23, REPETITION_SIMILARITY_THRESHOLD, MAX_CONSECUTIVE_STALE_TURNS, TURN_DELAY_BASE_MS, TURN_DELAY_JITTER_MS, POST_CONVERSATION_SETTLE_MS, ROUNDTABLE_EMPTY_TURN_RETRY_LIMIT, ROUNDTABLE_EMPTY_ABORT_REASON, ROUNDTABLE_PLAIN_DIALOGUE_INSTRUCTION, ROUNDTABLE_DEEP_DIVE_GROUNDING_INSTRUCTION, VOICE_OPENING_GAP_MS, VOICE_MULTI_RESPONSE_GAP_MS, VOICE_POLL_INTERVAL_MS, VOICE_INACTIVITY_TIMEOUT_MS, TOPIC_POOLS;
 var init_orchestrator = __esm({
   "src/lib/roundtable/orchestrator.ts"() {
     "use strict";
@@ -8499,6 +14063,10 @@ var init_orchestrator = __esm({
     TURN_DELAY_BASE_MS = 3e3;
     TURN_DELAY_JITTER_MS = 5e3;
     POST_CONVERSATION_SETTLE_MS = 2e3;
+    ROUNDTABLE_EMPTY_TURN_RETRY_LIMIT = 1;
+    ROUNDTABLE_EMPTY_ABORT_REASON = "All LLM turns returned empty responses";
+    ROUNDTABLE_PLAIN_DIALOGUE_INSTRUCTION = "Return 2-4 sentences of plain spoken dialogue only. Do not return tool calls, XML, JSON, empty thinking, or analysis-only output.";
+    ROUNDTABLE_DEEP_DIVE_GROUNDING_INSTRUCTION = "Do not invent file paths, function names, metrics, or source-code facts. If no tool evidence is present, frame technical claims as hypotheses to verify, not findings or implementation instructions.";
     VOICE_OPENING_GAP_MS = 2e3;
     VOICE_MULTI_RESPONSE_GAP_MS = 1500;
     VOICE_POLL_INTERVAL_MS = 1500;
@@ -8613,6 +14181,120 @@ var init_orchestrator = __esm({
         "If we could only ship one thing this month, what should it be?"
       ]
     };
+  }
+});
+
+// src/lib/tools/capabilities.ts
+function isDroidAgent(agentId) {
+  return agentId.startsWith("droid-");
+}
+function isKnownAgentId(agentId) {
+  return Object.prototype.hasOwnProperty.call(AGENT_CAPABILITIES, agentId);
+}
+function getAgentCapability(agentId) {
+  return isKnownAgentId(agentId) ? AGENT_CAPABILITIES[agentId] : UNKNOWN_AGENT_CAPABILITY;
+}
+function getCapabilityToolNames(agentId) {
+  return [...getAgentCapability(agentId).tools];
+}
+function getDroidToolNames() {
+  return [...DROID_TOOL_NAMES];
+}
+function getCapabilityWritePaths(agentId) {
+  return [...getAgentCapability(agentId).writePaths];
+}
+function canUseShell(agentId) {
+  return !isDroidAgent(agentId) && getAgentCapability(agentId).canUseShell;
+}
+function canWriteWorkspace(agentId) {
+  return isDroidAgent(agentId) || getAgentCapability(agentId).canWriteWorkspace;
+}
+var COMMON_AGENT_TOOLS, WRITER_TOOLS, SHELL_WRITER_TOOLS, AGENT_CAPABILITIES, DROID_TOOL_NAMES, UNKNOWN_AGENT_CAPABILITY, WRITE_ACLS;
+var init_capabilities = __esm({
+  "src/lib/tools/capabilities.ts"() {
+    "use strict";
+    COMMON_AGENT_TOOLS = [
+      "web_search",
+      "web_fetch",
+      "file_read",
+      "send_to_agent",
+      "spawn_droid",
+      "check_droid",
+      "memory_search",
+      "memory_write",
+      "scratchpad_read",
+      "scratchpad_update",
+      "propose_policy_change",
+      "propose_mission",
+      "cast_veto"
+    ];
+    WRITER_TOOLS = [...COMMON_AGENT_TOOLS, "file_write"];
+    SHELL_WRITER_TOOLS = [...WRITER_TOOLS, "bash"];
+    AGENT_CAPABILITIES = {
+      chora: {
+        tools: COMMON_AGENT_TOOLS,
+        writePaths: [],
+        canUseShell: false,
+        canWriteWorkspace: false,
+        canSpawnDroids: true,
+        canPublishTrustedArtifacts: false
+      },
+      subrosa: {
+        tools: COMMON_AGENT_TOOLS,
+        writePaths: [],
+        canUseShell: false,
+        canWriteWorkspace: false,
+        canSpawnDroids: true,
+        canPublishTrustedArtifacts: false
+      },
+      thaum: {
+        tools: COMMON_AGENT_TOOLS,
+        writePaths: [],
+        canUseShell: false,
+        canWriteWorkspace: false,
+        canSpawnDroids: true,
+        canPublishTrustedArtifacts: false
+      },
+      praxis: {
+        tools: SHELL_WRITER_TOOLS,
+        writePaths: ["agents/praxis/", "output/", "shared/", "projects/"],
+        canUseShell: true,
+        canWriteWorkspace: true,
+        canSpawnDroids: true,
+        canPublishTrustedArtifacts: true
+      },
+      mux: {
+        tools: SHELL_WRITER_TOOLS,
+        writePaths: ["agents/mux/", "output/", "shared/", "projects/"],
+        canUseShell: true,
+        canWriteWorkspace: true,
+        canSpawnDroids: true,
+        canPublishTrustedArtifacts: true
+      },
+      primus: {
+        tools: WRITER_TOOLS,
+        writePaths: ["agents/primus/", "output/", "shared/", "projects/"],
+        canUseShell: false,
+        canWriteWorkspace: true,
+        canSpawnDroids: true,
+        canPublishTrustedArtifacts: true
+      }
+    };
+    DROID_TOOL_NAMES = ["file_read", "file_write", "web_search", "web_fetch"];
+    UNKNOWN_AGENT_CAPABILITY = {
+      tools: [],
+      writePaths: [],
+      canUseShell: false,
+      canWriteWorkspace: false,
+      canSpawnDroids: false,
+      canPublishTrustedArtifacts: false
+    };
+    WRITE_ACLS = Object.fromEntries(
+      Object.entries(AGENT_CAPABILITIES).map(([agentId, capability]) => [
+        agentId,
+        [...capability.writePaths]
+      ])
+    );
   }
 });
 
@@ -8757,6 +14439,22 @@ function extractVerdict(text) {
   if (hasApprove && hasReject) return "mixed";
   return null;
 }
+function buildReviewReadyDraftBody(args) {
+  const header = [
+    "---",
+    `artifact_id: content-draft-${args.sourceSessionId}`,
+    `source_session: ${args.sourceSessionId}`,
+    "version: v01",
+    "audience: review board",
+    "publish_target: content pipeline",
+    `content_type: ${args.contentType}`,
+    `title: ${JSON.stringify(args.title)}`,
+    "reviewer_ask: Review for factual grounding, usefulness, publication readiness, and required revisions.",
+    "---",
+    ""
+  ].join("\n");
+  return `${header}${args.body}`.slice(0, MAX_BODY_LENGTH);
+}
 async function extractContentFromSession(sessionId) {
   const [existing] = await sql`
         SELECT id FROM ops_content_drafts WHERE source_session_id = ${sessionId} LIMIT 1
@@ -8879,6 +14577,12 @@ If no extractable creative content exists, respond with:
     ];
     const contentType = validTypes.includes(parsed.contentType) ? parsed.contentType : "essay";
     const authorAgent = session.participants[0] ?? "mux";
+    const reviewReadyBody = buildReviewReadyDraftBody({
+      body: parsed.body,
+      sourceSessionId: sessionId,
+      contentType,
+      title: parsed.title
+    });
     const [draft] = await sql`
             INSERT INTO ops_content_drafts (
                 author_agent, content_type, title, body, status,
@@ -8887,7 +14591,7 @@ If no extractable creative content exists, respond with:
                 ${authorAgent},
                 ${contentType},
                 ${parsed.title},
-                ${parsed.body},
+                ${reviewReadyBody},
                 'draft',
                 ${sessionId},
                 ${jsonb({ extractedFrom: "writing_room", topic: session.topic })}
@@ -9339,7 +15043,8 @@ function normalizeArtifactPaths(paths) {
 function defaultAcceptanceResults(criteria, outcome) {
   return criteria.map((criterion) => ({
     criterion,
-    status: outcome === "succeeded" ? "passed" : outcome === "dispatched" ? "pending" : "not_verified"
+    status: outcome === "dispatched" ? "pending" : "not_verified",
+    note: outcome === "succeeded" ? "Session succeeded, but acceptance criteria require explicit validator evidence before being marked passed." : void 0
   }));
 }
 function blockerClassForOutcome(outcome, reason) {
@@ -9750,8 +15455,48 @@ __export(step_prompts_exports, {
   buildStepPrompt: () => buildStepPrompt,
   loadStepTemplate: () => loadStepTemplate
 });
+function agentCanWrite(agentId) {
+  return canWriteWorkspace(agentId);
+}
+function agentCanUseShell(agentId) {
+  return canUseShell(agentId);
+}
+function completionContract(kind, agentId) {
+  if (!agentCanWrite(agentId) && needsArtifactGrounding(kind)) {
+    return `Completion contract: this agent cannot publish workspace artifacts directly. You MUST use send_to_agent with target_agent "praxis" to hand off a complete artifact draft, sources, and requested output path; optionally use memory_write for a short durable summary. Do not claim publication yourself.
+`;
+  }
+  if (kind === "audit_system" && !agentCanUseShell(agentId)) {
+    return `Completion contract: this agent cannot run shell checks directly. You MUST use send_to_agent with target_agent "praxis" to request an evidence-bearing audit, including claims to verify and any source paths already inspected. Do not claim audit completion yourself.
+`;
+  }
+  if (!agentCanWrite(agentId) && (kind === "research_topic" || kind === "scan_signals")) {
+    return `Completion contract: you MUST call web_search successfully, use web_fetch for the strongest sources when URLs are available, and use send_to_agent with target_agent "praxis" to hand off findings, source URLs, and a requested report path; optionally use memory_write for a short durable summary.
+`;
+  }
+  return STEP_COMPLETION_CONTRACTS[kind] ?? "";
+}
+function adaptBodyForAgentTools(kind, agentId, body) {
+  let adapted = body;
+  if (!agentCanWrite(agentId)) {
+    adapted = adapted.split("\n").filter((line) => !/file_write|Write .*\bto\b|write .*\bto\b|Include YAML front matter/i.test(line)).join("\n");
+    if (kind === "research_topic" || kind === "scan_signals") {
+      adapted += `Use send_to_agent to send Praxis a concise handoff with findings, source URLs, quotes, and recommended report path.
+`;
+    } else if (needsArtifactGrounding(kind)) {
+      adapted += `Use send_to_agent to send Praxis the complete draft/revision/critique plus its sources and requested output path.
+`;
+    }
+  }
+  if (kind === "audit_system" && !agentCanUseShell(agentId)) {
+    adapted = WORKSPACE_PATH_GUIDANCE + `Inspect only sources available through file_read, web_search, and web_fetch. Then use send_to_agent to ask Praxis to run the shell audit and publish the evidence table. Do not invent command output.
+`;
+  }
+  return adapted;
+}
 async function loadStepTemplate(kind) {
-  const cached = templateCache.get(kind);
+  const cacheKey = tenantCacheKey("step-template", kind);
+  const cached = templateCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < TEMPLATE_CACHE_TTL_MS) {
     return cached.template;
   }
@@ -9760,7 +15505,7 @@ async function loadStepTemplate(kind) {
         FROM ops_step_templates WHERE kind = ${kind}
     `;
   const template = row ?? null;
-  templateCache.set(kind, { template, ts: Date.now() });
+  templateCache.set(cacheKey, { template, ts: Date.now() });
   return template;
 }
 function renderTemplate(template, vars) {
@@ -9768,6 +15513,33 @@ function renderTemplate(template, vars) {
     /\{\{(\w+)\}\}/g,
     (_, key) => vars[key] ?? `{{${key}}}`
   );
+}
+function decorateRenderedTemplate(kind, agentId, rendered) {
+  const fileReadGuidance = rendered.includes("file_read") ? FILE_READ_GUIDANCE : "";
+  const groundingGuidance = needsArtifactGrounding(kind) ? ARTIFACT_GROUNDING_GUIDANCE : "";
+  const contract = completionContract(kind, agentId);
+  const body = adaptBodyForAgentTools(kind, agentId, rendered);
+  if (kind === "audit_system") {
+    return WORKSPACE_PATH_GUIDANCE + AUDIT_EVIDENCE_GUIDANCE + fileReadGuidance + groundingGuidance + FINAL_EVIDENCE_CHECKLIST + contract + body;
+  }
+  if (kind === "patch_code" || kind === "self_evolution") {
+    return WORKSPACE_PATH_GUIDANCE + fileReadGuidance + groundingGuidance + FINAL_EVIDENCE_CHECKLIST + contract + body;
+  }
+  return fileReadGuidance + groundingGuidance + FINAL_EVIDENCE_CHECKLIST + contract + body;
+}
+function needsArtifactGrounding(kind) {
+  return [
+    "document_lesson",
+    "draft_product_spec",
+    "distill_insight",
+    "draft_essay",
+    "draft_thread",
+    "critique_content",
+    "patch_code",
+    "content_revision",
+    "self_evolution",
+    "log_event"
+  ].includes(kind);
 }
 async function buildStepPrompt(kind, ctx, opts) {
   const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
@@ -9805,7 +15577,11 @@ Payload: ${payloadStr}
       outputDir,
       payload: payloadStr
     };
-    const rendered = renderTemplate(dbTemplate.template, vars);
+    const rendered = decorateRenderedTemplate(
+      kind,
+      ctx.agentId,
+      renderTemplate(dbTemplate.template, vars)
+    );
     const prompt2 = header + rendered;
     return opts?.withVersion ? { prompt: prompt2, templateVersion: dbTemplate.version } : prompt2;
   }
@@ -9813,29 +15589,79 @@ Payload: ${payloadStr}
   const stepInstructions = STEP_INSTRUCTIONS[kind];
   if (stepInstructions) {
     body = stepInstructions(ctx, today, outputDir);
+    if (needsArtifactGrounding(kind)) {
+      body = ARTIFACT_GROUNDING_GUIDANCE + body;
+    }
   } else {
     body = `Execute this step thoroughly. Write your results to ${outputDir}/ using file_write.
 `;
     body += `Provide a detailed summary of what you accomplished.
 `;
+    if (needsArtifactGrounding(kind)) {
+      body = ARTIFACT_GROUNDING_GUIDANCE + body;
+    }
   }
-  const prompt = header + body;
+  body = adaptBodyForAgentTools(kind, ctx.agentId, body);
+  const prompt = header + FINAL_EVIDENCE_CHECKLIST + completionContract(kind, ctx.agentId) + body;
   return opts?.withVersion ? { prompt, templateVersion: null } : prompt;
 }
 function slugify(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30);
 }
-var WORKSPACE_ROOT2, SELF_EVOLUTION_REPO_SETUP, TEMPLATE_CACHE_TTL_MS, templateCache, STEP_INSTRUCTIONS;
+var WORKSPACE_ROOT2, GITEA_BASE_URL2, GITEA_ORG2, GITEA_PROJECT_ORG2, WORKSPACE_PATH_GUIDANCE, AUDIT_EVIDENCE_GUIDANCE, FILE_READ_GUIDANCE, ARTIFACT_GROUNDING_GUIDANCE, FINAL_EVIDENCE_CHECKLIST, STEP_COMPLETION_CONTRACTS, SELF_EVOLUTION_REPO_SETUP, TEMPLATE_CACHE_TTL_MS, templateCache, STEP_INSTRUCTIONS;
 var init_step_prompts = __esm({
   "src/lib/ops/step-prompts.ts"() {
     "use strict";
     init_db();
+    init_cache_key();
     init_voices();
+    init_capabilities();
     WORKSPACE_ROOT2 = process.env.WORKSPACE_ROOT ?? "/workspace/projects/subcorp";
+    GITEA_BASE_URL2 = process.env.GITEA_BASE_URL ?? "https://git.subcult.tv";
+    GITEA_ORG2 = process.env.GITEA_ORG ?? "subculture-collective";
+    GITEA_PROJECT_ORG2 = process.env.GITEA_PROJECT_ORG ?? process.env.GITEA_WORKSPACE_ORG ?? GITEA_ORG2;
+    WORKSPACE_PATH_GUIDANCE = `Workspace paths: /workspace/projects is the product workspace root; /workspace/output is the artifact output root; /workspace/agents is the agent state root. /workspace/projects/subcorp is the Subcorp source checkout. Do not use bare /output, /agents, or /projects paths. Do not assume /workspace/src exists. Verify paths with bash or file_read before making claims.
+`;
+    AUDIT_EVIDENCE_GUIDANCE = `Audit evidence contract: include an evidence table with claim, command_or_source, observed_output, severity. Commands must inspect real /workspace/... paths or explicitly cited hostAudit snapshots. Do not use bare /output, /agents, or /projects paths in audit commands or evidence. If a command targets a missing path, first verify the corresponding /workspace path before claiming missing artifacts. Do not claim exposed ports, services, files, artifacts, or permissions without command output from bash or a cited hostAudit snapshot.
+`;
+    FILE_READ_GUIDANCE = `File read rule: file_read accepts concrete files only, not directories. Use bash to list a directory and choose specific file paths before calling file_read. Never pass directories such as /workspace/output/, output/, /workspace/agents/<agent>/notes/, or agents/<agent>/notes/ to file_read.
+`;
+    ARTIFACT_GROUNDING_GUIDANCE = `Artifact grounding rule: do not claim code changes, schema changes, metrics, coverage, compliance, operational outcomes, or completed work unless you verified them with bash, file_read, web_fetch, or an explicitly cited source artifact. Include a "Grounding" section listing the exact files, commands, DB rows, URLs, or source artifacts used. Do not cite example.com/placeholder URLs or files marked missing/not found as evidence. If a claim is not verified, label it as a proposal, assumption, or next step instead of stating it as fact.
+`;
+    FINAL_EVIDENCE_CHECKLIST = `Before final answer: reread the Completion contract and verify every required tool call and evidence section exists. If any required evidence is missing, do not claim success; write a blocked/partial result that names the missing tool, source, or artifact.
+`;
+    STEP_COMPLETION_CONTRACTS = {
+      research_topic: `Completion contract: you MUST call web_search successfully and write notes with file_write. Prefer web_fetch for the strongest URLs when useful. Include a Sources section listing query strings, URLs, fetched pages, and any failed searches/fetches.
+`,
+      scan_signals: `Completion contract: you MUST call web_search successfully and write a signal report with file_write. Prefer web_fetch for the strongest URLs when useful. Include a Sources section listing query strings, URLs, fetched pages, and any failed searches/fetches.
+`,
+      audit_system: `Completion contract: you MUST call bash successfully and write an audit artifact with file_write. The artifact MUST include the command(s) run, observed output excerpts, and an evidence table with columns: claim | command_or_source | observed_output | severity.
+`,
+      patch_code: `Completion contract: you MUST create or modify at least one source/config file with file_write and write a changelog artifact. The changelog MUST include a Grounding section with exact written files and verification commands.
+`,
+      draft_product_spec: `Completion contract: you MUST write the spec with file_write. The spec MUST include a Grounding section naming source artifacts, notes, searches, or explicit assumptions. Success metrics must be labelled as targets/proposed metrics unless backed by verified evidence.
+`,
+      document_lesson: `Completion contract: you MUST write documentation with file_write. The document MUST include a Grounding section naming the source event/artifact/command/DB row used.
+`,
+      distill_insight: `Completion contract: you MUST write the digest with file_write. The digest MUST include a Grounding section naming the exact source artifacts or memories used.
+`,
+      log_event: `Completion contract: you MUST write an event note with file_write. The note MUST include a Grounding section naming the event, source session, artifact, command, or DB row being logged.
+`,
+      critique_content: `Completion contract: you MUST read or cite the reviewed artifact and write the critique with file_write. Include a Grounding section naming the exact artifact reviewed.
+`,
+      content_revision: `Completion contract: you MUST read or cite the original artifact/reviewer notes and write the revision with file_write. Include a Grounding section naming the original artifact and feedback addressed.
+`,
+      draft_essay: `Completion contract: you MUST write the draft with file_write. Include a Grounding section naming source notes, URLs, or assumptions used.
+`,
+      draft_thread: `Completion contract: you MUST write the thread with file_write. Include a Grounding section naming source notes, URLs, or assumptions used.
+`,
+      self_evolution: `Completion contract: you MUST inspect the repo with bash, change files with file_write, and write a grounded summary artifact. If repo mutation is blocked, write a human-action-needed artifact instead of claiming success.
+`
+    };
     SELF_EVOLUTION_REPO_SETUP = [
       `REPO_DIR=${WORKSPACE_ROOT2}`,
       `if [ ! -d "$REPO_DIR/.git" ]; then for CANDIDATE in /workspace/projects/subcorp /home/onnwee/projects/subcorp /home/onnwee/workspace/projects/subcorp; do if [ -d "$CANDIDATE/.git" ]; then REPO_DIR="$CANDIDATE"; break; fi; done; fi`,
-      `if [ ! -d "$REPO_DIR/.git" ]; then mkdir -p /home/onnwee/projects && git clone https://git.subcult.tv/subculture-collective/subcorp.git /home/onnwee/projects/subcorp && REPO_DIR=/home/onnwee/projects/subcorp; fi`,
+      `if [ ! -d "$REPO_DIR/.git" ]; then mkdir -p /home/onnwee/projects && git clone ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp.git /home/onnwee/projects/subcorp && REPO_DIR=/home/onnwee/projects/subcorp; fi`,
       `cd "$REPO_DIR"`
     ].join("; ");
     TEMPLATE_CACHE_TTL_MS = 6e4;
@@ -9870,34 +15696,41 @@ Write a structured critique to output/reviews/${today}__critique__review__${slug
 Cover: strengths, weaknesses, factual accuracy, tone, suggestions for improvement.
 Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "critique_content", status: "complete".
 `,
-      audit_system: (ctx, today) => `Use bash to run system checks relevant to the payload.
+      audit_system: (ctx, today) => WORKSPACE_PATH_GUIDANCE + AUDIT_EVIDENCE_GUIDANCE + `Use bash to run system checks relevant to the payload.
+If evidence is unavailable, write status: "blocked" with the missing command/source instead of inventing findings.
 Check file permissions, exposed ports, running services, or whatever the payload specifies.
 Write findings to output/reviews/${today}__audit__security__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
 Rate findings by severity: critical, high, medium, low, info.
 Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "audit_system", status: "complete".
 `,
       patch_code: (ctx, today, outputDir) => {
-        const projectDir = ctx.payload.project_dir || "/workspace/projects";
+        const requestedProjectDir = ctx.payload.project_dir;
+        const projectDir = requestedProjectDir || `/workspace/projects/${slugify(ctx.missionTitle)}`;
         return `You are a software engineer. Your job is to write code.
-
+` + WORKSPACE_PATH_GUIDANCE + FILE_READ_GUIDANCE + ARTIFACT_GROUNDING_GUIDANCE + `
 Project directory: ${projectDir}
+Do not write product files directly into /workspace/projects root. If no project_dir is supplied, use the mission-specific project directory above.
 Task: ${ctx.payload.description || ctx.missionTitle}
 
 INSTRUCTIONS:
 1. If the project directory doesn't exist yet, create it. Use file_write to create package.json, tsconfig.json, README.md, and source files.
 2. If the project exists, use file_read to read the existing source files first.
 3. Use file_write to create or modify source files. Write real, working code \u2014 not pseudocode or descriptions.
-4. Write a brief changelog to ${outputDir}/${today}__patch__code__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md
+4. Run package-manager or scaffold commands only inside the project directory (for example: cd ${projectDir} && npm init -y). Never run npm init from /workspace or /workspace/projects root.
+5. After writing source files, use bash to verify they exist (for example: find ${projectDir} -maxdepth 3 -type f).
+6. Write a brief changelog to ${outputDir}/${today}__patch__code__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
+7. If GITEA_WORKSPACE_TOKEN or GITEA_TOKEN is available and the code is ready, use bash to run sync-workspace-to-gitea.sh projects so individual project repos are pushed to ${GITEA_BASE_URL2}/${GITEA_PROJECT_ORG2}.
 
 Your primary output is SOURCE CODE files written via file_write. Do NOT just describe what you would build \u2014 actually build it.
 `;
       },
-      distill_insight: (ctx, today) => `Read recent outputs from output/ and agents/${ctx.agentId}/notes/ using file_read.
+      distill_insight: (ctx, today) => ARTIFACT_GROUNDING_GUIDANCE + `Read recent outputs from output/ and agents/${ctx.agentId}/notes/ using file_read.
 Synthesize into a concise digest of key insights.
 Write to output/digests/${today}__distill__insight__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
 Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "distill_insight", status: "complete".
 `,
-      document_lesson: (ctx, today) => `Document the lesson or knowledge described in the payload.
+      document_lesson: (ctx, today) => ARTIFACT_GROUNDING_GUIDANCE + `Document the lesson or knowledge described in the payload.
+Do not invent inventories, system names, record counts, costs, dates, percentages, or operational metrics. If source inventory/evidence is missing, state that explicitly and frame any examples as illustrative assumptions or open questions.
 Write clear, reusable documentation to the appropriate projects/ docs/ directory.
 If no specific project, write to output/reports/${today}__docs__lesson__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md.
 Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "document_lesson", status: "complete".
@@ -9923,7 +15756,9 @@ Use the propose_mission tool with the workflow steps.
 Write the proposal to ${outputDir}/${today}__workflow__proposal__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md.
 Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "propose_workflow", status: "proposed".
 `,
-      draft_product_spec: (ctx, today) => `Read recent research notes and roundtable artifacts from agents/ and output/ using file_read.
+      draft_product_spec: (ctx, today) => ARTIFACT_GROUNDING_GUIDANCE + `Product identity rule: the product name, audience, and core purpose come from the mission title and payload. Preserve them exactly. Do NOT replace the requested product with an unrelated governance, audit, or operations concept just because recent audit artifacts are available.
+Use unrelated audit/process artifacts only as constraints, risks, or compliance requirements, not as the product concept. If the source context conflicts, state the conflict in Open questions instead of silently changing the product.
+Read recent research notes and roundtable artifacts from agents/ and output/ using file_read.
 Look for brainstorm sessions, strategy discussions, and signal reports.
 Draft a structured product specification document with:
   - YAML front matter (artifact_id, created_at, agent_id, status: "draft")
@@ -9964,21 +15799,19 @@ Write the spec to output/reports/${today}__product__spec__${slugify(ctx.missionT
 Use bash to check the diff:
   cd ${WORKSPACE_ROOT2} && git diff --stat HEAD~5
   cd ${WORKSPACE_ROOT2} && git log --oneline -10
-If GITEA_TOKEN is set, push and create a PR on git.subcult.tv:
-  cd ${WORKSPACE_ROOT2} && git push -u origin agents/workspace 2>&1
-  Open the pull request in the Gitea UI at https://git.subcult.tv/subculture-collective/subcorp/pulls/new
-If GITEA_TOKEN is NOT set or push fails, write a PR summary to ${outputDir}/${today}__pr__summary__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
+Do not commit, push, or create a live PR from an autonomous session. Prepare a PR-ready summary artifact instead.
+Write the PR summary to ${outputDir}/${today}__pr__summary__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.
 The summary should include: branch name, commit list, diff stats, and a description of all changes.
 Include YAML front matter: artifact_id, created_at, agent_id, step_kind: "create_pull_request", status: "complete".
 `,
       self_evolution: (ctx, today, outputDir) => `You are improving your own system. You are an AI agent in the SUBCORP collective.
-Your source code is at ${WORKSPACE_ROOT2}/.
+` + ARTIFACT_GROUNDING_GUIDANCE + `Your source code is at ${WORKSPACE_ROOT2}/.
 
 \u2550\u2550\u2550 CONTEXT \u2550\u2550\u2550
-You belong to the subculture-collective Gitea organization (https://git.subcult.tv/subculture-collective).
-Your platform repo is https://git.subcult.tv/subculture-collective/subcorp.git.
-You have FULL ACCESS to the org \u2014 you can create repos, issues, PRs, manage projects, everything.
-The org is yours to run like a business. Any action available to you is authorized.
+You belong to the ${GITEA_ORG2} Gitea organization (${GITEA_BASE_URL2}/${GITEA_ORG2}).
+Your platform repo is ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp.git.
+You may inspect and prepare changes, but autonomous sessions MUST NOT commit, push, or create live PRs.
+Prepare operator-reviewable artifacts instead of publishing changes directly.
 \u2550\u2550\u2550 END CONTEXT \u2550\u2550\u2550
 
 Task: ${ctx.payload.description || ctx.missionTitle}
@@ -9986,64 +15819,61 @@ Task: ${ctx.payload.description || ctx.missionTitle}
 INSTRUCTIONS:
 1. Use file_read to read the relevant source files described in the payload.
 2. Identify a specific, concrete improvement (not vague "make it better").
-3. Use bash to locate or clone the repo, then create a feature branch:
-   ${SELF_EVOLUTION_REPO_SETUP} && git checkout -b evolution/${ctx.agentId}/${today}/${slugify(ctx.missionTitle).slice(0, 30)}
+3. Use bash to inspect status/diff and identify the intended branch name, but do not create/publish a live branch.
 4. Use file_write to make your changes.
-5. Use bash to commit and push:
-   ${SELF_EVOLUTION_REPO_SETUP} && git add -A && git commit -m "${ctx.missionTitle}" && git push -u origin HEAD
-6. Open a PR in Gitea on https://git.subcult.tv/subculture-collective/subcorp.
-7. Write a summary to ${outputDir}/${today}__evolution__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md
+5. Do not run git commit, git push, gh/tea PR creation, or direct PR creation API calls.
+6. Write a PR-ready summary to ${outputDir}/${today}__evolution__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md with changed files, diff summary, validation, and exact operator next steps.
 
-Your output is a MERGED PULL REQUEST with real code changes. Do not just describe what you would change.
+Your output is local code changes plus a PR-ready artifact for operator review, not a merged or pushed pull request.
 `,
-      github_issue: (ctx, _today, _outputDir) => `You are managing the subculture-collective Gitea organization.
-Org: https://git.subcult.tv/subculture-collective
-Platform repo: https://git.subcult.tv/subculture-collective/subcorp.git
+      github_issue: (ctx) => `You are managing the subculture-collective Gitea organization.
+Org: ${GITEA_BASE_URL2}/${GITEA_ORG2}
+Platform repo: ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp.git
 You have FULL ACCESS \u2014 create repos, issues, PRs, labels, projects, anything.
 
 Task: ${ctx.payload.description || ctx.missionTitle}
 
 Use bash and the Gitea web UI/API. Examples:
-  Open issues at https://git.subcult.tv/subculture-collective/subcorp/issues/new
-  Browse issues at https://git.subcult.tv/subculture-collective/subcorp/issues
-  Create repos under https://git.subcult.tv/subculture-collective
+  Open issues at ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp/issues/new
+  Browse issues at ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp/issues
+  Create repos under ${GITEA_BASE_URL2}/${GITEA_ORG2}
   Manage labels in the repo settings on git.subcult.tv
 
 Create well-structured issues with clear titles, descriptions, acceptance criteria, and appropriate labels.
 `,
-      github_pr: (ctx, _today, _outputDir) => `You are managing code in the subculture-collective Gitea organization.
-Org: https://git.subcult.tv/subculture-collective
-Platform repo: https://git.subcult.tv/subculture-collective/subcorp.git
-You have FULL ACCESS.
+      github_pr: (ctx) => `You are managing code in the subculture-collective Gitea organization.
+Org: ${GITEA_BASE_URL2}/${GITEA_ORG2}
+Platform repo: ${GITEA_BASE_URL2}/${GITEA_ORG2}/subcorp.git
+You may inspect and prepare changes, but autonomous sessions MUST NOT commit, push, or create live PRs.
 
 Task: ${ctx.payload.description || ctx.missionTitle}
 
 INSTRUCTIONS:
 1. Use bash to check current branch and status: cd ${WORKSPACE_ROOT2} && git status
-2. Create a branch, make changes via file_write, commit, push, and open a PR in Gitea.
+2. Make changes via file_write when requested, but do not commit, push, or open a live PR.
 3. PR should have a clear title, description of changes, and context for reviewers.
-4. Use the pull request page on https://git.subcult.tv/subculture-collective/subcorp.
+4. Write a PR-ready summary artifact with changed files, validation, and exact operator next steps.
 `,
       explore_repo: (ctx, _today, outputDir) => `You are exploring repositories in the subculture-collective Gitea organization.
-Org: https://git.subcult.tv/subculture-collective
+Org: ${GITEA_BASE_URL2}/${GITEA_ORG2}
 You have FULL ACCESS to all repos.
 
 Task: ${ctx.payload.description || ctx.missionTitle}
 
 INSTRUCTIONS:
-1. Use bash to browse the Gitea org page or API: https://git.subcult.tv/subculture-collective
+1. Use bash to browse the Gitea org page or API: ${GITEA_BASE_URL2}/${GITEA_ORG2}
 2. For a specific repo, explore it:
-   https://git.subcult.tv/subculture-collective/[repo-name]
-   https://git.subcult.tv/subculture-collective/[repo-name]/issues
-   https://git.subcult.tv/subculture-collective/[repo-name]/pulls
+   ${GITEA_BASE_URL2}/${GITEA_ORG2}/[repo-name]
+   ${GITEA_BASE_URL2}/${GITEA_ORG2}/[repo-name]/issues
+   ${GITEA_BASE_URL2}/${GITEA_ORG2}/[repo-name]/pulls
 3. Clone and read source code if needed:
-   cd /workspace/projects && git clone https://git.subcult.tv/subculture-collective/[repo-name].git 2>/dev/null || true
+   cd /workspace/projects && git clone ${GITEA_BASE_URL2}/${GITEA_ORG2}/[repo-name].git 2>/dev/null || true
    Then use file_read to read files.
 4. IMPORTANT: Check for existing Gitea issues, README, and docs \u2014 respect the existing development plan.
 5. If you find improvements to make, create detailed PRs with clear descriptions of what you changed and why.
 6. Write findings to ${outputDir}/
 `,
-      publish_blog: (ctx, _today, _outputDir) => `You are publishing content to the SUBCORP blog at https://blog.subcult.tv (Ghost CMS).
+      publish_blog: (ctx) => `You are publishing content to the SUBCORP blog at https://blog.subcult.tv (Ghost CMS).
 
 Task: ${ctx.payload.description || ctx.missionTitle}
 
@@ -10079,7 +15909,7 @@ The human has offered to help with: creating accounts, providing API keys,
 installing services, and any task you cannot do yourself. Just ask.
 `,
       content_revision: (ctx, today, outputDir) => `You are revising a previously reviewed piece of content based on reviewer feedback.
-The payload contains the original draft and the reviewer notes explaining what needs to change.
+` + ARTIFACT_GROUNDING_GUIDANCE + `The payload contains the original draft and the reviewer notes explaining what needs to change.
 Read the original artifact referenced in the payload using file_read.
 Apply every piece of reviewer feedback. Do not ignore or soften critical notes \u2014 address each one directly.
 Preserve the original voice and intent while improving quality, accuracy, and clarity.
@@ -10389,9 +16219,35 @@ init_voices();
 
 // src/lib/tools/tools/bash.ts
 init_executor();
+function forbiddenAutonomousPublishCommand(command) {
+  const normalized = command.replace(/\\\s*\n/g, " ").replace(/\s+/g, " ").trim();
+  if (/\bgit\s+commit\b/i.test(normalized)) {
+    return "git commit is disabled for autonomous agent bash sessions; write a PR-ready summary artifact instead";
+  }
+  if (/\bgit\s+push\b/i.test(normalized)) {
+    return "git push is disabled for autonomous agent bash sessions; write a PR-ready summary artifact instead";
+  }
+  if (/\b(?:gh|tea)\s+(?:pr|pull|pulls)\s+(?:create|new)\b/i.test(normalized)) {
+    return "pull request creation is disabled for autonomous agent bash sessions; write a PR-ready summary artifact instead";
+  }
+  return null;
+}
+function forbiddenWorkspaceRootWriteCommand(command) {
+  const normalized = command.replace(/\\\s*\n/g, " ").replace(/\s+/g, " ").trim();
+  const writesWorkspaceRootPackage = /\bnpm\s+init\b/i.test(normalized) && !/\bcd\s+\/workspace\/projects\/[^\s;&|]+\s*&&/i.test(normalized) && !/\b--prefix\s+\/workspace\/projects\/[^\s;&|]+\b/i.test(normalized);
+  if (writesWorkspaceRootPackage) {
+    return "npm init must run inside a mission-specific /workspace/projects/<slug> directory, not /workspace or /workspace/projects root";
+  }
+  const writeVerb = /\b(?:mkdir|touch|cp|mv|rm|install|npm|pnpm|yarn|bun|python|python3|node)\b|>|\btee\b/i;
+  const directProjectsRootTarget = /\/workspace\/projects\/(?:package\.json|README\.md|app\.py|server\.js|index\.[a-z]+|src(?:\/|\b)|tests?(?:\/|\b)|config(?:\/|\b))/i;
+  if (writeVerb.test(normalized) && directProjectsRootTarget.test(normalized)) {
+    return "product code writes must target a mission-specific /workspace/projects/<slug>/ directory, not /workspace/projects root";
+  }
+  return null;
+}
 var bashTool = {
   name: "bash",
-  description: "Execute a bash command in the toolbox environment. Has access to standard Linux utilities, curl, jq, git, node, python3, gh CLI, ripgrep, and fd-find.",
+  description: "Execute a bash command in the toolbox environment. Has access to standard Linux utilities, curl, jq, git, node, python3, gh CLI, ripgrep, fd-find, and /usr/local/bin/sync-workspace-to-gitea.sh. Host audit commands must be explicitly labelled; ordinary commands run inside the toolbox container, not on the host.",
   agents: ["praxis", "mux"],
   parameters: {
     type: "object",
@@ -10409,6 +16265,14 @@ var bashTool = {
   },
   execute: async (params) => {
     const command = params.command;
+    const forbidden = forbiddenAutonomousPublishCommand(command);
+    if (forbidden) {
+      return { error: forbidden, denied: true };
+    }
+    const workspaceRootWrite = forbiddenWorkspaceRootWriteCommand(command);
+    if (workspaceRootWrite) {
+      return { error: workspaceRootWrite, denied: true, policy: "workspace_project_root_boundary" };
+    }
     const timeoutMs = Math.min(
       params.timeout_ms || 3e4,
       12e4
@@ -10437,13 +16301,184 @@ var ALL_AGENTS = [
 
 // src/lib/tools/tools/web-search.ts
 init_logger();
+init_metrics2();
+init_fetch_with_retry();
 var log24 = logger.child({ module: "web-search" });
+var EXA_API_KEY = process.env.EXA_API_KEY ?? "";
+var TAVILY_API_KEY = process.env.TAVILY_API_KEY ?? "";
 var BRAVE_API_KEY = process.env.BRAVE_API_KEY ?? "";
+var EXA_SEARCH_URL = "https://api.exa.ai/search";
+var TAVILY_SEARCH_URL = "https://api.tavily.com/search";
 var BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search";
 var DDG_SEARCH_URL = "https://api.duckduckgo.com/";
+var providerCooldownUntil = /* @__PURE__ */ new Map();
+function isCoolingDown(provider) {
+  return (providerCooldownUntil.get(provider) ?? 0) > Date.now();
+}
+function setCooldown(provider, response) {
+  const retryAfter = response?.headers.get("Retry-After");
+  const retryAfterSeconds = retryAfter ? Number.parseFloat(retryAfter) : NaN;
+  const cooldownMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0 ? retryAfterSeconds * 1e3 : 6e4;
+  providerCooldownUntil.set(provider, Date.now() + cooldownMs);
+}
+function recordFallback(fromProvider, toProvider, reason) {
+  incWebSearchFallback({ fromProvider, toProvider, reason });
+}
+function failurePayload(failures) {
+  if (failures.length === 0) return null;
+  if (failures.length === 1) return failures[0];
+  return failures;
+}
+async function searchExa(query, count) {
+  const response = await fetchWithRetry(EXA_SEARCH_URL, {
+    method: "POST",
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+      "x-api-key": EXA_API_KEY
+    },
+    body: JSON.stringify({
+      query,
+      numResults: count,
+      type: "auto",
+      contents: {
+        text: true,
+        highlights: true
+      }
+    }),
+    label: "exa search",
+    totalTimeoutMs: 15e3,
+    maxRetries: 1
+  });
+  if (response.status === 429) {
+    setCooldown("exa", response);
+    throw new Error("rate_limited");
+  }
+  if (!response.ok) {
+    throw new Error(`Exa returned ${response.status}`);
+  }
+  const data = await response.json();
+  return (data.results ?? []).slice(0, count).map((result) => ({
+    title: result.title || result.url || "Untitled result",
+    url: result.url || "",
+    description: result.text || result.highlights?.join(" ") || ""
+  })).filter((result) => result.url);
+}
+async function searchTavily(query, count) {
+  const response = await fetchWithRetry(TAVILY_SEARCH_URL, {
+    method: "POST",
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${TAVILY_API_KEY}`
+    },
+    body: JSON.stringify({
+      query,
+      max_results: count,
+      search_depth: "basic"
+    }),
+    label: "tavily search",
+    totalTimeoutMs: 15e3,
+    maxRetries: 1
+  });
+  if (response.status === 429) {
+    setCooldown("tavily", response);
+    throw new Error("rate_limited");
+  }
+  if (!response.ok) {
+    throw new Error(`Tavily returned ${response.status}`);
+  }
+  const data = await response.json();
+  return (data.results ?? []).slice(0, count).map((result) => ({
+    title: result.title || result.url || "Untitled result",
+    url: result.url || "",
+    description: result.content || ""
+  })).filter((result) => result.url);
+}
+async function searchBrave(query, count) {
+  const url = new URL(BRAVE_SEARCH_URL);
+  url.searchParams.set("q", query);
+  url.searchParams.set("count", String(count));
+  const response = await fetchWithRetry(url.toString(), {
+    headers: {
+      "Accept": "application/json",
+      "Accept-Encoding": "gzip",
+      "X-Subscription-Token": BRAVE_API_KEY
+    },
+    label: "brave search",
+    totalTimeoutMs: 15e3,
+    maxRetries: 1
+  });
+  if (response.status === 429) {
+    setCooldown("brave", response);
+    throw new Error("rate_limited");
+  }
+  if (!response.ok) {
+    throw new Error(`Brave returned ${response.status}`);
+  }
+  const data = await response.json();
+  return (data.web?.results ?? []).slice(0, count).map((result) => ({
+    title: result.title || result.url || "Untitled result",
+    url: result.url || "",
+    description: result.description || ""
+  })).filter((result) => result.url);
+}
+async function searchDuckDuckGo(query, count) {
+  const url = new URL(DDG_SEARCH_URL);
+  url.searchParams.set("q", query);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("no_redirect", "1");
+  url.searchParams.set("t", "subcorp");
+  const response = await fetchWithRetry(url.toString(), {
+    headers: { "Accept": "application/json" },
+    label: "duckduckgo search",
+    totalTimeoutMs: 15e3,
+    maxRetries: 1
+  });
+  if (!response.ok) {
+    throw new Error(`DuckDuckGo returned ${response.status}`);
+  }
+  const data = await response.json();
+  const rawResults = [
+    ...data.Results ?? [],
+    ...(data.RelatedTopics ?? []).filter((topic) => topic.FirstURL)
+  ];
+  return rawResults.slice(0, count).map((result) => {
+    const description = result.Text ?? "";
+    return {
+      title: description.replace(/^https?:\/\/\S+\s*/i, "").trim() || description || result.FirstURL || "Untitled result",
+      url: result.FirstURL ?? "",
+      description
+    };
+  }).filter((result) => result.url);
+}
+async function tryProvider(provider, hasKey, query, count) {
+  if (!hasKey) {
+    return { failure: { provider, reason: "missing_key" } };
+  }
+  if (isCoolingDown(provider)) {
+    return { failure: { provider, reason: "cooldown" } };
+  }
+  try {
+    const results = provider === "exa" ? await searchExa(query, count) : provider === "tavily" ? await searchTavily(query, count) : await searchBrave(query, count);
+    if (results.length === 0) {
+      return { failure: { provider, reason: "empty_results" } };
+    }
+    return { results, provider };
+  } catch (err) {
+    const reason = err.message === "rate_limited" ? "rate_limited" : "exception";
+    log24.warn(`${provider} search failed, trying next provider`, {
+      provider,
+      reason,
+      error: err.message,
+      query
+    });
+    return { failure: { provider, reason } };
+  }
+}
 var webSearchTool = {
   name: "web_search",
-  description: "Search the web using Brave Search (primary) with DuckDuckGo fallback. Returns titles, URLs, and descriptions of matching results.",
+  description: "Search the web using Exa/Tavily, then Brave, with DuckDuckGo as degraded last-resort fallback. Returns titles, URLs, descriptions, provider provenance, and confidence.",
   agents: [...ALL_AGENTS],
   parameters: {
     type: "object",
@@ -10462,75 +16497,54 @@ var webSearchTool = {
   execute: async (params) => {
     const query = params.query;
     const count = Math.min(params.count || 5, 20);
-    if (BRAVE_API_KEY) {
-      try {
-        const url = new URL(BRAVE_SEARCH_URL);
-        url.searchParams.set("q", query);
-        url.searchParams.set("count", String(count));
-        const response = await fetch(url.toString(), {
-          headers: {
-            "Accept": "application/json",
-            "Accept-Encoding": "gzip",
-            "X-Subscription-Token": BRAVE_API_KEY
-          },
-          signal: AbortSignal.timeout(15e3)
-        });
-        if (response.status === 429) {
-          log24.warn("Brave Search rate-limited, falling back to DuckDuckGo", { query });
-        } else if (response.ok) {
-          const data = await response.json();
-          const results = (data.web?.results ?? []).map((r) => ({
-            title: r.title,
-            url: r.url,
-            description: r.description
-          }));
-          return { results, query, count: results.length, source: "brave" };
-        } else {
-          log24.warn("Brave Search error, falling back to DuckDuckGo", {
-            status: response.status,
-            query
-          });
-        }
-      } catch (err) {
-        log24.warn("Brave Search failed, falling back to DuckDuckGo", {
-          error: err.message,
-          query
-        });
-      }
-    }
-    try {
-      const url = new URL(DDG_SEARCH_URL);
-      url.searchParams.set("q", query);
-      url.searchParams.set("format", "json");
-      url.searchParams.set("no_redirect", "1");
-      url.searchParams.set("t", "subcorp");
-      const response = await fetch(url.toString(), {
-        headers: { "Accept": "application/json" },
-        signal: AbortSignal.timeout(15e3)
-      });
-      if (!response.ok) {
-        return { error: `Both Brave and DuckDuckGo search failed. DuckDuckGo returned ${response.status}.` };
-      }
-      const data = await response.json();
-      const rawResults = [
-        ...data.Results ?? [],
-        ...(data.RelatedTopics ?? []).filter((t) => t.FirstURL)
-      ];
-      const results = rawResults.slice(0, count).map((r) => {
-        const description = r.Text ?? "";
+    const failures = [];
+    const providers = [
+      ["exa", Boolean(EXA_API_KEY)],
+      ["tavily", Boolean(TAVILY_API_KEY)],
+      ["brave", Boolean(BRAVE_API_KEY)]
+    ];
+    for (const [provider, hasKey] of providers) {
+      const attempt = await tryProvider(provider, hasKey, query, count);
+      if ("results" in attempt) {
+        const fallback = failurePayload(failures);
+        const previousFailure = failures.at(-1);
+        if (previousFailure) recordFallback(previousFailure.provider, attempt.provider, previousFailure.reason);
         return {
-          title: description.replace(/^https?:\/\/\S+\s*/i, "").trim() || description,
-          url: r.FirstURL ?? "",
-          description
+          results: attempt.results,
+          query,
+          count: attempt.results.length,
+          source: attempt.provider,
+          provider: attempt.provider,
+          fallback,
+          degraded: false,
+          confidence: "high"
         };
-      });
-      if (results.length === 0) {
-        return { results: [], query, count: 0, source: "ddg" };
       }
-      return { results, query, count: results.length, source: "ddg" };
+      failures.push(attempt.failure);
+    }
+    const lastFailure = failures.at(-1);
+    if (lastFailure) recordFallback(lastFailure.provider, "duckduckgo", lastFailure.reason);
+    try {
+      const results = await searchDuckDuckGo(query, count);
+      return {
+        results,
+        query,
+        count: results.length,
+        source: "ddg",
+        provider: "duckduckgo",
+        fallback: failurePayload(failures),
+        degraded: true,
+        confidence: "low"
+      };
     } catch (err) {
       log24.error("DuckDuckGo fallback also failed", { error: err, query });
-      return { error: `Search failed: ${err.message}` };
+      return {
+        error: `Search failed: ${err.message}`,
+        provider: "duckduckgo",
+        fallback: failurePayload(failures),
+        degraded: true,
+        confidence: "low"
+      };
     }
   }
 };
@@ -10603,7 +16617,7 @@ except Exception as e:
 init_executor();
 var fileReadTool = {
   name: "file_read",
-  description: "Read a file from the shared workspace. Returns the file contents as text.",
+  description: "Read a file from the shared workspace. Returns the file contents as text. Accepts concrete file paths only; use bash to list directories before reading files. /workspace/projects is the product workspace root. /workspace/projects/subcorp is the Subcorp source checkout. /workspace/output is the artifact output root. /workspace/agents is the agent state root. Do not use /workspace/src; it is not a valid source path.",
   agents: ["chora", "subrosa", "thaum", "praxis", "mux", "primus"],
   parameters: {
     type: "object",
@@ -10626,17 +16640,32 @@ var fileReadTool = {
       return { error: "Invalid path: path traversal sequences (..) are not allowed" };
     }
     const fullPath = rawPath.startsWith("/workspace/") ? rawPath : `/workspace/${rawPath}`;
-    let command = `cat '${fullPath.replace(/'/g, "'\\''")}'`;
+    const quotedPath = `'${fullPath.replace(/'/g, "'\\''")}'`;
+    let command = `[ -d ${quotedPath} ] && { printf 'path is a directory'; exit 21; }; [ -f ${quotedPath} ] || { printf 'file does not exist'; exit 22; }; cat ${quotedPath}`;
     if (maxLines) {
-      command = `head -n ${maxLines} '${fullPath.replace(/'/g, "'\\''")}'`;
+      command = `[ -d ${quotedPath} ] && { printf 'path is a directory'; exit 21; }; [ -f ${quotedPath} ] || { printf 'file does not exist'; exit 22; }; head -n ${maxLines} ${quotedPath}`;
     }
     const result = await execInToolbox(command, 1e4);
     if (result.exitCode !== 0) {
-      return { error: `File read failed: ${result.stderr || "file not found"}` };
+      return {
+        error: `File read failed: ${result.stderr || result.stdout || "file not found"}${pathHintForMissingWorkspacePath(rawPath)}`
+      };
     }
     return { path: fullPath, content: result.stdout, lines: result.stdout.split("\n").length };
   }
 };
+function pathHintForMissingWorkspacePath(rawPath) {
+  if (rawPath.endsWith("/")) {
+    return " Hint: file_read only accepts concrete file paths, not directories. Use bash to list the directory, then call file_read on specific files.";
+  }
+  if (rawPath.startsWith("/workspace/src") || rawPath.startsWith("src/")) {
+    return " Hint: /workspace/src does not exist. Use /workspace/projects/subcorp/src for Subcorp source, or /workspace/projects/<project>/src for product code.";
+  }
+  if (rawPath.startsWith("/workspace/projects/") || rawPath.startsWith("projects/")) {
+    return " Hint: verify the project slug under /workspace/projects before reading files; use /workspace/projects/subcorp for the Subcorp checkout.";
+  }
+  return "";
+}
 
 // src/lib/tools/tools/file-write.ts
 init_executor();
@@ -10869,14 +16898,8 @@ async function appendGrantAuthorityEvent(sql3, input, options) {
 // src/lib/tools/tools/file-write.ts
 var import_node_path2 = __toESM(require("node:path"));
 init_logger();
-var WRITE_ACLS = {
-  chora: [],
-  subrosa: [],
-  thaum: [],
-  praxis: ["agents/praxis/", "output/", "shared/", "projects/"],
-  mux: ["agents/mux/", "output/", "shared/", "projects/"],
-  primus: ["agents/primus/", "output/", "shared/", "projects/"]
-};
+init_cache_key();
+init_capabilities();
 var log25 = createLogger({ service: "file_write" });
 var DROID_PREFIX = "droids/";
 function isPathAllowed(agentId, relativePath) {
@@ -10923,27 +16946,22 @@ async function isPathAllowedWithGrants(agentId, relativePath) {
     return false;
   }
 }
-async function appendManifest(artifactId, fullPath, agentId, contentLength) {
-  const relativePath = fullPath.replace("/workspace/", "");
-  let artifactType = "unknown";
-  if (relativePath.startsWith("output/briefings/")) artifactType = "briefing";
-  else if (relativePath.startsWith("output/reports/")) artifactType = "report";
-  else if (relativePath.startsWith("output/reviews/")) artifactType = "review";
-  else if (relativePath.startsWith("output/digests/")) artifactType = "digest";
-  else if (relativePath.startsWith("output/")) artifactType = "artifact";
-  const entry = JSON.stringify({
-    artifact_id: artifactId,
-    path: relativePath,
-    agent_id: agentId,
-    type: artifactType,
-    created_at: (/* @__PURE__ */ new Date()).toISOString(),
-    bytes: contentLength
-  });
-  const b64 = Buffer.from(entry + "\n").toString("base64");
-  await execInToolbox(
-    `echo '${b64}' | base64 -d >> /workspace/shared/manifests/index.jsonl`,
-    5e3
-  );
+function forbiddenWorkspaceProjectRootWritePath(relativePath) {
+  if (/^shared\/manifests(?:\/|$)/i.test(relativePath)) {
+    return "trusted artifact manifests are orchestrator-managed and cannot be written through file_write";
+  }
+  const outputProjectsTarget = /^output\/projects\//i;
+  if (outputProjectsTarget.test(relativePath)) {
+    return "product code writes must not be placed under /workspace/output/projects; use a mission-specific /workspace/projects/<slug>/ directory for code and output/reports or output/reviews for artifacts";
+  }
+  if (/^projects\/agents\//i.test(relativePath)) {
+    return "agent notes and inbox handoffs must be written under agents/<agent>/, not /workspace/projects/agents";
+  }
+  const directProjectsRootTarget = /^projects\/(?:package\.json|README\.md|app\.py|server\.js|index\.[a-z]+|src(?:\/|$)|tests?(?:\/|$)|config(?:\/|$))/i;
+  if (directProjectsRootTarget.test(relativePath)) {
+    return "product code writes must target a mission-specific /workspace/projects/<slug>/ directory, not /workspace/projects root";
+  }
+  return null;
 }
 function createFileWriteExecute(agentId) {
   return async (params) => {
@@ -10968,10 +16986,16 @@ function createFileWriteExecute(agentId) {
         error: `Access denied: ${agentId} cannot write to ${relativePath}. Check your designated write paths.`
       };
     }
+    const workspaceProjectRootWrite = forbiddenWorkspaceProjectRootWritePath(relativePath);
+    if (workspaceProjectRootWrite) {
+      return { error: workspaceProjectRootWrite, denied: true, policy: "workspace_project_root_boundary" };
+    }
     const b64 = Buffer.from(content).toString("base64");
     const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
     const op = append ? ">>" : ">";
-    const command = `mkdir -p '${dir.replace(/'/g, "'\\''")}' && echo '${b64}' | base64 -d ${op} '${fullPath.replace(/'/g, "'\\''")}'`;
+    const escapedDir = dir.replace(/'/g, "'\\''");
+    const escapedPath = fullPath.replace(/'/g, "'\\''");
+    const command = `mkdir -p '${escapedDir}' && echo '${b64}' | base64 -d ${op} '${escapedPath}' && chmod 0644 '${escapedPath}'`;
     const result = await execInToolbox(command, 1e4);
     if (result.exitCode !== 0) {
       return { error: `File write failed: ${result.stderr || "unknown error"}` };
@@ -11023,6 +17047,9 @@ var fileWriteTool = {
   }
 };
 
+// src/lib/tools/registry.ts
+init_capabilities();
+
 // src/lib/tools/tools/send-to-agent.ts
 init_executor();
 var sendToAgentTool = {
@@ -11060,7 +17087,7 @@ var sendToAgentTool = {
     const fullPath = `/workspace/agents/${target}/inbox/${safeName}`;
     const b64 = Buffer.from(content).toString("base64");
     const dir = `/workspace/agents/${target}/inbox`;
-    const command = `mkdir -p '${dir}' && echo '${b64}' | base64 -d > '${fullPath}'`;
+    const command = `mkdir -p '${dir}' && echo '${b64}' | base64 -d > '${fullPath}' && chmod 0644 '${fullPath}'`;
     const result = await execInToolbox(command, 1e4);
     if (result.exitCode !== 0) {
       return { error: `Send failed: ${result.stderr || "unknown error"}` };
@@ -11075,9 +17102,30 @@ init_executor();
 var import_node_crypto3 = require("node:crypto");
 var MAX_DROID_TIMEOUT = process.env.MAX_DROID_TIMEOUT_SECONDS ? parseInt(process.env.MAX_DROID_TIMEOUT_SECONDS) : 300;
 var DEFAULT_DROID_TIMEOUT = process.env.DEFAULT_DROID_TIMEOUT_SECONDS ? parseInt(process.env.DEFAULT_DROID_TIMEOUT_SECONDS) : 120;
+function invalidDroidTaskReason(task) {
+  if (/\b(?:captcha|CAPTCHA|captcha solver|solve captcha|bypass captcha)\b/i.test(task)) {
+    return "droid tasks cannot solve or bypass CAPTCHA-gated sources; ask for an alternate accessible source or mark the source as unavailable";
+  }
+  if (/\b(?:bash|shell commands?|shell audit|run shell|mkdir|cat\s*>|tee\s+|echo\s+.*>|redirection)\b/i.test(task)) {
+    return "droid tasks cannot require bash, shell audit, shell commands, or shell redirection";
+  }
+  if (/(?:\/workspace\/)?projects(?:\/|\b)/i.test(task) && /\b(?:explore|survey|list|enumerate|walk|map|scan)\b/i.test(task) && /\b(?:recursively|recursive|entire|tree|directory|directories|every file|all files)\b/i.test(task)) {
+    return "droid tasks cannot recursively list /workspace/projects because droids have no directory listing tool; parent agents must enumerate concrete files first or run the audit themselves";
+  }
+  if (/(?:\/workspace\/)?(?:output|projects|agents)\/[\w./-]+/i.test(task) && /\b(?:write|create|modify|edit|save|add|update|rewrite|patch|fix|implement)\b/i.test(task)) {
+    return "droid tasks cannot modify /workspace/output, /workspace/projects, or /workspace/agents paths; ask the droid for a draft/patch and promote it from the parent agent";
+  }
+  if (/\b(?:write|create|modify|edit|save)\b[^\n]{0,120}(?:\/workspace\/)?(?:output|projects|agents)\//i.test(task)) {
+    return "droid tasks cannot write outside their droids/<id>/ workspace; ask the droid for a draft/patch and promote it from the parent agent";
+  }
+  if (/(?:\/workspace\/)?(?:output|projects|agents)\/[\w./-]+[^\n]{0,80}\b(?:before|after|when done|as output|output path)\b/i.test(task)) {
+    return "droid output must stay under droids/<id>/; parent agents must write promoted artifacts";
+  }
+  return null;
+}
 var spawnDroidTool = {
   name: "spawn_droid",
-  description: "Spawn a droid (sub-agent) to handle a focused task. The droid runs as an agent session with its own workspace under /workspace/droids/. Returns a droid_id to check status later with check_droid.",
+  description: "Spawn a droid (sub-agent) to handle a focused task asynchronously. The droid runs as an agent session with its own workspace under /workspace/droids/. Returns only a queued droid_id/session_id/output_path handle. Do not cite, summarize, or use the droid output as evidence until check_droid returns status=succeeded with output_preview.",
   agents: [...ALL_AGENTS],
   parameters: {
     type: "object",
@@ -11088,7 +17136,7 @@ var spawnDroidTool = {
       },
       output_path: {
         type: "string",
-        description: 'Where to write results relative to the droid workspace (e.g., "report.md")'
+        description: 'Where the droid should write results relative to its droid workspace (e.g., "report.md"). This expected path is not evidence that the file exists; call check_droid and wait for status=succeeded before using it.'
       },
       timeout_seconds: {
         type: "number",
@@ -11100,6 +17148,14 @@ var spawnDroidTool = {
   execute: async (params) => {
     const task = params.task;
     const rawOutputFilename = params.output_path ?? "output.md";
+    const invalidTaskReason = invalidDroidTaskReason(task);
+    if (invalidTaskReason) {
+      return {
+        error: invalidTaskReason,
+        denied: true,
+        policy: "droid_workspace_boundary"
+      };
+    }
     const outputFilename = rawOutputFilename.replace(/\.\./g, "").replace(/[^a-zA-Z0-9._-]/g, "_").replace(/^[._-]+/, "").slice(0, 128);
     const safeOutputFilename = outputFilename || "output.md";
     const timeout = Math.min(
@@ -11125,7 +17181,7 @@ ${task}
 Write results to: ${outputPath}
 `;
       const b64 = Buffer.from(taskContent).toString("base64");
-      await execInToolbox(`echo '${b64}' | base64 -d > '${droidDir}/task.md'`, 5e3);
+      await execInToolbox(`echo '${b64}' | base64 -d > '${droidDir}/task.md' && chmod 0644 '${droidDir}/task.md'`, 5e3);
     } catch {
       return { error: "Failed to create droid workspace" };
     }
@@ -11137,9 +17193,12 @@ ${task}
 ## Security Boundaries
 - You can ONLY write files to droids/${droidId}/ using file_write
 - You can read any file in /workspace/ using file_read
-- You can use bash and web_search as needed
+- You can use web_search and web_fetch as needed
+- You cannot use bash or shell redirection; use file_read/file_write only for workspace files
 - You CANNOT write to /workspace/output/ directly \u2014 your parent agent must promote your work
 - You CANNOT modify /workspace/projects/ source code \u2014 write patches to your droid workspace
+
+- If the task asks you to use shell commands or write outside droids/${droidId}/, refuse and write a boundary note to ${outputPath}
 
 ## Output
 Write your results to ${outputPath} using file_write.
@@ -11168,7 +17227,10 @@ When done, provide a clear summary of what you accomplished.
         session_id: session.id,
         status: "spawned",
         workspace: droidDir,
-        output_path: outputPath
+        output_path: outputPath,
+        async: true,
+        evidence_ready: false,
+        next_step: `Call check_droid with droid_id ${droidId}; do not cite or depend on ${outputPath} until check_droid returns status=succeeded with output_preview.`
       };
     } catch (err) {
       return { error: `Failed to spawn droid: ${err.message}` };
@@ -11622,11 +17684,38 @@ var proposeMissionTool = {
 init_veto();
 init_logger();
 var log29 = logger.child({ module: "cast-veto" });
+var VETO_TARGET_TYPES = /* @__PURE__ */ new Set(["proposal", "mission", "governance", "step"]);
+var UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function invalidVetoTargetReason(targetType, targetId) {
+  if (!VETO_TARGET_TYPES.has(targetType)) {
+    return "cast_veto target_type must be one of proposal, mission, governance, or step; use send_to_agent for file review requests";
+  }
+  if (!UUID_PATTERN.test(targetId)) {
+    return "cast_veto target_id must be the UUID of an existing proposal, mission, governance item, or step; do not pass file paths or filenames";
+  }
+  return null;
+}
 function createCastVetoExecute(agentId) {
   return async (params) => {
     const targetType = params.target_type;
     const targetId = params.target_id;
     const reason = params.reason;
+    const invalidTargetReason = invalidVetoTargetReason(targetType, targetId);
+    if (invalidTargetReason) {
+      log29.warn("Rejected invalid veto target before database write", {
+        agentId,
+        targetType,
+        targetId,
+        reason: invalidTargetReason
+      });
+      return {
+        success: false,
+        error: invalidTargetReason,
+        denied: true,
+        policy: "veto_target_uuid_required",
+        message: invalidTargetReason
+      };
+    }
     try {
       const { vetoId, severity } = await castVeto(
         agentId,
@@ -11709,7 +17798,8 @@ var ALL_TOOLS = [
   castVetoTool
 ];
 function getAgentTools(agentId, sessionId) {
-  return ALL_TOOLS.filter((tool) => tool.agents.includes(agentId)).filter((tool) => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name)).map(({ agents: _agents, ...tool }) => {
+  const toolNames = new Set(getCapabilityToolNames(agentId));
+  return ALL_TOOLS.filter((tool) => toolNames.has(tool.name)).filter((tool) => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name)).map(({ agents: _agents, ...tool }) => {
     if (tool.name === "file_write") {
       return { ...tool, execute: createFileWriteExecute(agentId) };
     }
@@ -11744,7 +17834,7 @@ function getAgentTools(agentId, sessionId) {
   });
 }
 function getDroidTools(droidId) {
-  const droidToolNames = ["file_read", "file_write", "bash", "web_search", "web_fetch"];
+  const droidToolNames = getDroidToolNames();
   return ALL_TOOLS.filter((tool) => droidToolNames.includes(tool.name)).filter((tool) => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name)).map(({ agents: _agents, ...tool }) => {
     if (tool.name === "file_write") {
       return { ...tool, execute: createFileWriteExecute(droidId) };
@@ -11752,18 +17842,54 @@ function getDroidTools(droidId) {
     return tool;
   });
 }
+function getAgentToolNames(agentId) {
+  const toolNames = new Set(getCapabilityToolNames(agentId));
+  return ALL_TOOLS.filter((tool) => toolNames.has(tool.name)).filter((tool) => dockerBackedToolsEnabled() || !DOCKER_BACKED_TOOL_NAMES.has(tool.name)).map((tool) => tool.name);
+}
 function getAgentWritePaths(agentId) {
   if (!dockerBackedToolsEnabled()) return [];
-  if (!fileWriteTool.agents.includes(agentId)) return [];
-  return WRITE_ACLS[agentId] ?? [];
+  return getCapabilityWritePaths(agentId);
 }
 
 // src/lib/tools/agent-session.ts
+init_executor();
 init_events2();
 init_memory();
 init_scratchpad();
 init_situational_briefing();
 init_prime_directive();
+
+// src/lib/ops/claim-evidence.ts
+var GROUNDING_MARKER = /^#{1,4}\s+Grounding\b|^\*\*Grounding:?\*\*|^Grounding\s*:/im;
+var SECTION_BOUNDARY = /^#{1,4}\s+\S|^\*\*[A-Z][^*]{1,80}:?\*\*\s*$|^[A-Z][\w /-]{1,80}\s*:\s*$/im;
+function stripGroundingSection(text) {
+  const marker = text.match(GROUNDING_MARKER);
+  if (!marker || marker.index === void 0) return text;
+  const before = text.slice(0, marker.index);
+  const tail = text.slice(marker.index);
+  const afterMarker = tail.slice(marker[0].length);
+  const boundary = afterMarker.search(SECTION_BOUNDARY);
+  if (boundary >= 0) return before + tail.slice(marker[0].length + boundary);
+  if (marker[0].startsWith("#")) return before;
+  const blankLine = afterMarker.search(/\n\s*\n/);
+  if (blankLine >= 0) return before + afterMarker.slice(blankLine);
+  return before;
+}
+function isExplicitlyNonFactual(line) {
+  return /\b(?:target|proposed|proposal|hypothesis|hypothesize|assumption|assumed|illustrative|example|to verify|needs verification|open question|planned|candidate|recommended|should|will|must be implemented|must implement)\b/i.test(line);
+}
+function hasLineLevelEvidence(line) {
+  return /(?:\bfile_read\b|\bbash\b|\bweb_fetch\b|\bweb_search\b|https?:\/\/|\/workspace\/|\boutput\/|\bagents\/|\bprojects\/|\bsrc\/|\blib\/|\bapp\/|\bSELECT\b|\bDB row\b|\[[^\]]+\]|\((?:source|evidence|ref)\s*:)/i.test(line);
+}
+function isHighRiskFactualLine(line) {
+  return /(?:\b\d+(?:\.\d+)?\s?%\b|\$\s?\d|\b\d+x\b|\b\d+\s*(?:ms|s|seconds|minutes|hours|days|rps|qps|requests per second)\b|\b(?:verified|observed|achieved|completed|implemented|approved|documented|resolved|delivered|reduced|increased|improved|validated)\b|\b(?:GDPR|CCPA|SOC\s?2|ISO\s?27001|HIPAA|compliant|compliance|encryption|encrypted|anonymization|security)\b|(?:^|\s)(?:src|lib|app|server|config|models|routes|database|platform)\/[\w./-]+|\b[a-zA-Z_$][\w$]+\(\))/i.test(line);
+}
+function unsupportedHighRiskClaimLines(text) {
+  return stripGroundingSection(text).split("\n").map((line) => line.trim()).filter((line) => line.length > 0).filter((line) => !/^#{1,6}\s+\S/.test(line)).filter((line) => !/^[-*_]{3,}$/.test(line)).filter((line) => !/^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(line)).filter((line) => isHighRiskFactualLine(line)).filter((line) => !isExplicitlyNonFactual(line)).filter((line) => !hasLineLevelEvidence(line));
+}
+
+// src/lib/tools/agent-session.ts
+var import_node_crypto3 = require("node:crypto");
 init_logger();
 var log30 = logger.child({ module: "agent-session" });
 var SESSION_SOFT_DEADLINE_BUFFER_MS = 9e4;
@@ -11840,8 +17966,57 @@ var TOOL_ERROR_PATTERNS = [
   /file read failed/i,
   /file write failed/i,
   /timed out/i,
-  /tool\s+"?.+"?\s+does not exist/i
+  /tool\s+"?.+"?\s+does not exist/i,
+  /invalid tool arguments/i
 ];
+var STEP_TOOL_REQUIREMENTS = {
+  // Work that must create or modify files.
+  patch_code: { allOf: ["file_write"] },
+  self_evolution: { allOf: ["bash", "file_write"] },
+  draft_essay: { allOf: ["file_write"] },
+  draft_thread: { allOf: ["file_write"] },
+  draft_product_spec: { allOf: ["file_write"] },
+  critique_content: { allOf: ["file_write"] },
+  distill_insight: { allOf: ["file_write"] },
+  document_lesson: { allOf: ["file_write"] },
+  consolidate_memory: { allOf: ["file_write"] },
+  content_revision: { allOf: ["file_write"] },
+  update_directive: { allOf: ["file_write"] },
+  analyze_discourse: { allOf: ["file_write"] },
+  classify_pattern: { allOf: ["file_write"] },
+  trace_incentive: { allOf: ["file_write"] },
+  identify_assumption: { allOf: ["file_write"] },
+  refine_narrative: { allOf: ["file_write"] },
+  prepare_statement: { allOf: ["file_write"] },
+  write_issue: { allOf: ["file_write"] },
+  review_policy: { allOf: ["file_write"] },
+  map_dependency: { allOf: ["file_write"] },
+  log_event: { allOf: ["file_write"] },
+  tag_memory: { allOf: ["file_write"] },
+  escalate_risk: { allOf: ["file_write"] },
+  // Work that must consult external/runtime state.
+  research_topic: { allOf: ["web_search"] },
+  scan_signals: { allOf: ["web_search"] },
+  audit_system: { allOf: ["bash", "file_write"] },
+  github_issue: { allOf: ["bash"] },
+  github_pr: { allOf: ["bash"] },
+  create_pull_request: { allOf: ["bash"] },
+  explore_repo: { allOf: ["bash"] },
+  publish_blog: { anyOf: ["bash", "file_write"] },
+  notify_human: { allOf: ["bash"] }
+};
+var STEP_KINDS_REQUIRING_GROUNDED_ARTIFACTS = /* @__PURE__ */ new Set([
+  "document_lesson",
+  "draft_product_spec",
+  "distill_insight",
+  "draft_essay",
+  "draft_thread",
+  "critique_content",
+  "patch_code",
+  "content_revision",
+  "self_evolution",
+  "log_event"
+]);
 function toolErrorText(result) {
   if (typeof result === "string") return result;
   if (!result || typeof result !== "object") return "";
@@ -11858,9 +18033,459 @@ function isSuccessfulToolCall(toolCall) {
     if (TOOL_ERROR_PATTERNS.some((p) => p.test(text))) return false;
   }
   if (typeof toolCall.result === "object" && toolCall.result !== null) {
+    const exitCode = toolCall.result.exitCode;
+    if (typeof exitCode === "number" && exitCode !== 0) return false;
     return !(typeof toolCall.result.error === "string");
   }
   return true;
+}
+function mergeToolRequirements(left, right) {
+  return {
+    allOf: [.../* @__PURE__ */ new Set([...left.allOf ?? [], ...right.allOf ?? []])],
+    anyOf: [.../* @__PURE__ */ new Set([...left.anyOf ?? [], ...right.anyOf ?? []])]
+  };
+}
+function stepKindFromPrompt(prompt) {
+  return prompt.match(/^Step:\s*([^\n]+)/m)?.[1]?.trim() ?? null;
+}
+function inferPromptToolRequirements(prompt) {
+  let requirement = {};
+  const text = prompt.toLowerCase();
+  if (/\bfile_write\b|using file_write|write (?:the |a |your )?[\s\S]*\bto\b/.test(
+    text
+  )) {
+    requirement = mergeToolRequirements(requirement, {
+      allOf: ["file_write"]
+    });
+  }
+  if (/\bweb_search\b|search the web|web search/.test(text)) {
+    requirement = mergeToolRequirements(requirement, { allOf: ["web_search"] });
+  }
+  if (requiresExplicitTool(prompt, "web_fetch")) {
+    requirement = mergeToolRequirements(requirement, { allOf: ["web_fetch"] });
+  }
+  if (/\bmemory_search\b/.test(text)) {
+    requirement = mergeToolRequirements(requirement, { allOf: ["memory_search"] });
+  }
+  if (/\bsend_to_agent\b/.test(text)) {
+    requirement = mergeToolRequirements(requirement, { allOf: ["send_to_agent"] });
+  }
+  if (requiresExplicitTool(prompt, "memory_write") && !mentionsOptionalTool(prompt, "memory_write")) {
+    requirement = mergeToolRequirements(requirement, { allOf: ["memory_write"] });
+  }
+  if (/\bbash\b|run system checks|git\s+(?:status|diff|log|push|clone|commit)/.test(
+    text
+  )) {
+    requirement = mergeToolRequirements(requirement, { allOf: ["bash"] });
+  }
+  return requirement;
+}
+function requiresExplicitTool(prompt, toolName) {
+  const escapedTool = toolName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const explicitToolPattern = new RegExp(
+    `(?:must|need to|required to|completion contract:[^\\n]*must|you must|call|use)\\s+[^\\n.]{0,80}\\b${escapedTool}\\b`,
+    "i"
+  );
+  return explicitToolPattern.test(prompt);
+}
+function mentionsOptionalTool(prompt, toolName) {
+  const escapedTool = toolName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:optionally|optional|if useful|if helpful)\\s+[^\\n.]{0,80}\\b${escapedTool}\\b`, "i").test(prompt);
+}
+function requirementsForSession(session) {
+  if (!["mission", "cron", "droid"].includes(session.source)) return {};
+  const inferred = inferPromptToolRequirements(session.prompt);
+  if (session.source !== "mission") return filterUnavailableToolRequirements(session, inferred);
+  const stepKind = stepKindFromPrompt(session.prompt);
+  if (!stepKind) return filterUnavailableToolRequirements(session, inferred);
+  return filterUnavailableToolRequirements(session, mergeToolRequirements(
+    inferred,
+    STEP_TOOL_REQUIREMENTS[stepKind] ?? {}
+  ));
+}
+function availableToolNamesForSession(session) {
+  if (session.agent_id.startsWith("droid-")) {
+    return new Set(getDroidTools(session.agent_id).map((t) => t.name));
+  }
+  return new Set(getAgentToolNames(session.agent_id));
+}
+function filterUnavailableToolRequirements(session, requirement) {
+  const available = availableToolNamesForSession(session);
+  return {
+    allOf: (requirement.allOf ?? []).filter((name) => available.has(name)),
+    anyOf: (requirement.anyOf ?? []).filter((name) => available.has(name))
+  };
+}
+function detectMissingRequiredToolEvidence(session, toolCalls) {
+  const requirement = requirementsForSession(session);
+  const requiredAll = requirement.allOf ?? [];
+  const requiredAny = requirement.anyOf ?? [];
+  if (requiredAll.length === 0 && requiredAny.length === 0) {
+    return { blocked: false, reason: "", evidence: [] };
+  }
+  const successfulToolNames = new Set(
+    toolCalls.filter(isSuccessfulToolCall).map((tc) => tc.name)
+  );
+  const missingAll = requiredAll.filter((name) => !successfulToolNames.has(name));
+  const missingAny = requiredAny.length > 0 && !requiredAny.some((name) => successfulToolNames.has(name)) ? requiredAny : [];
+  const stepKind = stepKindFromPrompt(session.prompt);
+  const availableTools = availableToolNamesForSession(session);
+  const canSatisfyAuditEvidence = availableTools.has("bash") && availableTools.has("file_write");
+  const auditEvidence = canSatisfyAuditEvidence ? detectAuditEvidenceIssues(stepKind, toolCalls) : { blocked: false, evidence: [] };
+  const groundingEvidence = detectArtifactGroundingIssues(stepKind, toolCalls);
+  if (missingAll.length === 0 && missingAny.length === 0 && !auditEvidence.blocked && !groundingEvidence.blocked) {
+    return { blocked: false, reason: "", evidence: [] };
+  }
+  const evidence = [
+    `session source=${session.source}${stepKind ? ` step=${stepKind}` : ""}`,
+    `successful tools: ${[...successfulToolNames].join(", ") || "(none)"}`
+  ];
+  if (missingAll.length > 0) {
+    evidence.push(`missing required tool(s): ${missingAll.join(", ")}`);
+  }
+  if (missingAny.length > 0) {
+    evidence.push(
+      `missing at least one required tool from: ${missingAny.join(", ")}`
+    );
+  }
+  evidence.push(...auditEvidence.evidence);
+  evidence.push(...groundingEvidence.evidence);
+  return {
+    blocked: true,
+    reason: auditEvidence.blocked ? "audit evidence missing" : groundingEvidence.blocked && groundingEvidence.evidence.some((item) => item.includes("artifact grounding invalid")) ? "artifact grounding invalid" : groundingEvidence.blocked ? "artifact grounding missing" : "Required tool evidence missing",
+    evidence
+  };
+}
+function detectEmptySessionOutcome(session, text, toolCalls) {
+  if (!["mission", "cron", "droid"].includes(session.source)) {
+    return { blocked: false, reason: "", evidence: [] };
+  }
+  const hasText = text.trim().length > 0;
+  const successfulToolNames = toolCalls.filter(isSuccessfulToolCall).map((tc) => tc.name);
+  if (hasText || successfulToolNames.length > 0) {
+    return { blocked: false, reason: "", evidence: [] };
+  }
+  return {
+    blocked: true,
+    reason: "empty session output",
+    evidence: [
+      `session source=${session.source}${stepKindFromPrompt(session.prompt) ? ` step=${stepKindFromPrompt(session.prompt)}` : ""}`,
+      "empty session output: no final text and no successful tool calls"
+    ]
+  };
+}
+function normalizeWorkspaceRelativePath(path4) {
+  return path4.startsWith("/workspace/") ? path4.slice("/workspace/".length) : path4.replace(/^\/+/, "");
+}
+function droidWritePath(session, path4) {
+  const relativePath = normalizeWorkspaceRelativePath(path4);
+  return relativePath === `droids/${session.agent_id}` || relativePath.startsWith(`droids/${session.agent_id}/`);
+}
+function isDroidFinalArtifactPath(session, path4) {
+  const relativePath = normalizeWorkspaceRelativePath(path4);
+  const expectedOutput = typeof session.result?.output_path === "string" ? normalizeWorkspaceRelativePath(session.result.output_path) : "";
+  if (expectedOutput && relativePath === expectedOutput) return true;
+  if (!droidWritePath(session, relativePath)) return false;
+  const basename = relativePath.split("/").pop() ?? "";
+  return /(?:^|[-_])(output|report|result|results|proof|review|summary|artifact)(?:[-_.]|$)/i.test(basename) || /\.md$/i.test(basename);
+}
+function isPointerOnlyDroidArtifact(content) {
+  const normalized = content.trim();
+  if (normalized.length === 0) return true;
+  if (normalized.length < 120) return true;
+  if (/\b(?:todo|placeholder|stub|draft pending|will write|to be completed)\b/i.test(normalized)) return true;
+  if (/^(?:see|check|refer to|look at)\s+(?:the\s+)?(?:file|path|output|report)\b/i.test(normalized)) return true;
+  if (/^#?\s*(?:output|report|summary|proof)\s*\n+\s*(?:see|todo|placeholder|pending)\b/i.test(normalized)) return true;
+  return false;
+}
+function detectDroidPlaceholderArtifact(session, toolCalls) {
+  if (session.source !== "droid" && !session.agent_id.startsWith("droid-")) {
+    return { blocked: false, reason: "", evidence: [] };
+  }
+  const finalArtifactWrites = toolCalls.filter((tc) => {
+    if (tc.name !== "file_write" || !isSuccessfulToolCall(tc)) return false;
+    const args = tc.arguments;
+    const path4 = typeof args.path === "string" ? args.path : "";
+    const content = typeof args.content === "string" ? args.content : "";
+    return isDroidFinalArtifactPath(session, path4) && content.trim().length > 0;
+  });
+  if (finalArtifactWrites.length === 0) {
+    return { blocked: false, reason: "", evidence: [] };
+  }
+  const substantiveWrites = finalArtifactWrites.filter((tc) => {
+    const args = tc.arguments;
+    const content = typeof args.content === "string" ? args.content : "";
+    return content.trim().length >= 120 && !isPointerOnlyDroidArtifact(content);
+  });
+  if (substantiveWrites.length > 0) {
+    return { blocked: false, reason: "", evidence: [] };
+  }
+  const paths = finalArtifactWrites.map((tc) => String(tc.arguments.path ?? "unknown")).join(", ");
+  return {
+    blocked: true,
+    reason: "droid placeholder artifact",
+    evidence: [
+      `droid placeholder artifact: ${finalArtifactWrites.length} final/report-like droid write(s) were tiny, TODO/stub, or pointer-only`,
+      `droid final artifact path(s): ${paths}`
+    ]
+  };
+}
+function missingRequiredToolNamesForSession(session, toolCalls) {
+  const requirement = requirementsForSession(session);
+  const requiredAll = requirement.allOf ?? [];
+  const requiredAny = requirement.anyOf ?? [];
+  const successfulToolNames = new Set(
+    toolCalls.filter(isSuccessfulToolCall).map((tc) => tc.name)
+  );
+  const missing = requiredAll.filter((name) => !successfulToolNames.has(name));
+  if (requiredAny.length > 0 && !requiredAny.some((name) => successfulToolNames.has(name))) {
+    missing.push(`one of: ${requiredAny.join(", ")}`);
+  }
+  return missing;
+}
+function detectArtifactGroundingIssues(stepKind, toolCalls) {
+  if (!stepKind || !STEP_KINDS_REQUIRING_GROUNDED_ARTIFACTS.has(stepKind)) {
+    return { blocked: false, evidence: [] };
+  }
+  const artifactWritesByPath = /* @__PURE__ */ new Map();
+  for (const tc of toolCalls) {
+    if (tc.name !== "file_write" || !isSuccessfulToolCall(tc)) continue;
+    const args = tc.arguments;
+    const path4 = typeof args.path === "string" ? args.path : "";
+    const content = typeof args.content === "string" ? args.content : "";
+    const normalizedPath = normalizeWorkspaceRelativePath(path4);
+    if (isArtifactSummaryPath(normalizedPath) && content.trim().length > 0) {
+      artifactWritesByPath.set(normalizedPath, tc);
+    }
+  }
+  const artifactWrites = [...artifactWritesByPath.values()];
+  const groundedWrites = artifactWrites.filter((tc) => {
+    const args = tc.arguments;
+    const content = typeof args.content === "string" ? args.content : "";
+    return containsGroundingSection(content) && !containsWeakGroundingSection(content) && invalidGroundingIssues(stepKind, content).length === 0;
+  });
+  const weakGroundingWrites = artifactWrites.filter((tc) => {
+    const args = tc.arguments;
+    const content = typeof args.content === "string" ? args.content : "";
+    return containsGroundingSection(content) && containsWeakGroundingSection(content);
+  });
+  const invalidGrounding = artifactWrites.flatMap((tc) => {
+    const args = tc.arguments;
+    const content = typeof args.content === "string" ? args.content : "";
+    const path4 = typeof args.path === "string" ? args.path : "unknown";
+    return invalidGroundingIssues(stepKind, content).map((issue) => `${path4}: ${issue}`);
+  });
+  if (artifactWrites.length === 0 || groundedWrites.length > 0 && weakGroundingWrites.length === 0 && invalidGrounding.length === 0) {
+    return { blocked: false, evidence: [] };
+  }
+  if (invalidGrounding.length > 0) {
+    return {
+      blocked: true,
+      evidence: [
+        `artifact grounding invalid: ${invalidGrounding.length} invalid grounding issue(s) found`,
+        ...invalidGrounding.slice(0, 5)
+      ]
+    };
+  }
+  if (weakGroundingWrites.length > 0) {
+    return {
+      blocked: true,
+      evidence: [
+        `artifact grounding weak: ${weakGroundingWrites.length} artifact write(s) used a Grounding section with no concrete evidence`,
+        "Grounding sections must cite concrete files, commands, DB rows, URLs, source artifacts, or explicit assumptions; Source Artifact: None / Commands Used: None is not sufficient"
+      ]
+    };
+  }
+  return {
+    blocked: true,
+    evidence: [
+      `artifact grounding missing: ${artifactWrites.length} artifact write(s) lacked a Grounding section`,
+      "grounded artifact steps must include a Grounding section with exact files, commands, DB rows, URLs, or source artifacts"
+    ]
+  };
+}
+function isArtifactSummaryPath(path4) {
+  return /(?:^|\/)(?:output\/(?:reports|reviews|digests)|agents\/[^/]+\/(?:notes|specs)|\.gitea\/pull-requests)\//.test(path4);
+}
+function containsGroundingSection(text) {
+  return /^#{1,4}\s+Grounding\b|^\*\*Grounding:?\*\*|^Grounding\s*:/im.test(text);
+}
+function groundingSectionText(text) {
+  const marker = text.match(/^#{1,4}\s+Grounding\b|^\*\*Grounding:?\*\*|^Grounding\s*:/im);
+  if (!marker || marker.index === void 0) return "";
+  const tail = text.slice(marker.index);
+  const afterMarker = tail.slice(marker[0].length);
+  const nextHeading = afterMarker.search(/^#{1,4}\s+\S/im);
+  return nextHeading >= 0 ? tail.slice(0, marker[0].length + nextHeading) : tail;
+}
+function containsWeakGroundingSection(text) {
+  const section = groundingSectionText(text);
+  if (!section) return false;
+  const weakMarkers = section.match(/(?:source artifacts?|commands? used|files?|urls?|db rows?)\s*:\s*(?:none|n\/a|not applicable|unknown)\b/gi) ?? [];
+  if (weakMarkers.length === 0) return false;
+  const concreteEvidence = /(?:\/workspace\/|\boutput\/|\bagents\/|https?:\/\/|\bfile_read\b|\bweb_fetch\b|\bweb_search\b|\bbash\b|\bSELECT\b|\bDB row\b|\bassumption\b)/i.test(section);
+  return weakMarkers.length >= 2 && !concreteEvidence;
+}
+function invalidGroundingIssues(stepKind, text) {
+  const issues = [];
+  const section = groundingSectionText(text);
+  if (!section) return issues;
+  if (containsPlaceholderEvidenceUrl(section)) {
+    issues.push("placeholder URL cited as grounding evidence");
+  }
+  if (containsMissingSourceMarker(section)) {
+    issues.push("cited source artifact is marked missing, unavailable, or assumed");
+  }
+  if (stepKind === "draft_product_spec" && containsUnverifiedProductSpecMetric(text)) {
+    issues.push("product spec success metric is framed as verified/completed outcome instead of target/proposed metric");
+  }
+  if (unsupportedHighRiskClaimLines(text).length > 0) {
+    issues.push("high-risk factual claim lacks explicit evidence or hypothesis/target framing");
+  }
+  return issues;
+}
+function containsPlaceholderEvidenceUrl(section) {
+  return /https?:\/\/(?:www\.)?(?:example\.com|example\.org|example\.net)(?:[/:?#]|\b)/i.test(section);
+}
+function containsMissingSourceMarker(section) {
+  const lines = section.split("\n");
+  return lines.some((line) => {
+    const citesSourcePath = /(?:\/workspace\/|\bagents\/|\boutput\/|\bprojects\/)[^\s,)]+/i.test(line);
+    const markedMissing = /\b(?:file not found|not found|unavailable|inaccessible|could not read|assumption made|assumed missing)\b/i.test(line);
+    return citesSourcePath && markedMissing;
+  });
+}
+function markdownSectionText(text, headingPattern) {
+  const heading = text.match(headingPattern);
+  if (!heading || heading.index === void 0) return "";
+  const tail = text.slice(heading.index);
+  const afterHeading = tail.slice(heading[0].length);
+  const nextHeading = afterHeading.search(/^#{1,4}\s+\S/im);
+  return nextHeading >= 0 ? tail.slice(0, heading[0].length + nextHeading) : tail;
+}
+function containsUnverifiedProductSpecMetric(text) {
+  const section = markdownSectionText(text, /^#{1,4}\s+Success Metrics\b/im);
+  if (!section) return false;
+  return section.split("\n").some((line) => {
+    const trimmed = line.trim();
+    if (!/^[-*]\s+|^\d+\.\s+/.test(trimmed)) return false;
+    if (/\b(?:target|proposed|goal|aim|planned|candidate|success metric|should|will|by \d{4}-\d{2}-\d{2})\b/i.test(trimmed)) return false;
+    return /\b(?:verified|observed|achieved|completed|implemented|approved|documented|resolved|delivered)\b/i.test(trimmed);
+  });
+}
+function manifestPathType(relativePath) {
+  if (relativePath.startsWith("output/briefings/")) return "briefing";
+  if (relativePath.startsWith("output/reports/")) return "report";
+  if (relativePath.startsWith("output/reviews/")) return "review";
+  if (relativePath.startsWith("output/digests/")) return "digest";
+  return "artifact";
+}
+async function appendSucceededFileWriteManifests(sessionId, agentId, toolCalls) {
+  const outputWrites = toolCalls.filter((tc) => {
+    if (tc.name !== "file_write" || !isSuccessfulToolCall(tc)) return false;
+    const args = tc.arguments;
+    const path4 = typeof args.path === "string" ? args.path : "";
+    return path4.startsWith("output/") || path4.startsWith("/workspace/output/");
+  });
+  for (const tc of outputWrites) {
+    const args = tc.arguments;
+    const result = tc.result;
+    const rawPath = typeof args.path === "string" ? args.path : "";
+    const relativePath = rawPath.startsWith("/workspace/") ? rawPath.slice("/workspace/".length) : rawPath;
+    const artifactId = typeof result?.artifact_id === "string" ? result.artifact_id : (0, import_node_crypto3.randomUUID)();
+    const bytes = typeof result?.bytes === "number" ? result.bytes : typeof args.content === "string" ? args.content.length : 0;
+    const content = typeof args.content === "string" ? args.content : "";
+    const sha2562 = (0, import_node_crypto3.createHash)("sha256").update(content).digest("hex");
+    const entry = JSON.stringify({
+      artifact_id: artifactId,
+      path: relativePath,
+      agent_id: agentId,
+      type: manifestPathType(relativePath),
+      created_at: (/* @__PURE__ */ new Date()).toISOString(),
+      bytes,
+      sha256: sha2562,
+      session_id: sessionId,
+      session_status: "succeeded",
+      trusted: true,
+      published_at: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    const b64 = Buffer.from(entry + "\n").toString("base64");
+    await execInToolbox(
+      `echo '${b64}' | base64 -d >> /workspace/shared/manifests/index.jsonl`,
+      5e3
+    );
+  }
+}
+function detectAuditEvidenceIssues(stepKind, toolCalls) {
+  if (stepKind !== "audit_system") return { blocked: false, evidence: [] };
+  const successfulBash = toolCalls.filter(
+    (tc) => tc.name === "bash" && isSuccessfulToolCall(tc)
+  );
+  const successfulAuditWrites = toolCalls.filter((tc) => {
+    if (tc.name !== "file_write" || !isSuccessfulToolCall(tc)) return false;
+    const args = tc.arguments;
+    const path4 = typeof args.path === "string" ? args.path : "";
+    const content = typeof args.content === "string" ? args.content : "";
+    return path4.includes("output/reviews") && /evidence table|command_or_source|observed_output|hostAudit|bash/i.test(content) && !containsBareWorkspaceAlias(content) && !containsUnsupportedAuditEvidence(content) && !containsPlaceholderAuditEvidence(content);
+  });
+  const barePathAuditWrites = toolCalls.filter((tc) => {
+    if (tc.name !== "file_write" || !isSuccessfulToolCall(tc)) return false;
+    const args = tc.arguments;
+    const path4 = typeof args.path === "string" ? args.path : "";
+    const content = typeof args.content === "string" ? args.content : "";
+    return path4.includes("output/reviews") && containsBareWorkspaceAlias(content);
+  });
+  const unsupportedAuditWrites = toolCalls.filter((tc) => {
+    if (tc.name !== "file_write" || !isSuccessfulToolCall(tc)) return false;
+    const args = tc.arguments;
+    const path4 = typeof args.path === "string" ? args.path : "";
+    const content = typeof args.content === "string" ? args.content : "";
+    return path4.includes("output/reviews") && containsUnsupportedAuditEvidence(content);
+  });
+  const placeholderAuditWrites = toolCalls.filter((tc) => {
+    if (tc.name !== "file_write" || !isSuccessfulToolCall(tc)) return false;
+    const args = tc.arguments;
+    const path4 = typeof args.path === "string" ? args.path : "";
+    const content = typeof args.content === "string" ? args.content : "";
+    return path4.includes("output/reviews") && containsPlaceholderAuditEvidence(content);
+  });
+  if (successfulBash.length > 0 && successfulAuditWrites.length > 0 && barePathAuditWrites.length === 0 && unsupportedAuditWrites.length === 0 && placeholderAuditWrites.length === 0) {
+    return { blocked: false, evidence: [] };
+  }
+  const evidence = [
+    `audit evidence missing: successful bash calls=${successfulBash.length}, evidence-bearing audit writes=${successfulAuditWrites.length}`,
+    "audit_system outputs must include command/source evidence before they can succeed"
+  ];
+  if (barePathAuditWrites.length > 0) {
+    evidence.push(
+      `audit path evidence invalid: ${barePathAuditWrites.length} audit write(s) used bare /output, /agents, or /projects paths`,
+      "audit_system outputs must use real /workspace/... paths for commands and evidence"
+    );
+  }
+  if (unsupportedAuditWrites.length > 0) {
+    evidence.push(
+      `audit unsupported evidence invalid: ${unsupportedAuditWrites.length} audit write(s) used N/A/none as command evidence`,
+      "audit_system outputs must support no-issue/no-risk claims with bash output or hostAudit evidence"
+    );
+  }
+  if (placeholderAuditWrites.length > 0) {
+    evidence.push(
+      `audit placeholder evidence invalid: ${placeholderAuditWrites.length} audit write(s) used generic parenthesized observed-output text`,
+      "audit_system outputs must use real observed output, not placeholder excerpts like (Listing of files/dirs in /workspace/output) or (Process list excerpt, showing defunct git processes)"
+    );
+  }
+  return { blocked: true, evidence };
+}
+function containsBareWorkspaceAlias(text) {
+  return /(^|[^A-Za-z0-9_/-])\/(?:output|agents|projects)\b/.test(text);
+}
+function containsUnsupportedAuditEvidence(text) {
+  return /^\s*\|[^\n]*\|\s*(?:N\/A|none|not applicable)\s*\|/im.test(text);
+}
+function containsPlaceholderAuditEvidence(text) {
+  return /\(\s*(?:listing of|file listing|directory listing|process list(?: excerpt)?|excerpt|observed output|observed-output)\b[^)]*\)/i.test(
+    text
+  );
 }
 function detectBlockedOutcome(summary, toolCalls, options) {
   const evidence = [];
@@ -11884,15 +18509,15 @@ function detectBlockedOutcome(summary, toolCalls, options) {
   for (const err of fatalToolErrors) {
     evidence.push(`tool ${err.name} error: ${err.text.slice(0, 160)}`);
   }
-  const hasSuccessfulWrite = toolCalls.some((tc) => {
-    if (tc.name !== "file_write") return false;
+  const hasSuccessfulArtifactDelivery = toolCalls.some((tc) => {
+    if (tc.name !== "file_write" && tc.name !== "send_to_agent" && tc.name !== "scratchpad_update" && tc.name !== "memory_write") return false;
     if (!tc.result || typeof tc.result !== "object") return false;
     return !("error" in tc.result);
   });
   const blockedBySummary = !!hardBlockerMatch || !!softBlockerMatch && !hasProgressSignals;
-  const blockedByFatalToolError = fatalToolErrors.length > 0 && !hasSuccessfulWrite;
+  const blockedByFatalToolError = fatalToolErrors.length > 0 && !hasSuccessfulArtifactDelivery;
   if (blockedBySummary || blockedByFatalToolError) {
-    const reason = blockedBySummary ? "Session summary reported unresolved blocker" : "Fatal tool error without successful artifact write";
+    const reason = blockedBySummary ? "Session summary reported unresolved blocker" : "Fatal tool error without successful artifact delivery";
     return { blocked: true, reason, evidence };
   }
   return {
@@ -11963,7 +18588,11 @@ ${ctx.primeDirective}
 `;
   prompt += `When your task is complete, provide a clear summary of what you accomplished.
 `;
-  prompt += `IMPORTANT: Never output raw XML tags like <function_calls> or <invoke>. Use the structured tool calling API instead.
+  prompt += `IMPORTANT: When the task asks you to read, write, search, run commands, inspect Git, or publish, you MUST call the relevant tool. Do not claim you completed work without tool results.
+`;
+  prompt += `IMPORTANT: If your prompt includes a Completion contract, treat it as a pass/fail checklist. Before your final answer, verify every required tool call, source list, Grounding section, audit evidence table, and handoff has been produced. If any required evidence is missing, report a blocked or partial outcome instead of claiming success.
+`;
+  prompt += `IMPORTANT: Prefer the structured tool calling API. If your runtime cannot emit native tool calls, emit exactly <function_calls><invoke name="tool_name"><parameter name="param">value</parameter></invoke></function_calls>; the runtime will execute it. Do not leave tool XML in your final answer.
 `;
   prompt += `IMPORTANT: Only call tools from the list below. Do NOT invent tool names.
 
@@ -12028,19 +18657,26 @@ async function runAgentToolLoop(opts) {
   const softDeadlineMs = timeoutMs - SESSION_SOFT_DEADLINE_BUFFER_MS;
   let lastText = "";
   let consecutiveEmptyRounds = 0;
+  let emptyRounds = 0;
   let llmRounds = 0;
+  let retriedEmptyNoToolRound = false;
+  let retriedMissingToolContract = false;
   for (let round = 0; round < maxRounds; round++) {
     const elapsed = Date.now() - startTime;
     if (elapsed > timeoutMs) {
       await completeSession(
         session.id,
         "timed_out",
-        { summary: lastText || "Session timed out before completing", rounds: llmRounds },
+        {
+          summary: lastText || "Session timed out before completing",
+          rounds: llmRounds,
+          empty_tool_rounds: emptyRounds
+        },
         allToolCalls,
         llmRounds,
         "Timeout exceeded"
       );
-      return { lastText, toolCalls: allToolCalls, rounds: -1 };
+      return { lastText, toolCalls: allToolCalls, rounds: -1, emptyRounds };
     }
     if (elapsed > softDeadlineMs && round > 0 && lastText) {
       log30.info("Soft deadline reached, finishing with current output", {
@@ -12064,6 +18700,7 @@ async function runAgentToolLoop(opts) {
       consecutiveEmptyRounds = 0;
     } else {
       consecutiveEmptyRounds++;
+      emptyRounds++;
     }
     allToolCalls.push(...result.toolCalls);
     log30.debug("Agent session round completed", {
@@ -12073,9 +18710,29 @@ async function runAgentToolLoop(opts) {
       toolCallCount: result.toolCalls.length,
       cumulativeToolCalls: allToolCalls.length,
       hasLastText: !!lastText,
-      consecutiveEmptyRounds
+      consecutiveEmptyRounds,
+      emptyRounds
     });
-    if (result.toolCalls.length === 0) break;
+    if (!result.text && result.toolCalls.length === 0 && allToolCalls.length === 0 && !retriedEmptyNoToolRound) {
+      retriedEmptyNoToolRound = true;
+      messages.push({
+        role: "user",
+        content: "The previous response was empty. You must either call the required tools or provide final text if no tools are needed."
+      });
+      continue;
+    }
+    if (result.toolCalls.length === 0) {
+      const missingTools = missingRequiredToolNamesForSession(session, allToolCalls);
+      if (missingTools.length > 0 && !retriedMissingToolContract) {
+        retriedMissingToolContract = true;
+        messages.push({
+          role: "user",
+          content: `Your previous response did not satisfy the required tool contract. Missing successful tool evidence: ${missingTools.join(", ")}. Call the required tools now through the function calling interface. Do not describe commands or file contents as prose instead of using the tools. If a required external source is unavailable, still write a file_write artifact that clearly marks status: blocked and cites the failed tool evidence.`
+        });
+        continue;
+      }
+      break;
+    }
     if (!result.text && result.toolCalls.every(
       (tc) => typeof tc.result === "string" && tc.result.includes("not available")
     )) {
@@ -12122,7 +18779,7 @@ ${toolSummary}
 Continue with your task. If you're done, provide a final summary.`
     });
   }
-  return { lastText, toolCalls: allToolCalls, rounds: llmRounds };
+  return { lastText, toolCalls: allToolCalls, rounds: llmRounds, emptyRounds };
 }
 async function executeAgentSession(session) {
   const startTime = Date.now();
@@ -12132,6 +18789,7 @@ async function executeAgentSession(session) {
         UPDATE ops_agent_sessions
         SET status = 'running', started_at = NOW()
         WHERE id = ${session.id}
+          AND status IN ('pending', 'queued', 'running')
     `;
   try {
     const { voiceName, tools, systemPrompt } = await loadAgentContext(session, isDroid, agentId);
@@ -12157,38 +18815,71 @@ async function executeAgentSession(session) {
         ignoreSummaryBlockers: isHeartbeatReportSession
       }
     );
-    const finalStatus = blockedOutcome.blocked ? "blocked" : "succeeded";
-    await completeSession(
+    const missingToolEvidence = detectMissingRequiredToolEvidence(
+      session,
+      loopResult.toolCalls
+    );
+    const emptySessionOutcome = detectEmptySessionOutcome(
+      session,
+      cleanedText,
+      loopResult.toolCalls
+    );
+    const droidPlaceholderArtifact = detectDroidPlaceholderArtifact(
+      session,
+      loopResult.toolCalls
+    );
+    const finalStatus = blockedOutcome.blocked || missingToolEvidence.blocked || emptySessionOutcome.blocked || droidPlaceholderArtifact.blocked ? "blocked" : "succeeded";
+    const blockedReason = blockedOutcome.blocked ? blockedOutcome.reason : missingToolEvidence.blocked ? missingToolEvidence.reason : emptySessionOutcome.blocked ? emptySessionOutcome.reason : droidPlaceholderArtifact.blocked ? droidPlaceholderArtifact.reason : void 0;
+    const blockedEvidence = [
+      ...blockedOutcome.evidence,
+      ...missingToolEvidence.evidence,
+      ...emptySessionOutcome.evidence,
+      ...droidPlaceholderArtifact.evidence
+    ];
+    const completed = await completeSession(
       session.id,
       finalStatus,
       {
         text: cleanedText,
         summary,
         rounds: loopResult.rounds,
-        ...blockedOutcome.blocked ? {
-          blocked_reason: blockedOutcome.reason,
-          blocked_evidence: blockedOutcome.evidence
+        empty_tool_rounds: loopResult.emptyRounds,
+        ...blockedReason ? {
+          blocked_reason: blockedReason,
+          blocked_evidence: blockedEvidence
         } : {}
       },
       loopResult.toolCalls,
       loopResult.rounds,
-      blockedOutcome.blocked ? blockedOutcome.reason : void 0
+      blockedReason
     );
+    if (!completed) return;
+    if (finalStatus === "succeeded") {
+      try {
+        await appendSucceededFileWriteManifests(session.id, agentId, loopResult.toolCalls);
+      } catch (manifestErr) {
+        log30.warn("Deferred manifest append failed (non-fatal)", {
+          error: manifestErr,
+          sessionId: session.id,
+          agentId
+        });
+      }
+    }
     const summaryPreview = truncateToFirstSentences(cleanedText, 2e3);
-    if (blockedOutcome.blocked) {
+    if (blockedReason) {
       await emitEvent({
         agent_id: agentId,
         kind: "agent_session_blocked",
         title: `${voiceName} session blocked`,
-        summary: summaryPreview || blockedOutcome.reason,
+        summary: summaryPreview || blockedReason,
         tags: ["agent_session", "blocked", session.source],
         metadata: {
           sessionId: session.id,
           source: session.source,
           rounds: loopResult.rounds,
           toolCalls: loopResult.toolCalls.length,
-          blockedReason: blockedOutcome.reason,
-          blockedEvidence: blockedOutcome.evidence
+          blockedReason,
+          blockedEvidence
         }
       });
     } else {
@@ -12209,7 +18900,7 @@ async function executeAgentSession(session) {
   } catch (err) {
     const errorMsg = err.message;
     log30.error("Agent session failed", { error: err, sessionId: session.id, agentId });
-    await completeSession(
+    const completed = await completeSession(
       session.id,
       "failed",
       { error: errorMsg, rounds: 0 },
@@ -12217,6 +18908,7 @@ async function executeAgentSession(session) {
       0,
       errorMsg
     );
+    if (!completed) return;
     await emitEvent({
       agent_id: agentId,
       kind: "agent_session_failed",
@@ -12241,10 +18933,10 @@ function sanitizeForJsonb(obj) {
   return obj;
 }
 async function completeSession(sessionId, status, result, toolCalls, llmRounds, error) {
-  await sql`
+  const updated = await sql`
         UPDATE ops_agent_sessions
         SET status = ${status},
-            result = ${jsonb(sanitizeForJsonb(result))},
+            result = COALESCE(result, '{}'::jsonb) || ${jsonb(sanitizeForJsonb(result))}::jsonb,
             tool_calls = ${jsonb(
     sanitizeForJsonb(toolCalls.map((tc) => ({
       name: tc.name,
@@ -12256,7 +18948,17 @@ async function completeSession(sessionId, status, result, toolCalls, llmRounds, 
             error = ${error ?? null},
             completed_at = NOW()
         WHERE id = ${sessionId}
+          AND status = 'running'
+        RETURNING id
     `;
+  if (updated.length === 0) {
+    log30.warn("Skipped terminal session update because session was not running", {
+      sessionId,
+      status
+    });
+    return false;
+  }
+  return true;
 }
 
 // scripts/unified-worker/index.ts
@@ -12387,7 +19089,7 @@ async function publishLocally(draft, existingLocal) {
   const filename = `${slug}.md`;
   const filePath = import_path.default.join(outputDir, filename);
   const markdown = renderLocalMarkdown(draft.title, draft.body, publishedAt);
-  await import_promises.default.writeFile(filePath, markdown, "utf-8");
+  await import_promises.default.writeFile(filePath, markdown, { encoding: "utf-8", mode: 420 });
   let relativePath;
   const normalizedFilePath = filePath.replace(/\\/g, "/");
   const normalizedWorkspace = WORKSPACE_ROOT.replace(/\\/g, "/");
@@ -12845,6 +19547,22 @@ var WORKER_HEARTBEAT_TIMEOUT_MS = Number.parseInt(
   10
 );
 var lastWorkerHeartbeatAttemptAt = 0;
+function buildReviewReadyDraftBody2(args) {
+  const header = [
+    "---",
+    `artifact_id: content-draft-${args.draftId}`,
+    `source_session: ${args.sourceSessionId}`,
+    "version: v01",
+    "audience: review board",
+    "publish_target: content pipeline",
+    `content_type: ${args.contentType}`,
+    `title: ${JSON.stringify(args.title)}`,
+    "reviewer_ask: Review for factual grounding, usefulness, publication readiness, and required revisions.",
+    "---",
+    ""
+  ].join("\n");
+  return `${header}${args.body}`.slice(0, 5e4);
+}
 if (!process.env.DATABASE_URL) {
   log36.fatal("Missing DATABASE_URL");
   process.exit(1);
@@ -12933,6 +19651,25 @@ async function pollAgentSessions(options = {}) {
   }
   await Promise.allSettled(sessions.map((session) => processAgentSession(session)));
   return true;
+}
+async function reapExpiredRunningAgentSessions() {
+  const expired = await sql2`
+        UPDATE ops_agent_sessions
+        SET status = 'timed_out',
+            completed_at = NOW(),
+            error = concat_ws(E'\n', nullif(error, ''), 'worker cleanup: running session exceeded timeout_seconds')
+        WHERE status = 'running'
+          AND started_at IS NOT NULL
+          AND timeout_seconds IS NOT NULL
+          AND NOW() - started_at > make_interval(secs => timeout_seconds)
+        RETURNING id, agent_id, source
+    `;
+  if (expired.length > 0) {
+    log36.warn("Reaped expired running agent sessions", {
+      count: expired.length,
+      sessionIds: expired.map((row) => row.id)
+    });
+  }
 }
 async function processAgentSession(session) {
   log36.info("Processing agent session", {
@@ -13098,7 +19835,7 @@ async function processAgentSession(session) {
                                     ${session.agent_id},
                                     ${contentType},
                                     ${title.slice(0, 500)},
-                                    ${artifactText.slice(0, 5e4)},
+                                    '',
                                     'draft',
                                     ${session.source_id},
                                     ${sql2.json({
@@ -13109,6 +19846,18 @@ async function processAgentSession(session) {
               })}
                                 )
                                 RETURNING id
+                            `;
+              const reviewReadyBody = buildReviewReadyDraftBody2({
+                body: artifactText,
+                draftId: draft.id,
+                sourceSessionId: session.source_id,
+                contentType,
+                title: title.slice(0, 500)
+              });
+              await sql2`
+                                UPDATE ops_content_drafts
+                                SET body = ${reviewReadyBody}
+                                WHERE id = ${draft.id}
                             `;
               log36.info("Content draft created from synthesis", {
                 draftId: draft.id,
@@ -13163,29 +19912,7 @@ async function processAgentSession(session) {
         `;
   }
 }
-async function pollRoundtables() {
-  const rows = await sql2`
-        UPDATE ops_roundtable_sessions
-        SET status = 'running'
-        WHERE id = (
-            SELECT id FROM ops_roundtable_sessions
-            WHERE status = 'pending'
-            AND scheduled_for <= NOW()
-            ORDER BY
-                CASE WHEN source = 'user_question' THEN 0 ELSE 1 END,
-                created_at ASC
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED
-        )
-        RETURNING *
-    `;
-  const session = rows[0];
-  if (!session) return false;
-  await sql2`
-        UPDATE ops_roundtable_sessions
-        SET status = 'pending'
-        WHERE id = ${session.id}
-    `;
+async function processRoundtableSession(session) {
   log36.info("Processing roundtable", {
     sessionId: session.id,
     format: session.format,
@@ -13238,7 +19965,54 @@ async function pollRoundtables() {
       error: err,
       sessionId: session.id
     });
+    await sql2`
+            UPDATE ops_roundtable_sessions
+            SET status = 'failed',
+                completed_at = NOW(),
+                metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                    'failureReason', ${err.message},
+                    'failedAt', NOW()
+                )
+            WHERE id = ${session.id}
+              AND status = 'running'
+        `;
   }
+}
+async function pollRoundtables() {
+  if (activeRoundtableIds.size >= ROUNDTABLE_CONCURRENCY) return false;
+  const rows = await sql2`
+        UPDATE ops_roundtable_sessions
+        SET status = 'running', started_at = NOW()
+        WHERE id = (
+            SELECT id FROM ops_roundtable_sessions
+            WHERE status = 'pending'
+            AND scheduled_for <= NOW()
+            ORDER BY
+                CASE WHEN source = 'user_question' THEN 0 ELSE 1 END,
+                created_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
+    `;
+  const session = rows[0];
+  if (!session) return false;
+  activeRoundtableIds.add(session.id);
+  log36.info("Launched roundtable processing", {
+    sessionId: session.id,
+    format: session.format,
+    topic: session.topic.slice(0, 80),
+    activeRoundtables: activeRoundtableIds.size,
+    roundtableConcurrency: ROUNDTABLE_CONCURRENCY
+  });
+  void processRoundtableSession(session).catch((err) => {
+    log36.error("Unhandled roundtable processing error", {
+      error: err,
+      sessionId: session.id
+    });
+  }).finally(() => {
+    activeRoundtableIds.delete(session.id);
+  });
   return true;
 }
 var MAX_PARALLEL_STEPS = Math.max(
@@ -13600,7 +20374,7 @@ async function dispatchMissionStep(step) {
     const [session] = await sql2`
             INSERT INTO ops_agent_sessions (
                 agent_id, prompt, source, source_id,
-                timeout_seconds, max_tool_rounds, status
+                timeout_seconds, max_tool_rounds, status, result
             ) VALUES (
                 ${agentId},
                 ${prompt},
@@ -13608,7 +20382,8 @@ async function dispatchMissionStep(step) {
                 ${step.mission_id},
                 1800,
                 30,
-                'pending'
+                'pending',
+                ${sql2.json({ mission_step_id: step.id })}::jsonb
             )
             RETURNING id
         `;
@@ -13700,6 +20475,7 @@ async function finalizeMissionSteps() {
             s.output_path,
             s.status as step_status,
             s.assigned_agent,
+            sess.id as session_id,
             sess.agent_id as session_agent_id,
             sess.status as session_status,
             sess.error as session_error,
@@ -13712,7 +20488,69 @@ async function finalizeMissionSteps() {
                 ELSE NULL
             END as session_summary
         FROM ops_mission_steps s
-        LEFT JOIN ops_agent_sessions sess ON sess.id = (s.result->>'agent_session_id')::uuid
+        LEFT JOIN LATERAL (
+            SELECT candidate.*
+            FROM ops_agent_sessions candidate
+            WHERE (
+                s.result->>'agent_session_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                AND candidate.id::text = s.result->>'agent_session_id'
+            )
+            OR (
+                candidate.source = 'mission'
+                AND candidate.result->>'mission_step_id' = s.id::text
+                AND candidate.status IN ('succeeded', 'blocked', 'failed', 'timed_out')
+                AND candidate.completed_at > s.started_at
+            )
+            OR (
+                s.result->>'agent_session_id' IS NULL
+                AND candidate.source = 'mission'
+                AND candidate.source_id = s.mission_id::text
+                AND candidate.agent_id = s.assigned_agent
+                AND candidate.status IN ('succeeded', 'blocked', 'failed', 'timed_out')
+                AND candidate.completed_at > s.started_at
+                AND (
+                    SELECT COUNT(*) FROM ops_agent_sessions terminal
+                    WHERE terminal.source = 'mission'
+                      AND terminal.source_id = s.mission_id::text
+                      AND terminal.agent_id = s.assigned_agent
+                      AND terminal.status IN ('succeeded', 'blocked', 'failed', 'timed_out')
+                      AND terminal.completed_at > s.started_at
+                ) = 1
+                AND (
+                    SELECT COUNT(*) FROM ops_mission_steps unmatched
+                    WHERE unmatched.mission_id = s.mission_id
+                      AND unmatched.assigned_agent = s.assigned_agent
+                      AND (
+                        unmatched.status = 'running'
+                        OR (
+                            unmatched.status = 'failed'
+                            AND unmatched.failure_reason LIKE 'Swept — step running with no %agent session'
+                        )
+                      )
+                      AND unmatched.result->>'agent_session_id' IS NULL
+                      AND unmatched.started_at <= candidate.completed_at
+                ) = 1
+                AND NOT EXISTS (
+                    SELECT 1 FROM ops_agent_sessions live
+                    WHERE live.source = 'mission'
+                      AND live.source_id = s.mission_id::text
+                      AND live.agent_id = s.assigned_agent
+                      AND live.status IN ('pending', 'running')
+                      AND live.created_at >= s.started_at
+                )
+            )
+            ORDER BY
+                CASE
+                    WHEN s.result->>'agent_session_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                     AND candidate.id::text = s.result->>'agent_session_id'
+                    THEN 0
+                    WHEN candidate.result->>'mission_step_id' = s.id::text
+                    THEN 1
+                    ELSE 2
+                END,
+                candidate.completed_at DESC NULLS LAST
+            LIMIT 1
+        ) sess ON TRUE
         WHERE (
             s.status = 'running'
             OR (
@@ -13720,7 +20558,6 @@ async function finalizeMissionSteps() {
                 AND s.failure_reason LIKE 'Swept — step running with no %agent session'
             )
         )
-        AND s.result->>'agent_session_id' IS NOT NULL
     `;
   if (steps.length === 0) return false;
   let finalized = 0;
@@ -13732,7 +20569,12 @@ async function finalizeMissionSteps() {
                 SET status = 'succeeded',
                     failure_reason = NULL,
                     completed_at = NOW(),
-                    updated_at = NOW()
+                    updated_at = NOW(),
+                    result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
+                        'agent_session_id', ${step.session_id}::text,
+                        'reconciledBy', 'worker-finalizer',
+                        'reconciledAt', NOW()
+                    )
                 WHERE id = ${step.id}
                   AND (
                     status = 'running'
@@ -13757,7 +20599,7 @@ async function finalizeMissionSteps() {
         outcome: "succeeded",
         recordedBy: step.assigned_agent ?? step.session_agent_id,
         evidence: {
-          agentSessionId: void 0,
+          agentSessionId: step.session_id ?? void 0,
           sessionStatus: step.session_status,
           sessionSummary: step.session_summary ?? void 0,
           recoveredSweptFailure: step.step_status === "failed"
@@ -13811,9 +20653,20 @@ async function finalizeMissionSteps() {
                 SET status = 'blocked',
                     failure_reason = ${step.session_blocked_reason ?? "Agent session blocked"},
                     completed_at = NOW(),
-                    updated_at = NOW()
+                    updated_at = NOW(),
+                    result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
+                        'agent_session_id', ${step.session_id}::text,
+                        'reconciledBy', 'worker-finalizer',
+                        'reconciledAt', NOW()
+                    )
                 WHERE id = ${step.id}
-                  AND status = 'running'
+                  AND (
+                    status = 'running'
+                    OR (
+                        status = 'failed'
+                        AND failure_reason LIKE 'Swept — step running with no %agent session'
+                    )
+                  )
                 RETURNING id
             `;
       if (updated.length === 0) continue;
@@ -13831,20 +20684,34 @@ async function finalizeMissionSteps() {
         reason: step.session_blocked_reason ?? "Agent session blocked",
         recordedBy: step.assigned_agent ?? step.session_agent_id,
         evidence: {
+          agentSessionId: step.session_id ?? void 0,
           sessionStatus: step.session_status,
           sessionSummary: step.session_summary ?? void 0
         }
       });
-      await finalizeMissionIfComplete(step.mission_id);
+      await finalizeMissionIfComplete(step.mission_id, {
+        recoverSweptFailure: step.step_status === "failed"
+      });
     } else if (step.session_status === "failed" || step.session_status === "timed_out") {
       const updated = await sql2`
                 UPDATE ops_mission_steps
                 SET status = 'failed',
                     failure_reason = ${step.session_error ?? (step.session_status === "timed_out" ? "Agent session timed out" : "Agent session failed")},
                     completed_at = NOW(),
-                    updated_at = NOW()
+                    updated_at = NOW(),
+                    result = COALESCE(result, '{}'::jsonb) || jsonb_build_object(
+                        'agent_session_id', ${step.session_id}::text,
+                        'reconciledBy', 'worker-finalizer',
+                        'reconciledAt', NOW()
+                    )
                 WHERE id = ${step.id}
-                  AND status = 'running'
+                  AND (
+                    status = 'running'
+                    OR (
+                        status = 'failed'
+                        AND failure_reason LIKE 'Swept — step running with no %agent session'
+                    )
+                  )
                 RETURNING id
             `;
       if (updated.length === 0) continue;
@@ -13861,9 +20728,14 @@ async function finalizeMissionSteps() {
         outcome: "failed",
         reason: step.session_error ?? (step.session_status === "timed_out" ? "Agent session timed out" : "Agent session failed"),
         recordedBy: step.assigned_agent ?? step.session_agent_id,
-        evidence: { sessionStatus: step.session_status }
+        evidence: {
+          agentSessionId: step.session_id ?? void 0,
+          sessionStatus: step.session_status
+        }
       });
-      await finalizeMissionIfComplete(step.mission_id);
+      await finalizeMissionIfComplete(step.mission_id, {
+        recoverSweptFailure: step.step_status === "failed"
+      });
     }
   }
   return finalized > 0;
@@ -14204,6 +21076,45 @@ async function sweepStaleAgentSessions() {
   }
   return stale.length > 0;
 }
+async function warnOnPendingAgentSessionBacklog() {
+  const now = Date.now();
+  if (now - lastPendingSessionWarningAt < PENDING_SESSION_WARN_INTERVAL_MS) {
+    return false;
+  }
+  const [summary] = await sql2`
+        SELECT
+            COUNT(*)::int AS total,
+            (array_agg(id ORDER BY created_at ASC))[1]::text AS oldest_id,
+            (array_agg(source ORDER BY created_at ASC))[1] AS oldest_source,
+            (array_agg(agent_id ORDER BY created_at ASC))[1] AS oldest_agent,
+            EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_age_seconds
+        FROM ops_agent_sessions
+        WHERE status = 'pending'
+    `;
+  if (!summary?.oldest_age_seconds || summary.oldest_age_seconds < PENDING_SESSION_WARN_SECONDS) {
+    return false;
+  }
+  const bySource = await sql2`
+        SELECT source,
+               COUNT(*)::int AS count,
+               EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_age_seconds
+        FROM ops_agent_sessions
+        WHERE status = 'pending'
+        GROUP BY source
+        ORDER BY count DESC, source ASC
+    `;
+  lastPendingSessionWarningAt = now;
+  log36.warn("Pending agent session backlog age threshold exceeded", {
+    total: summary.total,
+    thresholdSeconds: PENDING_SESSION_WARN_SECONDS,
+    oldestSessionId: summary.oldest_id,
+    oldestSource: summary.oldest_source,
+    oldestAgent: summary.oldest_agent,
+    oldestAgeSeconds: summary.oldest_age_seconds,
+    bySource
+  });
+  return true;
+}
 async function sweepStaleRoundtables() {
   const stale = await sql2`
         UPDATE ops_roundtable_sessions
@@ -14239,8 +21150,8 @@ async function recoverSweptLiveMissionSteps() {
         FROM ops_agent_sessions session
         WHERE step.status = 'failed'
           AND step.failure_reason = 'Swept — step running with no live agent session'
-          AND step.result->>'agent_session_id' IS NOT NULL
-          AND session.id = (step.result->>'agent_session_id')::uuid
+          AND step.result->>'agent_session_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          AND session.id::text = step.result->>'agent_session_id'
           AND session.status IN ('pending', 'running')
         RETURNING step.id, step.mission_id, step.kind, step.assigned_agent, session.status AS session_status
     `;
@@ -14271,7 +21182,13 @@ async function sweepOrphanedMissionSteps() {
                 'requeuedAt', NOW()
             )
         WHERE status = 'running'
-          AND started_at < NOW() - INTERVAL '2 hours'
+          AND (
+              started_at < NOW() - INTERVAL '2 hours'
+              OR (
+                  kind IN ('memory_archaeology', 'convene_roundtable')
+                  AND started_at < NOW() - INTERVAL '15 minutes'
+              )
+          )
           AND result->>'agent_session_id' IS NULL
         RETURNING id, mission_id, kind, assigned_agent
     `;
@@ -14286,7 +21203,8 @@ async function sweepOrphanedMissionSteps() {
           AND step.result->>'agent_session_id' IS NOT NULL
           AND NOT EXISTS (
               SELECT 1 FROM ops_agent_sessions s
-              WHERE s.id = (step.result->>'agent_session_id')::uuid
+              WHERE step.result->>'agent_session_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                AND s.id::text = step.result->>'agent_session_id'
           )
         RETURNING step.id, step.mission_id, step.kind, step.assigned_agent
     `;
@@ -14318,30 +21236,35 @@ async function sweepOrphanedMissionSteps() {
   }
   return requeued.length > 0 || orphaned.length > 0;
 }
-async function runMaintenanceTasks() {
-  await sweepStaleAgentSessions();
-  await sweepStaleRoundtables();
-  await finalizeMissionSteps();
-  await recoverSweptLiveMissionSteps();
-  await sweepOrphanedMissionSteps();
-  await triggerHeartbeatIfDue();
+async function runMaintenanceTasks(options = {}) {
+  await runWorkerStage("maintenance.sweep_stale_agent_sessions", sweepStaleAgentSessions);
+  await runWorkerStage("maintenance.warn_pending_agent_session_backlog", warnOnPendingAgentSessionBacklog);
+  await runWorkerStage("maintenance.sweep_stale_roundtables", sweepStaleRoundtables);
+  await runWorkerStage("maintenance.finalize_mission_steps", finalizeMissionSteps);
+  await runWorkerStage("maintenance.recover_swept_live_mission_steps", recoverSweptLiveMissionSteps);
+  await runWorkerStage("maintenance.sweep_orphaned_mission_steps", sweepOrphanedMissionSteps);
+  if (options.triggerHeartbeat ?? true) {
+    await runWorkerStage("maintenance.trigger_heartbeat_if_due", triggerHeartbeatIfDue);
+  }
 }
 async function finalizeMissionIfComplete(missionId, options) {
+  await blockQueuedStepsWithTerminalDependencies(missionId);
   const [counts] = await sql2`
         SELECT
             COUNT(*)::int as total,
             COUNT(*) FILTER (WHERE status = 'succeeded')::int as succeeded,
             COUNT(*) FILTER (WHERE status = 'blocked')::int as blocked,
-            COUNT(*) FILTER (WHERE status = 'failed')::int as failed
+            COUNT(*) FILTER (WHERE status = 'failed')::int as failed,
+            COUNT(*) FILTER (WHERE status = 'skipped')::int as skipped
         FROM ops_mission_steps
         WHERE mission_id = ${missionId}
     `;
   if (!counts || counts.total === 0) return;
-  const allDone = counts.succeeded + counts.blocked + counts.failed === counts.total;
+  const allDone = counts.succeeded + counts.blocked + counts.failed + counts.skipped === counts.total;
   if (!allDone) return;
-  const finalStatus = counts.failed > 0 ? "failed" : counts.blocked > 0 ? "blocked" : "succeeded";
-  const failReason = counts.failed > 0 ? `${counts.failed} of ${counts.total} steps failed` : counts.blocked > 0 ? `${counts.blocked} of ${counts.total} steps blocked` : null;
-  await sql2`
+  const finalStatus = counts.failed > 0 ? "failed" : counts.blocked > 0 || counts.skipped > 0 ? "blocked" : "succeeded";
+  const failReason = counts.failed > 0 ? `${counts.failed} of ${counts.total} steps failed` : counts.blocked > 0 ? `${counts.blocked} of ${counts.total} steps blocked` : counts.skipped > 0 ? `${counts.skipped} of ${counts.total} steps skipped` : null;
+  const finalized = await sql2`
         UPDATE ops_missions
         SET status = ${finalStatus},
             failure_reason = ${failReason},
@@ -14356,7 +21279,84 @@ async function finalizeMissionIfComplete(missionId, options) {
                 AND failure_reason LIKE '%step%failed'
             )
         )
+        RETURNING created_by, title
     `;
+  const [mission] = finalized;
+  if (!mission) return;
+  try {
+    const { emitEvent: emitEvent2 } = await Promise.resolve().then(() => (init_events2(), events_exports2));
+    await emitEvent2({
+      agent_id: mission.created_by,
+      kind: finalStatus === "failed" ? "mission_failed" : finalStatus === "blocked" ? "mission_blocked" : "mission_succeeded",
+      title: finalStatus === "failed" ? `Mission failed: ${mission.title}` : finalStatus === "blocked" ? `Mission blocked: ${mission.title}` : `Mission completed: ${mission.title}`,
+      tags: ["mission", finalStatus],
+      metadata: {
+        missionId,
+        totalSteps: counts.total,
+        succeededSteps: counts.succeeded,
+        blockedSteps: counts.blocked,
+        failedSteps: counts.failed,
+        skippedSteps: counts.skipped
+      }
+    });
+  } catch (emitErr) {
+    log36.warn("Mission finalization event failed (non-fatal)", {
+      error: emitErr,
+      missionId,
+      status: finalStatus
+    });
+  }
+}
+async function blockQueuedStepsWithTerminalDependencies(missionId) {
+  const reason = "Blocked because one or more dependency steps did not succeed";
+  const blockedSteps = await sql2`
+        WITH RECURSIVE blocked_steps AS (
+            SELECT s.id
+            FROM ops_mission_steps s
+            WHERE s.mission_id = ${missionId}
+              AND s.status = 'queued'
+              AND EXISTS (
+                  SELECT 1
+                  FROM ops_mission_steps dep
+                  WHERE dep.mission_id = s.mission_id
+                    AND dep.id = ANY(s.depends_on)
+                    AND dep.status IN ('failed', 'blocked', 'skipped')
+              )
+
+            UNION
+
+            SELECT child.id
+            FROM ops_mission_steps child
+            JOIN blocked_steps blocked_dep ON blocked_dep.id = ANY(child.depends_on)
+            WHERE child.mission_id = ${missionId}
+              AND child.status = 'queued'
+        )
+        UPDATE ops_mission_steps s
+        SET status = 'blocked',
+            failure_reason = ${reason},
+            completed_at = NOW(),
+            updated_at = NOW()
+        FROM blocked_steps bs
+        WHERE s.id = bs.id
+          AND s.status = 'queued'
+        RETURNING s.*
+    `;
+  for (const step of blockedSteps) {
+    await appendStepExecutionEvidence({
+      step,
+      outcome: "blocked",
+      reason,
+      evidence: { blockedByDependency: true }
+    });
+  }
+  if (blockedSteps.length > 0) {
+    log36.info("Blocked queued mission steps with terminal dependencies", {
+      missionId,
+      count: blockedSteps.length,
+      stepIds: blockedSteps.map((step) => step.id)
+    });
+  }
+  return blockedSteps.length;
 }
 async function waitForDb(maxRetries = 30, intervalMs = 2e3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -14381,6 +21381,18 @@ async function waitForDb(maxRetries = 30, intervalMs = 2e3) {
   }
 }
 var running = true;
+async function runWorkerStage(stage, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    log36.error("Worker stage failed", {
+      stage,
+      error: err,
+      stack: err instanceof Error ? err.stack : void 0
+    });
+    throw err;
+  }
+}
 async function catchUpStuckReviews() {
   const stuck = await sql2`
         SELECT d.id, d.review_session_id, d.title
@@ -14433,19 +21445,20 @@ async function catchUpOrphanedMissions() {
             COUNT(s.id)::int as total,
             COUNT(s.id) FILTER (WHERE s.status = 'succeeded')::int as succeeded,
             COUNT(s.id) FILTER (WHERE s.status = 'blocked')::int as blocked,
-            COUNT(s.id) FILTER (WHERE s.status = 'failed')::int as failed
+            COUNT(s.id) FILTER (WHERE s.status = 'failed')::int as failed,
+            COUNT(s.id) FILTER (WHERE s.status = 'skipped')::int as skipped
         FROM ops_missions m
         LEFT JOIN ops_mission_steps s ON s.mission_id = m.id
-        WHERE m.status = 'approved'
+        WHERE m.status IN ('approved', 'running')
         GROUP BY m.id
         HAVING COUNT(s.id) > 0
-           AND COUNT(s.id) = COUNT(s.id) FILTER (WHERE s.status IN ('succeeded', 'blocked', 'failed'))
+           AND COUNT(s.id) = COUNT(s.id) FILTER (WHERE s.status IN ('succeeded', 'blocked', 'failed', 'skipped'))
     `;
   if (orphaned.length === 0) return;
   log36.info("Catching up orphaned missions", { count: orphaned.length });
   for (const mission of orphaned) {
-    const finalStatus = mission.failed > 0 ? "failed" : mission.blocked > 0 ? "blocked" : "succeeded";
-    const failReason = mission.failed > 0 ? `${mission.failed} of ${mission.total} step(s) failed` : mission.blocked > 0 ? `${mission.blocked} of ${mission.total} step(s) blocked` : null;
+    const finalStatus = mission.failed > 0 ? "failed" : mission.blocked > 0 || mission.skipped > 0 ? "blocked" : "succeeded";
+    const failReason = mission.failed > 0 ? `${mission.failed} of ${mission.total} step(s) failed` : mission.blocked > 0 ? `${mission.blocked} of ${mission.total} step(s) blocked` : mission.skipped > 0 ? `${mission.skipped} of ${mission.total} step(s) skipped` : null;
     await sql2`
             UPDATE ops_missions
             SET status = ${finalStatus},
@@ -14453,7 +21466,7 @@ async function catchUpOrphanedMissions() {
                 completed_at = NOW(),
                 updated_at = NOW()
             WHERE id = ${mission.id}
-            AND status = 'approved'
+            AND status IN ('approved', 'running')
         `;
     log36.info("Orphaned mission finalized", {
       missionId: mission.id,
@@ -14532,21 +21545,21 @@ async function sweepOutputObligations(reason) {
 }
 async function pollLoop() {
   await waitForDb();
-  const toolbox = await checkToolboxAvailable();
+  const toolbox = await runWorkerStage("startup.check_toolbox", checkToolboxAvailable);
   if (!toolbox.ok) {
     disableDockerBackedTools(toolbox.reason);
   }
-  await catchUpStuckReviews();
-  await catchUpOrphanedReviewDrafts();
-  await catchUpOrphanedMissions();
-  const startupPublish = await publishApprovedDrafts();
+  await runWorkerStage("startup.catch_up_stuck_reviews", catchUpStuckReviews);
+  await runWorkerStage("startup.catch_up_orphaned_review_drafts", catchUpOrphanedReviewDrafts);
+  await runWorkerStage("startup.catch_up_orphaned_missions", catchUpOrphanedMissions);
+  const startupPublish = await runWorkerStage("startup.publish_approved_drafts", publishApprovedDrafts);
   if (startupPublish.published > 0 || startupPublish.failed > 0) {
     log36.info("Startup content publish sweep complete", {
       published: startupPublish.published,
       failed: startupPublish.failed
     });
   }
-  const startupGhostBackfill = await mirrorPublishedDraftBackfill();
+  const startupGhostBackfill = await runWorkerStage("startup.ghost_backfill", mirrorPublishedDraftBackfill);
   if (!startupGhostBackfill.skipped && startupGhostBackfill.processed > 0) {
     log36.info("Startup Ghost backfill sweep complete", {
       processed: startupGhostBackfill.processed,
@@ -14555,7 +21568,7 @@ async function pollLoop() {
       skipped: startupGhostBackfill.skipped
     });
   }
-  const startupGovernanceBackfill = await backfillGovernanceVotes();
+  const startupGovernanceBackfill = await runWorkerStage("startup.governance_backfill", backfillGovernanceVotes);
   if (startupGovernanceBackfill.processed > 0) {
     log36.info("Startup governance vote backfill complete", {
       processed: startupGovernanceBackfill.processed,
@@ -14565,7 +21578,7 @@ async function pollLoop() {
       failed: startupGovernanceBackfill.failed
     });
   }
-  await runMaintenanceTasks();
+  await runWorkerStage("startup.maintenance", () => runMaintenanceTasks({ triggerHeartbeat: false }));
   while (running) {
     try {
       await pollRoundtables();
@@ -14581,6 +21594,7 @@ async function pollLoop() {
       const hadSession = await pollAgentSessions({ throttleInternalWork });
       await pollMissionSteps();
       await finalizeMissionSteps();
+      await pollRoundtables();
       if (hadSession) {
         await runMaintenanceTasks();
         continue;

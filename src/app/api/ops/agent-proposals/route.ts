@@ -9,7 +9,7 @@ import {
     type AgentProposalStatus,
 } from '@/lib/ops/agent-designer';
 import { prepareSpawn, executeSpawn } from '@/lib/ops/agent-spawner';
-import { requireAuthOrCron } from '@/lib/auth/middleware';
+import { requireAuthOrCron, requireOpsRead } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +22,9 @@ const VALID_STATUSES = new Set<AgentProposalStatus>([
 ]);
 
 export async function GET(req: NextRequest) {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     const { searchParams } = new URL(req.url);
     const statusParam = searchParams.get('status');
     const proposedBy = searchParams.get('proposed_by');

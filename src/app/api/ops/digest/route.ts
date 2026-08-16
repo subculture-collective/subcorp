@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
+import { requireOpsRead } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +35,9 @@ function parseRow(row: DigestRow) {
 }
 
 export async function GET(request: NextRequest) {
+    const authResult = await requireOpsRead();
+    if (authResult instanceof NextResponse) return authResult;
+
     try {
         const { searchParams } = new URL(request.url);
         const date = searchParams.get('date');

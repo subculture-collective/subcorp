@@ -53,7 +53,7 @@ export async function checkArtifactFreshness(): Promise<ArtifactHealthResult> {
         FROM ops_roundtable_sessions
         WHERE status = 'completed'
         AND completed_at >= ${todayISO}
-        AND format = ANY(${ARTIFACT_FORMATS})
+        AND format = ANY(${sql.array(ARTIFACT_FORMATS)}::text[])
     `;
 
     // Read manifest for today's entries

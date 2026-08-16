@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql, jsonb } from '@/lib/db';
 import { emitEvent } from '@/lib/ops/events';
 import { logger } from '@/lib/logger';
+import { requireRoleOrCron } from '@/lib/auth/middleware';
 
 const log = logger.child({ route: 'roundtable/reply' });
 
@@ -15,6 +16,9 @@ export async function POST(
     { params }: { params: Promise<{ sessionId: string }> },
 ) {
     const { sessionId } = await params;
+
+    const authResult = await requireRoleOrCron(req, 'member', 'admin');
+    if (authResult instanceof NextResponse) return authResult;
 
     if (!UUID_RE.test(sessionId)) {
         return NextResponse.json({ error: 'Invalid session ID' }, { status: 400 });

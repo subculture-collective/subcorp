@@ -32,6 +32,22 @@ export interface CreateProjectInput {
     prime_directive?: string;
 }
 
+async function discoverNestedGitRepos(knownProjectSlugs: string[]): Promise<string[]> {
+    const result = await execInToolbox(
+        "find /workspace/projects -mindepth 2 -maxdepth 2 -type d -name .git -print 2>/dev/null | sed 's#/.git$##' | sort",
+        5_000,
+    );
+    if (result.exitCode !== 0) return [];
+
+    const known = new Set(knownProjectSlugs.map(slug => `/workspace/projects/${slug}`));
+    return result.stdout
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean)
+        .filter(repoPath => repoPath !== '/workspace/projects/subcorp')
+        .filter(repoPath => !known.has(repoPath));
+}
+
 /**
  * Create a new project.
  * Also initializes the workspace directory structure in the toolbox.
@@ -75,7 +91,8 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
         await execInToolbox(
             `mkdir -p '/workspace/projects/${input.slug}/src' '/workspace/projects/${input.slug}/docs' && ` +
             `echo '${readmeB64}' | base64 -d > '/workspace/projects/${input.slug}/README.md' && ` +
-            `echo '${statusB64}' | base64 -d > '/workspace/projects/${input.slug}/.status.json'`,
+            `echo '${statusB64}' | base64 -d > '/workspace/projects/${input.slug}/.status.json' && ` +
+            `chmod 0644 '/workspace/projects/${input.slug}/README.md' '/workspace/projects/${input.slug}/.status.json'`,
             10_000,
         );
     } catch (err) {
@@ -170,11 +187,25 @@ async function updateProjectRegistry(): Promise<void> {
         ORDER BY updated_at DESC
     `;
 
+    const unmanagedNestedGitRepos = await discoverNestedGitRepos(
+        projects.map(project => project.slug),
+    );
     const registry = JSON.stringify(projects, null, 2);
+    const hygiene = JSON.stringify(
+        {
+            generated_at: new Date().toISOString(),
+            unmanaged_nested_git_repos: unmanagedNestedGitRepos,
+        },
+        null,
+        2,
+    );
     const b64 = Buffer.from(registry).toString('base64');
+    const hygieneB64 = Buffer.from(hygiene).toString('base64');
 
     await execInToolbox(
-        `echo '${b64}' | base64 -d > /workspace/shared/project-registry.json`,
+        `echo '${b64}' | base64 -d > /workspace/shared/project-registry.json && ` +
+        `echo '${hygieneB64}' | base64 -d > /workspace/shared/workspace-hygiene.json && ` +
+        `chmod 0644 /workspace/shared/project-registry.json /workspace/shared/workspace-hygiene.json`,
         5_000,
     );
 }

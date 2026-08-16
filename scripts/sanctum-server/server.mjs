@@ -33,6 +33,10 @@ import { createLogger } from '../../src/lib/logger.ts';
 
 const log = createLogger({ module: 'sanctum-server' });
 const PORT = parseInt(process.env.SANCTUM_WS_PORT ?? '3011', 10);
+const PUBLIC_BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://subcorp.subcult.tv';
+const DEFAULT_USER_WEBHOOK_NAME = process.env.SANCTUM_DISCORD_USER_NAME || 'Sanctum Visitor';
+const DEFAULT_USER_WEBHOOK_AVATAR_URL =
+    process.env.SANCTUM_DISCORD_USER_AVATAR_URL || `${PUBLIC_BASE_URL}/avatars/subcorp.png`;
 
 const server = createSanctumServer(PORT);
 
@@ -97,7 +101,31 @@ async function getDiscordPoster() {
  * Post a sanctum message to the Discord sanctum-chat channel.
  * Fire-and-forget — errors are logged but don't break the flow.
  */
-async function postSanctumToDiscord(agentId, content, { username, isUser } = {}) {
+function cleanDiscordWebhookName(value) {
+    if (!value || typeof value !== 'string') return null;
+    const clean = value.trim().replace(/\s+/g, ' ').slice(0, 80);
+    return clean || null;
+}
+
+function cleanDiscordAvatarUrl(value) {
+    if (!value || typeof value !== 'string') return null;
+    const clean = value.trim();
+    if (!/^https:\/\//i.test(clean)) return null;
+    return clean.slice(0, 512);
+}
+
+function getUserDiscordProfile(payload, fallbackUserId) {
+    const explicitName = cleanDiscordWebhookName(payload?.displayName)
+        || cleanDiscordWebhookName(payload?.username);
+    const cleanUserId = cleanDiscordWebhookName(fallbackUserId);
+
+    return {
+        username: explicitName || (cleanUserId && cleanUserId !== 'user' ? cleanUserId : DEFAULT_USER_WEBHOOK_NAME),
+        avatarUrl: cleanDiscordAvatarUrl(payload?.avatarUrl) || DEFAULT_USER_WEBHOOK_AVATAR_URL,
+    };
+}
+
+async function postSanctumToDiscord(agentId, content, { username, avatarUrl: userAvatarUrl, isUser } = {}) {
     const poster = await getDiscordPoster();
     if (!poster) return;
 
@@ -105,8 +133,8 @@ async function postSanctumToDiscord(agentId, content, { username, isUser } = {})
     const displayName = isUser
         ? (username || 'User')
         : (AGENTS[agentId]?.displayName ?? agentId);
-    const avatarUrl = isUser ? undefined : getAgentAvatarUrl(agentId);
-    const finalUsername = isUser ? `\u{1F464} ${displayName}` : displayName;
+    const avatarUrl = isUser ? userAvatarUrl : getAgentAvatarUrl(agentId);
+    const finalUsername = isUser ? displayName : displayName;
 
     const chunks = splitDiscordMessage(content);
     for (const chunk of chunks) {
@@ -175,6 +203,7 @@ async function handleChatSend(client, msg) {
     }
 
     const userId = client.userId || 'anon';
+    const discordUserProfile = getUserDiscordProfile(msg.payload, userId);
     const intent = parseIntent(message);
 
     // Get or create conversation
@@ -239,9 +268,11 @@ async function handleChatSend(client, msg) {
     });
 
     // Mirror user message to Discord (fire-and-forget)
-    postSanctumToDiscord(null, message, { username: userId, isUser: true }).catch(err =>
-        log.warn('Discord user message post failed', { error: err.message }),
-    );
+    postSanctumToDiscord(null, message, {
+        username: discordUserProfile.username,
+        avatarUrl: discordUserProfile.avatarUrl,
+        isUser: true,
+    }).catch(err => log.warn('Discord user message post failed', { error: err.message }));
 
     // Handle /roundtable
     if (intent.mode === 'roundtable') {
