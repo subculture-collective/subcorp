@@ -1876,33 +1876,45 @@ async function finalizeMissionIfComplete(
     missionId: string,
     options?: { recoverSweptFailure?: boolean },
 ): Promise<void> {
+    await blockQueuedStepsWithTerminalDependencies(missionId);
+
     const [counts] = await sql<
-        [{ total: number; succeeded: number; blocked: number; failed: number }]
+        [{
+            total: number;
+            succeeded: number;
+            blocked: number;
+            failed: number;
+            skipped: number;
+        }]
     >`
         SELECT
             COUNT(*)::int as total,
             COUNT(*) FILTER (WHERE status = 'succeeded')::int as succeeded,
             COUNT(*) FILTER (WHERE status = 'blocked')::int as blocked,
-            COUNT(*) FILTER (WHERE status = 'failed')::int as failed
+            COUNT(*) FILTER (WHERE status = 'failed')::int as failed,
+            COUNT(*) FILTER (WHERE status = 'skipped')::int as skipped
         FROM ops_mission_steps
         WHERE mission_id = ${missionId}
     `;
 
     if (!counts || counts.total === 0) return;
 
-    const allDone = counts.succeeded + counts.blocked + counts.failed === counts.total;
+    const allDone =
+        counts.succeeded + counts.blocked + counts.failed + counts.skipped ===
+        counts.total;
     if (!allDone) return;
 
     const finalStatus =
         counts.failed > 0 ? 'failed'
-        : counts.blocked > 0 ? 'blocked'
+        : counts.blocked > 0 || counts.skipped > 0 ? 'blocked'
         : 'succeeded';
     const failReason =
         counts.failed > 0 ? `${counts.failed} of ${counts.total} steps failed`
         : counts.blocked > 0 ? `${counts.blocked} of ${counts.total} steps blocked`
+        : counts.skipped > 0 ? `${counts.skipped} of ${counts.total} steps skipped`
         : null;
 
-    await sql`
+    const finalized = await sql<Array<{ created_by: string; title: string }>>`
         UPDATE ops_missions
         SET status = ${finalStatus},
             failure_reason = ${failReason},
@@ -1917,7 +1929,98 @@ async function finalizeMissionIfComplete(
                 AND failure_reason LIKE '%step%failed'
             )
         )
+        RETURNING created_by, title
     `;
+
+    const [mission] = finalized;
+    if (!mission) return;
+
+    try {
+        const { emitEvent } = await import('../../src/lib/ops/events');
+        await emitEvent({
+            agent_id: mission.created_by,
+            kind:
+                finalStatus === 'failed' ? 'mission_failed'
+                : finalStatus === 'blocked' ? 'mission_blocked'
+                : 'mission_succeeded',
+            title:
+                finalStatus === 'failed' ? `Mission failed: ${mission.title}`
+                : finalStatus === 'blocked' ? `Mission blocked: ${mission.title}`
+                : `Mission completed: ${mission.title}`,
+            tags: ['mission', finalStatus],
+            metadata: {
+                missionId,
+                totalSteps: counts.total,
+                succeededSteps: counts.succeeded,
+                blockedSteps: counts.blocked,
+                failedSteps: counts.failed,
+                skippedSteps: counts.skipped,
+            },
+        });
+    } catch (emitErr) {
+        log.warn('Mission finalization event failed (non-fatal)', {
+            error: emitErr,
+            missionId,
+            status: finalStatus,
+        });
+    }
+}
+
+async function blockQueuedStepsWithTerminalDependencies(
+    missionId: string,
+): Promise<number> {
+    const reason = 'Blocked because one or more dependency steps did not succeed';
+    const blockedSteps = await sql<Array<MissionStepRow>>`
+        WITH RECURSIVE blocked_steps AS (
+            SELECT s.id
+            FROM ops_mission_steps s
+            WHERE s.mission_id = ${missionId}
+              AND s.status = 'queued'
+              AND EXISTS (
+                  SELECT 1
+                  FROM ops_mission_steps dep
+                  WHERE dep.mission_id = s.mission_id
+                    AND dep.id = ANY(s.depends_on)
+                    AND dep.status IN ('failed', 'blocked', 'skipped')
+              )
+
+            UNION
+
+            SELECT child.id
+            FROM ops_mission_steps child
+            JOIN blocked_steps blocked_dep ON blocked_dep.id = ANY(child.depends_on)
+            WHERE child.mission_id = ${missionId}
+              AND child.status = 'queued'
+        )
+        UPDATE ops_mission_steps s
+        SET status = 'blocked',
+            failure_reason = ${reason},
+            completed_at = NOW(),
+            updated_at = NOW()
+        FROM blocked_steps bs
+        WHERE s.id = bs.id
+          AND s.status = 'queued'
+        RETURNING s.*
+    `;
+
+    for (const step of blockedSteps) {
+        await appendStepExecutionEvidence({
+            step,
+            outcome: 'blocked',
+            reason,
+            evidence: { blockedByDependency: true },
+        });
+    }
+
+    if (blockedSteps.length > 0) {
+        log.info('Blocked queued mission steps with terminal dependencies', {
+            missionId,
+            count: blockedSteps.length,
+            stepIds: blockedSteps.map(step => step.id),
+        });
+    }
+
+    return blockedSteps.length;
 }
 
 // ─── DB readiness check ───
@@ -2006,9 +2109,9 @@ async function catchUpOrphanedReviewDrafts(): Promise<void> {
     );
 }
 
-/** One-time: finalize missions stuck in 'approved' with all steps completed */
+/** One-time: finalize missions stuck active with all steps completed */
 async function catchUpOrphanedMissions(): Promise<void> {
-    // Find missions in 'approved' where all steps are terminal (none queued/running)
+    // Find active missions where all steps are terminal (none queued/running)
     const orphaned = await sql<
         {
             id: string;
@@ -2017,19 +2120,21 @@ async function catchUpOrphanedMissions(): Promise<void> {
             succeeded: number;
             blocked: number;
             failed: number;
+            skipped: number;
         }[]
     >`
         SELECT m.id, m.title,
             COUNT(s.id)::int as total,
             COUNT(s.id) FILTER (WHERE s.status = 'succeeded')::int as succeeded,
             COUNT(s.id) FILTER (WHERE s.status = 'blocked')::int as blocked,
-            COUNT(s.id) FILTER (WHERE s.status = 'failed')::int as failed
+            COUNT(s.id) FILTER (WHERE s.status = 'failed')::int as failed,
+            COUNT(s.id) FILTER (WHERE s.status = 'skipped')::int as skipped
         FROM ops_missions m
         LEFT JOIN ops_mission_steps s ON s.mission_id = m.id
-        WHERE m.status = 'approved'
+        WHERE m.status IN ('approved', 'running')
         GROUP BY m.id
         HAVING COUNT(s.id) > 0
-           AND COUNT(s.id) = COUNT(s.id) FILTER (WHERE s.status IN ('succeeded', 'blocked', 'failed'))
+           AND COUNT(s.id) = COUNT(s.id) FILTER (WHERE s.status IN ('succeeded', 'blocked', 'failed', 'skipped'))
     `;
 
     if (orphaned.length === 0) return;
@@ -2039,11 +2144,12 @@ async function catchUpOrphanedMissions(): Promise<void> {
     for (const mission of orphaned) {
         const finalStatus =
             mission.failed > 0 ? 'failed'
-            : mission.blocked > 0 ? 'blocked'
+            : mission.blocked > 0 || mission.skipped > 0 ? 'blocked'
             : 'succeeded';
         const failReason =
             mission.failed > 0 ? `${mission.failed} of ${mission.total} step(s) failed`
             : mission.blocked > 0 ? `${mission.blocked} of ${mission.total} step(s) blocked`
+            : mission.skipped > 0 ? `${mission.skipped} of ${mission.total} step(s) skipped`
             : null;
         await sql`
             UPDATE ops_missions
@@ -2052,7 +2158,7 @@ async function catchUpOrphanedMissions(): Promise<void> {
                 completed_at = NOW(),
                 updated_at = NOW()
             WHERE id = ${mission.id}
-            AND status = 'approved'
+            AND status IN ('approved', 'running')
         `;
         log.info('Orphaned mission finalized', {
             missionId: mission.id,
