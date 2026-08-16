@@ -207,6 +207,8 @@ export async function recoverStaleSteps(): Promise<{ recovered: number }> {
 export async function maybeFinalializeMission(
     missionId: string,
 ): Promise<void> {
+    await blockQueuedStepsWithTerminalDependencies(missionId);
+
     // Count pending steps (queued or running)
     const [{ count: pendingCount }] = await sql<[{ count: number }]>`
         SELECT COUNT(*)::int as count FROM ops_mission_steps
@@ -227,6 +229,12 @@ export async function maybeFinalializeMission(
         SELECT COUNT(*)::int as count FROM ops_mission_steps
         WHERE mission_id = ${missionId}
         AND status = 'blocked'
+    `;
+
+    const [{ count: skippedCount }] = await sql<[{ count: number }]>`
+        SELECT COUNT(*)::int as count FROM ops_mission_steps
+        WHERE mission_id = ${missionId}
+        AND status = 'skipped'
     `;
 
     const [mission] = await sql<[{ created_by: string; title: string }]>`
@@ -253,8 +261,10 @@ export async function maybeFinalializeMission(
             tags: ['mission', 'failed'],
             metadata: { missionId, failedSteps: failedCount },
         });
-    } else if (blockedCount > 0) {
-        const blockedReason = `${blockedCount} step(s) blocked`;
+    } else if (blockedCount > 0 || skippedCount > 0) {
+        const blockedReason =
+            blockedCount > 0 ? `${blockedCount} step(s) blocked`
+            : `${skippedCount} step(s) skipped`;
         await sql`
             UPDATE ops_missions
             SET status = 'blocked',
@@ -288,4 +298,54 @@ export async function maybeFinalializeMission(
             metadata: { missionId },
         });
     }
+}
+
+async function blockQueuedStepsWithTerminalDependencies(
+    missionId: string,
+): Promise<number> {
+    const reason = 'Blocked because one or more dependency steps did not succeed';
+    const blockedSteps = await sql<Array<{ id: string }>>`
+        WITH RECURSIVE blocked_steps AS (
+            SELECT s.id
+            FROM ops_mission_steps s
+            WHERE s.mission_id = ${missionId}
+              AND s.status = 'queued'
+              AND EXISTS (
+                  SELECT 1
+                  FROM ops_mission_steps dep
+                  WHERE dep.mission_id = s.mission_id
+                    AND dep.id = ANY(s.depends_on)
+                    AND dep.status IN ('failed', 'blocked', 'skipped')
+              )
+
+            UNION
+
+            SELECT child.id
+            FROM ops_mission_steps child
+            JOIN blocked_steps blocked_dep ON blocked_dep.id = ANY(child.depends_on)
+            WHERE child.mission_id = ${missionId}
+              AND child.status = 'queued'
+        )
+        UPDATE ops_mission_steps s
+        SET status = 'blocked',
+            failure_reason = ${reason},
+            completed_at = NOW(),
+            updated_at = NOW()
+        FROM blocked_steps bs
+        WHERE s.id = bs.id
+          AND s.status = 'queued'
+        RETURNING s.id
+    `;
+
+    for (const step of blockedSteps) {
+        await appendRecoveryEvidence({
+            stepId: step.id,
+            missionId,
+            outcome: 'blocked',
+            reason,
+            evidence: { blockedByDependency: true },
+        });
+    }
+
+    return blockedSteps.length;
 }

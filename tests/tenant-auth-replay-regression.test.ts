@@ -181,6 +181,25 @@ describe('proposal replay concurrency guards', () => {
         expect(migration).toContain('idx_proposal_approval_evaluations_proposal');
     });
 
+    test('unified worker finalizes missions with terminal dependency failures', () => {
+        const worker = fs.readFileSync(
+            path.join(WORKSPACE_ROOT, 'scripts/unified-worker/index.ts'),
+            'utf8',
+        );
+
+        expect(worker).toContain('WITH RECURSIVE blocked_steps AS (');
+        expect(worker).toContain(
+            "AND dep.status IN ('failed', 'blocked', 'skipped')",
+        );
+        expect(worker).toContain(
+            "COUNT(*) FILTER (WHERE status = 'skipped')::int as skipped",
+        );
+        expect(worker).toContain("WHERE m.status IN ('approved', 'running')");
+        expect(worker).toContain(
+            "AND COUNT(s.id) = COUNT(s.id) FILTER (WHERE s.status IN ('succeeded', 'blocked', 'failed', 'skipped'))",
+        );
+    });
+
     test('proposal-derived missions require a schema-validated execution contract', () => {
         const service = fs.readFileSync(
             path.join(WORKSPACE_ROOT, 'src/lib/ops/proposal-service.ts'),
