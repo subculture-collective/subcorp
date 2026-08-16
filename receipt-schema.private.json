@@ -1,0 +1,273 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://subcult.tv/schemas/subcorp/receipt-schema.private.json",
+  "title": "SUBCORP Private Deployment/Rollback Receipt",
+  "description": "Internal receipt schema for deployment and rollback events. This file may reference sensitive operators, commands, hosts, audit destinations, and failure evidence; it must not be published directly.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "receipt_kind",
+    "created_at",
+    "environment",
+    "authority_boundary",
+    "commit",
+    "script",
+    "decision",
+    "secret_handling",
+    "audit_log",
+    "evidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "receipt_id": {
+      "type": "string",
+      "pattern": "^rcpt_[A-Za-z0-9][A-Za-z0-9_-]{7,}$"
+    },
+    "receipt_kind": {
+      "type": "string",
+      "enum": ["deployment", "rollback"]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "environment": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 80,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "authority_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approved_by", "approval_ref", "scope", "expires_at"],
+      "properties": {
+        "approved_by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approval_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "commit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hash", "repository"],
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "script": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "invocation"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "invocation": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["approved", "blocked", "rolled_back", "failed"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stop_condition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "escalation_owner": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "staging_dry_run": { "$ref": "#/$defs/command_record" },
+        "deploy": { "$ref": "#/$defs/command_record" },
+        "canary": { "$ref": "#/$defs/command_record" },
+        "rollback_proof": { "$ref": "#/$defs/command_record" },
+        "rollback": { "$ref": "#/$defs/command_record" }
+      }
+    },
+    "secret_handling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule", "public_receipt_redacted", "redaction_checks"],
+      "properties": {
+        "rule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "public_receipt_redacted": {
+          "type": "boolean",
+          "const": true
+        },
+        "redaction_checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "private_material_locations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "audit_log": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["destination", "retention", "events"],
+      "properties": {
+        "destination": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retention": {
+          "type": "string",
+          "minLength": 1
+        },
+        "events": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ts", "event", "detail"],
+            "properties": {
+              "ts": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "event": {
+                "type": "string",
+                "minLength": 1
+              },
+              "detail": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "kind", "location", "sha256"],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["log", "screenshot", "command_output", "metric", "incident", "other"]
+          },
+          "location": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "command_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "started_at", "finished_at", "exit_code"],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "finished_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "exit_code": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stdout_location": {
+          "type": "string"
+        },
+        "stderr_location": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

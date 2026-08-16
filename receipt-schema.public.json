@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://subcult.tv/schemas/subcorp/receipt-schema.public.json",
+  "title": "SUBCORP Public Deployment/Rollback Receipt",
+  "description": "Publishable receipt schema for deployment and rollback events. This schema intentionally excludes raw commands, private hosts, secrets, operator credentials, and private audit destinations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "receipt_kind",
+    "created_at",
+    "environment",
+    "commit",
+    "outcome",
+    "gates",
+    "rollback",
+    "redaction"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "receipt_id": {
+      "type": "string",
+      "pattern": "^rcpt_[A-Za-z0-9][A-Za-z0-9_-]{7,}$"
+    },
+    "receipt_kind": {
+      "type": "string",
+      "enum": ["deployment", "rollback"]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["staging", "production"]
+    },
+    "commit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hash", "repository"],
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "public_ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "summary"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["shipped", "blocked", "rolled_back", "failed"]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stopped_by_gate": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status", "summary"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "receipt_redaction",
+              "staging_dry_run",
+              "rollback_proof",
+              "deploy",
+              "canary",
+              "rollback"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["passed", "failed", "blocked", "not_run"]
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["available", "proof_status", "summary"],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "proof_status": {
+          "type": "string",
+          "enum": ["passed", "failed", "not_run"]
+        },
+        "executed": {
+          "type": "boolean",
+          "default": false
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "checks", "statement"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "passed"
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": [
+              "no_secrets",
+              "no_tokens",
+              "no_private_keys",
+              "no_internal_hosts",
+              "no_raw_env_values",
+              "no_operator_credentials"
+            ]
+          }
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "public_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "summary"],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "public_url": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      }
+    }
+  }
+}

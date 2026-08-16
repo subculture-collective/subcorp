@@ -1,0 +1,19 @@
+{
+  "name": "title-only-review-packet",
+  "input": {
+    "title": "Evidence Inbox: The Product With a Handhold"
+  },
+  "expected": {
+    "accepted": false,
+    "missingFields": [
+      "draftText",
+      "channel",
+      "audience",
+      "requestedDecision",
+      "disclosureClass"
+    ],
+    "artifactId": null,
+    "bodyChecksum": null,
+    "reviewMission": null
+  }
+}

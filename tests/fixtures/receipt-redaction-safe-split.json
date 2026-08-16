@@ -1,0 +1,203 @@
+{
+  "description": "Fixture proving that a private deployment receipt can be split into a publishable public receipt without leaking commands, hosts, audit destinations, token values, operator credentials, or private evidence locations.",
+  "schemas": {
+    "private": "../../receipt-schema.private.json",
+    "public": "../../receipt-schema.public.json"
+  },
+  "private_receipt": {
+    "schema_version": "1.0.0",
+    "receipt_id": "rcpt_safe_split_20260610",
+    "receipt_kind": "deployment",
+    "created_at": "2026-06-10T12:00:00.000Z",
+    "environment": "production",
+    "authority_boundary": {
+      "approved_by": "operator:subrosa@example.internal",
+      "approval_ref": "vault://approvals/prod/rcpt_safe_split_20260610",
+      "scope": "Deploy subcorp web worker and verify rollback proof on prod-vm-01.internal.subcult.tv",
+      "expires_at": "2026-06-10T13:00:00.000Z"
+    },
+    "commit": {
+      "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "repository": "git@git.subcult.tv:subculture-collective/subcorp.git",
+      "branch": "main"
+    },
+    "script": {
+      "path": "deploy/prod/deploy-subcorp.sh",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "invocation": "SUBCORP_DEPLOY_TOKEN=sk_live_should_never_publish SSH_HOST=prod-vm-01.internal.subcult.tv ./deploy/prod/deploy-subcorp.sh --env production --operator subrosa@example.internal"
+    },
+    "decision": {
+      "status": "approved",
+      "reason": "Staging dry run, rollback proof, deploy, and canary gates passed.",
+      "stop_condition": "Abort if canary error rate exceeds 1% for 5 minutes.",
+      "escalation_owner": "subrosa@example.internal"
+    },
+    "commands": {
+      "staging_dry_run": {
+        "command": "ssh deploy@staging-vm-01.internal.subcult.tv 'SUBCORP_DEPLOY_TOKEN=sk_live_should_never_publish ./deploy.sh --dry-run'",
+        "started_at": "2026-06-10T11:50:00.000Z",
+        "finished_at": "2026-06-10T11:51:00.000Z",
+        "exit_code": 0,
+        "stdout_location": "s3://subcorp-private-audit/staging-dry-run.log",
+        "stderr_location": "s3://subcorp-private-audit/staging-dry-run.err"
+      },
+      "deploy": {
+        "command": "ssh deploy@prod-vm-01.internal.subcult.tv 'SUBCORP_DEPLOY_TOKEN=sk_live_should_never_publish ./deploy.sh --commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'",
+        "started_at": "2026-06-10T12:01:00.000Z",
+        "finished_at": "2026-06-10T12:03:00.000Z",
+        "exit_code": 0,
+        "stdout_location": "s3://subcorp-private-audit/prod-deploy.log",
+        "stderr_location": "s3://subcorp-private-audit/prod-deploy.err"
+      },
+      "rollback_proof": {
+        "command": "ssh deploy@prod-vm-01.internal.subcult.tv './deploy.sh --rollback --dry-run --token sk_live_should_never_publish'",
+        "started_at": "2026-06-10T12:04:00.000Z",
+        "finished_at": "2026-06-10T12:05:00.000Z",
+        "exit_code": 0,
+        "stdout_location": "s3://subcorp-private-audit/rollback-proof.log"
+      }
+    },
+    "secret_handling": {
+      "rule": "Private receipt keeps raw commands and evidence locations; public receipt may only publish summaries and approved public refs.",
+      "public_receipt_redacted": true,
+      "redaction_checks": [
+        "no_secrets",
+        "no_tokens",
+        "no_private_keys",
+        "no_internal_hosts",
+        "no_raw_env_values",
+        "no_operator_credentials"
+      ],
+      "private_material_locations": [
+        "vault://subcorp/deploy/prod/SUBCORP_DEPLOY_TOKEN",
+        "s3://subcorp-private-audit/prod-deploy.log",
+        "s3://subcorp-private-audit/rollback-proof.log"
+      ]
+    },
+    "audit_log": {
+      "destination": "s3://subcorp-private-audit/receipts/rcpt_safe_split_20260610.json",
+      "retention": "365d",
+      "events": [
+        {
+          "ts": "2026-06-10T12:06:00.000Z",
+          "event": "public_receipt_written",
+          "detail": "Public receipt emitted after scanning for sk_live_should_never_publish, prod-vm-01.internal.subcult.tv, subrosa@example.internal, and private audit URIs."
+        }
+      ]
+    },
+    "evidence": [
+      {
+        "label": "Canary metrics",
+        "kind": "metric",
+        "location": "https://grafana.internal.subcult.tv/d/subcorp-prod?token=sk_live_should_never_publish",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "summary": "Canary error rate stayed below threshold."
+      }
+    ]
+  },
+  "public_receipt": {
+    "schema_version": "1.0.0",
+    "receipt_id": "rcpt_safe_split_20260610",
+    "receipt_kind": "deployment",
+    "created_at": "2026-06-10T12:00:00.000Z",
+    "environment": "production",
+    "commit": {
+      "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "repository": "https://git.subcult.tv/subculture-collective/subcorp",
+      "public_ref": "main@aaaaaaaaaaaa"
+    },
+    "outcome": {
+      "status": "shipped",
+      "summary": "Production deployment completed after dry-run, rollback-proof, deploy, and canary gates passed."
+    },
+    "gates": [
+      {
+        "name": "receipt_redaction",
+        "status": "passed",
+        "summary": "Public receipt contains only approved summaries and public refs.",
+        "completed_at": "2026-06-10T12:06:00.000Z"
+      },
+      {
+        "name": "staging_dry_run",
+        "status": "passed",
+        "summary": "Dry run completed successfully.",
+        "completed_at": "2026-06-10T11:51:00.000Z"
+      },
+      {
+        "name": "rollback_proof",
+        "status": "passed",
+        "summary": "Rollback path was verified before deploy.",
+        "completed_at": "2026-06-10T12:05:00.000Z"
+      },
+      {
+        "name": "deploy",
+        "status": "passed",
+        "summary": "Deployment command completed successfully.",
+        "completed_at": "2026-06-10T12:03:00.000Z"
+      },
+      {
+        "name": "canary",
+        "status": "passed",
+        "summary": "Canary stayed within the error budget.",
+        "completed_at": "2026-06-10T12:06:00.000Z"
+      }
+    ],
+    "rollback": {
+      "available": true,
+      "proof_status": "passed",
+      "executed": false,
+      "summary": "Rollback was available and dry-run proof passed; no rollback was needed."
+    },
+    "redaction": {
+      "status": "passed",
+      "checks": [
+        "no_secrets",
+        "no_tokens",
+        "no_private_keys",
+        "no_internal_hosts",
+        "no_raw_env_values",
+        "no_operator_credentials"
+      ],
+      "statement": "Raw commands, secret values, private hosts, private audit locations, and operator credentials were retained only in the private receipt."
+    },
+    "public_evidence": [
+      {
+        "label": "Canary metrics",
+        "summary": "Canary error rate stayed below threshold."
+      }
+    ]
+  },
+  "redaction_proof": {
+    "preserved_fields": [
+      "schema_version",
+      "receipt_id",
+      "receipt_kind",
+      "created_at",
+      "environment",
+      "commit.hash"
+    ],
+    "public_must_not_contain": [
+      "sk_live_should_never_publish",
+      "prod-vm-01.internal.subcult.tv",
+      "staging-vm-01.internal.subcult.tv",
+      "grafana.internal.subcult.tv",
+      "subrosa@example.internal",
+      "vault://",
+      "s3://subcorp-private-audit",
+      "SUBCORP_DEPLOY_TOKEN=",
+      "ssh deploy@",
+      "./deploy.sh"
+    ],
+    "public_must_not_match": [
+      "sk_(live|test)_[A-Za-z0-9_]+",
+      "[A-Za-z0-9._%+-]+@example\\.internal",
+      "[A-Za-z0-9.-]+\\.internal\\.subcult\\.tv",
+      "(vault|s3)://[^\\s\"]+"
+    ],
+    "public_must_contain": [
+      "rcpt_safe_split_20260610",
+      "Production deployment completed",
+      "Rollback was available"
+    ]
+  }
+}

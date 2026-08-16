@@ -12,6 +12,7 @@ import { logger } from '@/lib/logger';
 import { AGENT_IDS } from '@/lib/agents';
 import { generateAgentProposal } from './agent-designer';
 import { createVotingRoundtablePrompt } from './agent-proposal-voting';
+import { validateContentReviewPacket } from './content-review-gate';
 
 const log = logger.child({ module: 'triggers' });
 
@@ -272,9 +273,15 @@ async function checkContentDraftCreated(
     // No lookback window — drafts needing review should be caught regardless of age.
     // The review_session_id IS NULL filter is the real gate.
     const drafts = await sql<
-        { id: string; title: string; author_agent: string; body: string }[]
+        {
+            id: string;
+            title: string;
+            author_agent: string;
+            body: string;
+            metadata: Record<string, unknown>;
+        }[]
     >`
-        SELECT id, title, author_agent, LEFT(body, 500) as body
+        SELECT id, title, author_agent, body, metadata
         FROM ops_content_drafts
         WHERE status = 'draft'
           AND review_session_id IS NULL
@@ -287,6 +294,57 @@ async function checkContentDraftCreated(
     }
 
     const draft = drafts[0];
+    const metadata = draft.metadata ?? {};
+
+    const packetGate = validateContentReviewPacket({
+        title: draft.title,
+        draftText: draft.body,
+        channel: metadata.channel ?? metadata.targetChannel,
+        audience: metadata.audience ?? metadata.targetAudience,
+        requestedDecision:
+            metadata.requestedDecision ?? metadata.requested_decision,
+        disclosureClass: metadata.disclosureClass ?? metadata.disclosure_class,
+    });
+
+    if (!packetGate.accepted) {
+        await sql`
+            UPDATE ops_content_drafts
+            SET status = 'rejected',
+                reviewer_notes = ${sql.json([
+                    {
+                        reviewer: 'content-review-gate',
+                        verdict: 'reject',
+                        notes: `Missing required review packet fields: ${packetGate.missingFields.join(', ')}`,
+                    },
+                ])}::jsonb,
+                metadata = metadata || ${sql.json({
+                    reviewGate: {
+                        accepted: false,
+                        missingFields: packetGate.missingFields,
+                        rejectedBeforeReviewerInvocation: true,
+                    },
+                })}::jsonb,
+                updated_at = NOW()
+            WHERE id = ${draft.id}
+        `;
+
+        log.warn('Content review packet rejected before reviewer invocation', {
+            draftId: draft.id,
+            missingFields: packetGate.missingFields,
+        });
+
+        return {
+            fired: true,
+            reason: `Content draft "${draft.title}" rejected before review: missing ${packetGate.missingFields.join(', ')}`,
+            proposal: {
+                agent_id: targetAgent,
+                title: `Content review packet rejected: ${draft.title}`,
+                description: `Review was not invoked because the packet is missing: ${packetGate.missingFields.join(', ')}.`,
+                proposed_steps: [{ kind: 'log_event' }],
+                source: 'trigger',
+            },
+        };
+    }
 
     // Enqueue a content_review roundtable session
     const topic = `Review content draft: "${draft.title}" by ${draft.author_agent}`;
@@ -299,7 +357,19 @@ async function checkContentDraftCreated(
             ARRAY['subrosa', 'chora', 'praxis'],
             'pending',
             NOW(),
-            ${sql.json({ draft_id: draft.id, draft_title: draft.title, author: draft.author_agent })}::jsonb
+            ${sql.json({
+                draft_id: draft.id,
+                draft_title: draft.title,
+                author: draft.author_agent,
+                review_packet: {
+                    artifactId: packetGate.artifactId,
+                    bodyChecksum: packetGate.bodyChecksum,
+                    channel: packetGate.reviewMission.channel,
+                    audience: packetGate.reviewMission.audience,
+                    requestedDecision: packetGate.reviewMission.requestedDecision,
+                    disclosureClass: packetGate.reviewMission.disclosureClass,
+                },
+            })}::jsonb
         )
         RETURNING id
     `;

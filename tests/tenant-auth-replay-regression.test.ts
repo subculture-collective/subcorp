@@ -253,6 +253,54 @@ describe('proposal replay concurrency guards', () => {
         );
     });
 
+    test('approved drafts force an output sweep before internal session dispatch', () => {
+        const worker = fs.readFileSync(
+            path.join(WORKSPACE_ROOT, 'scripts/unified-worker/index.ts'),
+            'utf8',
+        );
+
+        expect(worker).toMatch(/approved_drafts:[\s\S]*FROM ops_content_drafts[\s\S]*WHERE status = 'approved'/);
+        expect(worker).toMatch(/function shouldThrottleInternalWork\(obligations: OutputObligations\): boolean \{[\s\S]*obligations\.approvedDrafts > 0/);
+        expect(worker).toContain("await sweepOutputObligations('pre_agent_session_throttle')");
+
+        const sweepIndex = worker.indexOf("await sweepOutputObligations('pre_agent_session_throttle')");
+        const dispatchIndex = worker.indexOf('const hadSession = await pollAgentSessions({ throttleInternalWork })');
+        expect(sweepIndex).toBeGreaterThan(-1);
+        expect(dispatchIndex).toBeGreaterThan(-1);
+        expect(sweepIndex).toBeLessThan(dispatchIndex);
+    });
+
+    test('publication review obligations throttle internal work until review drafts are resolved', () => {
+        const worker = fs.readFileSync(
+            path.join(WORKSPACE_ROOT, 'scripts/unified-worker/index.ts'),
+            'utf8',
+        );
+
+        expect(worker).toMatch(/completed_review_drafts:[\s\S]*JOIN ops_roundtable_sessions rs ON rs\.id = d\.review_session_id[\s\S]*d\.status = 'review'[\s\S]*rs\.status = 'completed'/);
+        expect(worker).toMatch(/stale_review_drafts:[\s\S]*d\.status = 'review'[\s\S]*d\.created_at < NOW\(\) - interval '24 hours'[\s\S]*d\.review_session_id IS NULL[\s\S]*rs\.status <> 'completed'/);
+        expect(worker).toMatch(/function shouldThrottleInternalWork\(obligations: OutputObligations\): boolean \{[\s\S]*obligations\.completedReviewDrafts > 0[\s\S]*obligations\.staleReviewDrafts > 0/);
+        expect(worker).toContain('await catchUpStuckReviews();');
+        expect(worker).toContain('await catchUpOrphanedReviewDrafts();');
+    });
+
+    test('aging P1/P2 publication steps throttle internal cron and droid sessions without blocking mission sessions', () => {
+        const worker = fs.readFileSync(
+            path.join(WORKSPACE_ROOT, 'scripts/unified-worker/index.ts'),
+            'utf8',
+        );
+
+        expect(worker).toContain("const INTERNAL_AGENT_SESSION_SOURCES = ['cron', 'droid'] as const");
+        expect(worker).toContain("'draft_thread'");
+        expect(worker).toContain("'draft_essay'");
+        expect(worker).toContain("'critique_content'");
+        expect(worker).toContain("'content_revision'");
+        expect(worker).toContain("'draft_product_spec'");
+        expect(worker).toContain("'publish_blog'");
+        expect(worker).toMatch(/aging_publication_steps:[\s\S]*s\.kind = ANY\(\$\{PUBLICATION_STEP_KINDS\}::text\[\]\)[\s\S]*s\.status IN \('queued', 'running'\)[\s\S]*COALESCE\(s\.started_at, s\.created_at\) < NOW\(\) - interval '30 minutes'[\s\S]*m\.status IN \('approved', 'running'\)/);
+        expect(worker).toMatch(/function shouldThrottleInternalWork\(obligations: OutputObligations\): boolean \{[\s\S]*obligations\.agingPublicationSteps > 0/);
+        expect(worker).toContain('OR source <> ALL(${INTERNAL_AGENT_SESSION_SOURCES}::text[])');
+    });
+
     test('proposal-derived missions require a schema-validated execution contract', () => {
         const service = fs.readFileSync(
             path.join(WORKSPACE_ROOT, 'src/lib/ops/proposal-service.ts'),
