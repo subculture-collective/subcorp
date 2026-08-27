@@ -440,3 +440,7 @@ Development is tracked across 17 epics and 114 issues. See [issue #114](https://
 | 13    | Audience Mode                  | Planned     |
 | 14    | Agent-Designed Agents          | Planned     |
 | 15    | Memory Archaeology             | ✅ Complete |
+
+## License
+
+Licensed under `GPL-3.0-or-later`. See [LICENSE](LICENSE).
